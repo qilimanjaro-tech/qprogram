@@ -1,0 +1,43 @@
+from __future__ import annotations
+
+from math import erf
+
+import numpy as np
+
+from qprogram.variable import Expression
+from qprogram.waveforms.waveform import Waveform
+
+
+class FlatTop(Waveform):
+    """Square pulse with smoothed (erf) edges."""
+
+    def __init__(
+        self,
+        amplitude: float | Expression,
+        duration: int | Expression,
+        smooth_duration: int | Expression,
+        buffer: int = 0,
+    ) -> None:
+        self.amplitude = amplitude
+        self.duration = duration
+        self.smooth_duration = smooth_duration
+        self.buffer = buffer
+
+    def envelope(self, resolution: int = 1) -> np.ndarray:
+        amplitude = self.amplitude.evaluate_or_raise() if isinstance(self.amplitude, Expression) else self.amplitude
+        duration = self.duration.evaluate_or_raise() if isinstance(self.duration, Expression) else self.duration
+        smooth_duration = (
+            self.smooth_duration.evaluate_or_raise()
+            if isinstance(self.smooth_duration, Expression)
+            else self.smooth_duration
+        )
+        n_samples = int(duration / resolution)
+        smooth = int(smooth_duration / resolution)
+        t = np.arange(n_samples)
+        rise = 0.5 * (1 + np.vectorize(erf)((t - smooth) / (smooth / 3)))
+        fall = 0.5 * (1 + np.vectorize(erf)((n_samples - 1 - smooth - t) / (smooth / 3)))
+        return amplitude * rise * fall
+
+    def get_duration(self) -> int:
+        duration = self.duration.evaluate_or_raise() if isinstance(self.duration, Expression) else self.duration
+        return int(duration)

@@ -1,0 +1,11 @@
+#!QProgram 1.0
+
+require qblox 0.1
+
+body:
+  var Wait Duration (ns)
+
+  for Wait Duration (ns) in range(0, 1000, 10):
+    qblox.wait_trigger "drive" 1000 None
+    wait "drive" Wait Duration (ns)
+    qblox.set_markers "abc" "123"

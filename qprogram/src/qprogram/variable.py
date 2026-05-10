@@ -43,8 +43,26 @@ structurally identical ``BinaryOp`` are equal).
 from __future__ import annotations
 
 import itertools
+import re
 from abc import ABC, abstractmethod
 from typing import Final, Literal, Self
+
+# Valid variable labels: Python-style identifiers — letter/underscore start,
+# then letters/digits/underscores. Labels are used verbatim as identifiers in
+# the .qp file format, so they must be safe to embed without quoting.
+_LABEL_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+class InvalidVariableLabelError(ValueError):
+    """Raised when a Variable label does not match ``[A-Za-z_][A-Za-z0-9_]*``."""
+
+    def __init__(self, label: str) -> None:
+        super().__init__(
+            f"Variable label {label!r} is invalid: must match [A-Za-z_][A-Za-z0-9_]* "
+            f"(letters, digits, underscores only; cannot start with a digit, no spaces "
+            f"or special characters). Use the optional `long_name` for human-readable names."
+        )
+        self.label = label
 
 # Operators supported by BinaryOp and UnaryOp.
 type BinaryOperator = Literal["+", "-", "*", "/"]
@@ -178,13 +196,34 @@ class Variable(Expression):
     The runtime executor sets the value via ``set_value()`` per loop iteration.
     Reading ``value`` (or calling ``evaluate()``) returns the current value or
     ``UNASSIGNED`` if no value has been set.
+
+    Args:
+        label: Mandatory short name. Must match ``[A-Za-z_][A-Za-z0-9_]*`` —
+            it doubles as the identifier in the ``.qp`` file format and so
+            cannot contain spaces or punctuation.
+        long_name: Optional human-readable name (free-form string). Use this
+            for axis labels, plot titles, etc.
+        units: Optional unit string (e.g. ``"Hz"``, ``"ns"``, ``"V"``).
+        description: Optional longer description.
     """
 
     _id_counter = itertools.count()
 
-    def __init__(self, label: str) -> None:
+    def __init__(
+        self,
+        label: str,
+        *,
+        long_name: str | None = None,
+        units: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        if not _LABEL_RE.match(label):
+            raise InvalidVariableLabelError(label)
         self._id: int = next(Variable._id_counter)
         self._label: str = label
+        self._long_name: str | None = long_name
+        self._units: str | None = units
+        self._description: str | None = description
         self._value: int | float | _UnassignedType = UNASSIGNED
 
     @property
@@ -194,6 +233,18 @@ class Variable(Expression):
     @property
     def label(self) -> str:
         return self._label
+
+    @property
+    def long_name(self) -> str | None:
+        return self._long_name
+
+    @property
+    def units(self) -> str | None:
+        return self._units
+
+    @property
+    def description(self) -> str | None:
+        return self._description
 
     @property
     def value(self) -> int | float | _UnassignedType:

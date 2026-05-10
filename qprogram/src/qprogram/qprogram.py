@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import re
 from collections import deque
 from typing import TYPE_CHECKING, ClassVar
 
@@ -127,9 +128,25 @@ class QProgram:
 
     # --- Variables ---
 
-    def variable(self, label: str) -> Variable:
-        """Declare a new variable."""
-        var = Variable(label)
+    def variable(
+        self,
+        label: str,
+        *,
+        long_name: str | None = None,
+        units: str | None = None,
+        description: str | None = None,
+    ) -> Variable:
+        """Declare a new variable.
+
+        The ``label`` must match ``[A-Za-z_][A-Za-z0-9_]*`` (it doubles as the
+        identifier in ``.qp`` files) and must be unique within the QProgram.
+        Optional ``long_name``, ``units``, and ``description`` carry
+        human-readable metadata for plotting, results, and documentation.
+        """
+        if any(v.label == label for v in self._variables):
+            msg = f"Variable {label!r} is already declared on this QProgram"
+            raise ValueError(msg)
+        var = Variable(label, long_name=long_name, units=units, description=description)
         self._variables.append(var)
         return var
 
@@ -214,7 +231,16 @@ class QProgram:
         self._active_block.append(SetParameter(alias=alias, parameter=parameter, value=value, channel_id=channel_id))
 
     def get_parameter(self, alias: str, parameter: str, channel_id: int | None = None) -> Variable:
-        var = self.variable(f"{alias}.{parameter}")
+        # Auto-generate a unique, valid label. The original "alias.parameter"
+        # form is preserved as long_name for traceability.
+        base = _sanitize_label(f"{alias}_{parameter}")
+        existing = {v.label for v in self._variables}
+        label = base
+        n = 2
+        while label in existing:
+            label = f"{base}_{n}"
+            n += 1
+        var = self.variable(label, long_name=f"{alias}.{parameter}")
         self._active_block.append(GetParameter(variable=var, alias=alias, parameter=parameter, channel_id=channel_id))
         return var
 
@@ -318,6 +344,21 @@ def _validate_waveform_channel(bus: str, waveform: Waveform | IQWaveform | str) 
         raise TypeError(
             msg,
         )
+
+
+def _sanitize_label(s: str) -> str:
+    """Map an arbitrary string to a valid Variable label.
+
+    Replaces every non-``[A-Za-z0-9_]`` character with ``_``. Prefixes a
+    leading underscore if the first character is a digit. Falls back to
+    ``"var"`` if the input is empty.
+    """
+    out = re.sub(r"[^A-Za-z0-9_]", "_", s) if s else ""
+    if not out:
+        return "var"
+    if out[0].isdigit():
+        out = "_" + out
+    return out
 
 
 def _validate_acquires(bus: str) -> None:

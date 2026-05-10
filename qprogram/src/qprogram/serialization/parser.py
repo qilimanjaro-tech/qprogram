@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 
@@ -27,6 +27,7 @@ from qprogram.operations.sync import Sync
 from qprogram.operations.wait import Wait
 from qprogram.qprogram import QProgram
 from qprogram.serialization.registry import get_operation_class, get_vendor_version, get_waveform_class
+from qprogram.variable import _LABEL_RE
 
 if TYPE_CHECKING:
     from qprogram.variable import Expression, Variable
@@ -205,12 +206,12 @@ class _Parser:
             if indent < min_indent:
                 break
             if line.startswith("var "):
-                ident, label = self._parse_var_decl(line)
-                var = self._program.variable(label)
-                if ident in self._variables:
-                    msg = f"duplicate variable identifier '{ident}'"
+                label, attrs = self._parse_var_decl(line)
+                if label in self._variables:
+                    msg = f"duplicate variable label '{label}'"
                     raise ParseError(msg, self._pos + 1)
-                self._variables[ident] = var
+                var = self._program.variable(label, **attrs)
+                self._variables[label] = var
                 self._pos += 1
             elif line.startswith("for ") or ("|" in line and "for " in line):
                 self._parse_loop_or_parallel(parent, min_indent)
@@ -226,25 +227,51 @@ class _Parser:
 
     # -- variable declarations ----------------------------------------------
 
-    def _parse_var_decl(self, line: str) -> tuple[str, str]:
-        """Parse a ``var <ident> "<label>"`` line.
+    _VAR_ATTRS: ClassVar[frozenset[str]] = frozenset({"long_name", "units", "description"})
 
-        The label is mandatory. Returns ``(ident, label)``.
+    def _parse_var_decl(self, line: str) -> tuple[str, dict[str, str]]:
+        """Parse a ``var <label> [key="value"]...`` line.
+
+        The label must be a Python-style identifier. Optional ``long_name``,
+        ``units``, and ``description`` may appear in any order as quoted
+        ``key="value"`` pairs. Returns ``(label, attrs)``.
         """
         tokens = _tokenize(line)
-        if len(tokens) != 3 or tokens[0] != "var":
+        if len(tokens) < 2 or tokens[0] != "var":
             msg = (
                 f"`var` declaration must have the form "
-                f'`var <ident> "<label>"`. Got: {line!r}'
+                f'`var <label> [long_name="..."] [units="..."] [description="..."]`. '
+                f"Got: {line!r}"
             )
             raise ParseError(msg, self._pos + 1)
-        ident = tokens[1]
-        label_tok = tokens[2]
-        if not (label_tok.startswith('"') and label_tok.endswith('"')):
-            msg = f"label after `var {ident}` must be a quoted string: {line!r}"
+        label = tokens[1]
+        if not _LABEL_RE.match(label):
+            msg = (
+                f"variable label {label!r} is invalid: must match "
+                f"[A-Za-z_][A-Za-z0-9_]* (no spaces or special characters)"
+            )
             raise ParseError(msg, self._pos + 1)
-        label = _unescape_str(label_tok[1:-1])
-        return ident, label
+
+        attrs: dict[str, str] = {}
+        for tok in tokens[2:]:
+            if "=" not in tok:
+                msg = f'unexpected token {tok!r} in `var` declaration; expected key="value"'
+                raise ParseError(msg, self._pos + 1)
+            key, _, value = tok.partition("=")
+            key = key.strip()
+            value = value.strip()
+            if key not in self._VAR_ATTRS:
+                allowed = ", ".join(sorted(self._VAR_ATTRS))
+                msg = f"unknown variable attribute {key!r}; allowed: {allowed}"
+                raise ParseError(msg, self._pos + 1)
+            if key in attrs:
+                msg = f"duplicate variable attribute {key!r}"
+                raise ParseError(msg, self._pos + 1)
+            if len(value) < 2 or not (value.startswith('"') and value.endswith('"')):
+                msg = f"variable attribute {key!r} must be a quoted string, got: {value!r}"
+                raise ParseError(msg, self._pos + 1)
+            attrs[key] = _unescape_str(value[1:-1])
+        return label, attrs
 
     # -- loops ---------------------------------------------------------------
 

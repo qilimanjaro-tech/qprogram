@@ -345,11 +345,47 @@ Variables and Constants are **leaves**; BinaryOp and UnaryOp are **internal node
 Variables carry no type or domain information — the compiler validates that the runtime values from loops are compatible with the operations using them (e.g. a variable used in `set_frequency(bus, freq)` should receive Hz values).
 ## 3.2 Declaring variables
 ```python
-freq = program.variable("frequency")
+freq = program.variable("freq")
 duration = program.variable("duration")
 gain = program.variable("gain")
 ```
 There is a single `Variable` type. No `IntVariable`, `FloatVariable`, or `Domain` enum.
+
+### Label, long_name, units, description
+
+Every `Variable` carries a mandatory **`label`** plus three optional pieces of metadata for documentation and downstream tooling (axis names, plot titles, results coordinates):
+
+```python
+freq = program.variable(
+    "freq",
+    long_name="Drive Frequency",
+    units="Hz",
+    description="Carrier frequency swept across the qubit transition",
+)
+```
+
+| Field         | Type            | Required | Purpose                                                                                          |
+|---------------|-----------------|----------|--------------------------------------------------------------------------------------------------|
+| `label`       | `str`           | yes      | Short identifier. Doubles as the identifier in the `.qp` file format.                            |
+| `long_name`   | `str \| None`   | no       | Free-form human-readable name (used for axis labels, plot titles, result-array dimension names). |
+| `units`       | `str \| None`   | no       | Unit string (e.g. `"Hz"`, `"ns"`, `"V"`). Carried into result coordinates.                       |
+| `description` | `str \| None`   | no       | Longer description of what the variable represents.                                              |
+
+**`label` rules.** Because the label is also the identifier in `.qp` files, it is restricted to a Python-style identifier:
+
+- Must match `[A-Za-z_][A-Za-z0-9_]*` — letters, digits, underscores only; cannot start with a digit; no spaces or punctuation.
+- Must be unique within a single `QProgram`. `program.variable("freq")` raises `ValueError` if `"freq"` is already declared.
+- An invalid label raises `InvalidVariableLabelError` (a `ValueError` subclass) at construction time.
+
+For anything richer than a short identifier — spaces, units, full sentences — use `long_name` and `description`. Examples:
+
+```python
+program.variable("freq", long_name="Drive frequency (q0)", units="Hz")
+program.variable("t_pi", long_name="π-pulse duration", units="ns")
+program.variable("phi",  long_name="Phase", units="rad", description="NCO phase offset for echo sequence")
+```
+
+The runtime executor still uses `label` for identity-bearing operations; `long_name`/`units`/`description` are pure metadata and never affect program semantics.
 ## 3.3 Building expressions
 All arithmetic operators are supported on any `Expression`. Literals are auto-wrapped:
 ```python
@@ -439,7 +475,10 @@ No external helper function is required — every `Expression` instance carries 
 Constant(5).variables()                           # -> set()
 ```
 ## 3.8 Identity
-Variables use **identity-based** equality: two `Variable("freq")` calls produce two distinct variables, even with the same label. Each gets an auto-assigned integer ID for hashing (not UUID, for performance).
+Variables use **identity-based** equality: each `Variable` instance is distinct from every other, regardless of label. Each gets an auto-assigned integer ID for hashing (not UUID, for performance).
+
+Within a `QProgram`, labels must be unique — `program.variable("freq")` raises `ValueError` if `"freq"` was already declared, so two distinct variables on the same program never share a label. (At the bare `Variable` constructor level, you can still create two `Variable("freq")` instances; identity-based equality keeps them distinct.)
+
 All other expression nodes (Constant, BinaryOp, UnaryOp) use **structural** equality — two structurally identical expressions compare as equal.
 ---
 # 4. Waveforms

@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Authoritative specifications (read these first)
+
+Two design specifications live under `.specs/` and are the **source of truth** for what this codebase is building. Read them before making any non-trivial change, and consult them whenever a question of intended behavior comes up:
+
+- `.specs/qprogram-dsl.md` — QProgram DSL specification (Python API, expressions, waveforms, operations, control flow, vendor extension protocol, results, platform protocol).
+- `.specs/qp-file-format.md` — `.qp` text serialization format (grammar, headers, `require` versioning rules, variable declarations, vendor dot-notation).
+
+These specs are **drafts**, mirrored from Notion. The current code may diverge from them — when it does, **the spec is the intended target**, the code is what exists today. Flag any mismatch you spot before "fixing" either side: ask whether the code or the spec should change. Do not silently bring the code in line with the spec, or vice versa, without confirming.
+
+If the user asks about behavior, syntax, vendor protocol, or design rationale, consult `.specs/` before answering — don't infer from code alone.
+
 ## Repository layout
 
 A two-package demo showing how to decouple a vendor-agnostic core DSL (`qprogram/`) from vendor-specific extensions (`qprogram-qblox/`). Each package is its own uv project with its own `pyproject.toml`, `uv.lock`, and `.venv` — there is **no top-level workspace**. `qprogram-qblox` depends on `qprogram` as an editable path source (see `qprogram-qblox/pyproject.toml` `[tool.uv.sources]`).

@@ -15,7 +15,6 @@ identifier (or contains characters not allowed in identifiers).
 
 from __future__ import annotations
 
-import re
 from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -121,17 +120,25 @@ class _Writer:
 
     def _write_body(self) -> None:
         self._out.write("\nbody:\n")
-        # Always emit the labelled form `var <ident> "<label>"` so every
-        # variable line in serialised output looks the same, regardless of
-        # whether the identifier happened to coincide with the label. The
-        # parser still accepts the bare `var <ident>` form for hand-written
-        # files (the label defaults to the identifier in that case).
+        # Variable labels are valid identifiers and unique within a program
+        # (validated by Variable.__init__ and QProgram.variable), so they are
+        # used verbatim as identifiers here. Optional metadata (long_name,
+        # units, description) is emitted as `key="value"` kwargs.
         for var in self._program.variables:
-            ident = self._var_idents[var.id]
-            self._out.write(f'  var {ident} "{_escape_str(var.label)}"\n')
+            self._out.write(f"  {self._serialize_var_decl(var)}\n")
         if self._program.variables:
             self._out.write("\n")
         self._write_block_contents(self._program.body, indent=2)
+
+    def _serialize_var_decl(self, var: Variable) -> str:
+        parts = [f"var {var.label}"]
+        if var.long_name is not None:
+            parts.append(f'long_name="{_escape_str(var.long_name)}"')
+        if var.units is not None:
+            parts.append(f'units="{_escape_str(var.units)}"')
+        if var.description is not None:
+            parts.append(f'description="{_escape_str(var.description)}"')
+        return " ".join(parts)
 
     def _write_block_contents(self, block: Block, indent: int) -> None:
         prefix = " " * indent
@@ -272,30 +279,14 @@ class _Writer:
     # -- variable identifier allocation ---------------------------------------
 
     def _allocate_var_idents(self) -> None:
-        """Assign each Variable in the program a unique identifier.
+        """Map each Variable to its identifier in the .qp file.
 
-        Algorithm:
-          - Sanitize the variable's label to a valid identifier (replace
-            non-ident characters with underscore; ensure a leading letter or
-            underscore).
-          - If the resulting identifier is already taken, append ``_2``,
-            ``_3``, ... until unique.
-          - Empty / non-identifier-friendly labels fall back to ``var``.
-
-        The mapping is keyed by ``Variable.id`` (the program-local integer ID)
-        so that two variables sharing the same Python label still get distinct
-        identifiers.
+        Variable labels are validated to be Python-style identifiers
+        (``[A-Za-z_][A-Za-z0-9_]*``) and ``QProgram.variable`` rejects
+        duplicates, so the label is used verbatim as the identifier.
         """
-        used: set[str] = set()
         for var in self._program.variables:
-            base = _sanitize_to_ident(var.label) or "var"
-            ident = base
-            counter = 2
-            while ident in used:
-                ident = f"{base}_{counter}"
-                counter += 1
-            used.add(ident)
-            self._var_idents[var.id] = ident
+            self._var_idents[var.id] = var.label
 
     # -- vendor collection ----------------------------------------------------
 
@@ -323,21 +314,6 @@ def _major_minor(version: str) -> str:
     if len(parts) < 2:
         return f"{version}.0"
     return f"{parts[0]}.{parts[1]}"
-
-
-def _sanitize_to_ident(s: str) -> str:
-    """Map an arbitrary string to a valid identifier-like form.
-
-    Replaces every non-``[A-Za-z0-9_]`` character with ``_``. Prefixes a
-    leading underscore if the first character is a digit. Returns an empty
-    string if ``s`` is empty (caller decides on a fallback).
-    """
-    if not s:
-        return ""
-    out = re.sub(r"[^A-Za-z0-9_]", "_", s)
-    if out[0].isdigit():
-        out = "_" + out
-    return out
 
 
 def _escape_str(s: str) -> str:

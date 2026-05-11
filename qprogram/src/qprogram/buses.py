@@ -21,7 +21,7 @@ Typing approach:
 
 from __future__ import annotations
 
-from typing import Literal, Self
+from typing import ClassVar, Literal, Self
 
 ChannelType = Literal["single", "IQ"]
 
@@ -36,31 +36,37 @@ class BusRef(str):
     Attributes:
         element: Element name (e.g. "q", "coupler").
         index: Element index (e.g. 0, (0, 1)).
-        type: Bus type name (e.g. "drive", "flux").
+        kind: Bus kind name (e.g. "drive", "flux", "readout").
         channel: ``"single"`` for real-valued waveforms, ``"IQ"`` for complex I/Q.
         acquires: Whether this bus has an ADC and supports ``measure()`` operations.
+        schema: The :class:`BusSchema` instance that produced this ref (or
+            ``None`` if the BusRef was constructed outside any schema). The
+            ``.qp`` writer uses this to emit the ref as a schema-path
+            (``transmon.q[0].drive``) instead of a bare string.
     """
 
     # Declare slots so a ``str`` subclass can still carry these attributes.
     # An empty ``__slots__ = ()`` would forbid attribute assignment entirely
     # (str has no __dict__).
-    __slots__ = ("acquires", "channel", "element", "index", "type")
+    __slots__ = ("acquires", "channel", "element", "index", "kind", "schema")
 
-    def __new__(  # noqa: PLR0913  flat constructor — five metadata fields plus the str value
+    def __new__(  # noqa: PLR0913  flat constructor — six metadata fields plus the str value
         cls,
         value: str,
         element: str = "",
         index: int | tuple = 0,
-        type: str = "",  # noqa: A002  shadowing builtin is intentional — attribute is named `type`
+        kind: str = "",
         channel: ChannelType = "single",
         acquires: bool = False,
+        schema: BusSchema | None = None,
     ) -> Self:
         instance = super().__new__(cls, value)
         instance.element = element
         instance.index = index  # type: ignore[assignment]  # slot shadows str.index()
-        instance.type = type
+        instance.kind = kind
         instance.channel = channel
         instance.acquires = acquires
+        instance.schema = schema
         return instance
 
 
@@ -68,18 +74,19 @@ class BusNaming:
     """Configurable naming convention for bus strings.
 
     The default pattern produces ``"q0/drive"``, ``"coupler0_1/flux"``, etc.
-    Platforms can supply their own pattern, e.g. ``"{bus_type}_{element}{index}_bus"``
-    to produce ``"drive_q0_bus"``.
+    Platforms can supply their own pattern, e.g. ``"{kind}_{element}{index}_bus"``
+    to produce ``"drive_q0_bus"``. Supported placeholders: ``{element}``,
+    ``{index}``, ``{kind}``.
     """
 
-    DEFAULT_PATTERN = "{element}{index}/{bus_type}"
+    DEFAULT_PATTERN = "{element}{index}/{kind}"
 
     def __init__(self, pattern: str = DEFAULT_PATTERN) -> None:
         self.pattern = pattern
 
-    def resolve(self, element: str, index: int | tuple, bus_type: str) -> str:
+    def resolve(self, element: str, index: int | tuple, kind: str) -> str:
         idx_str = "_".join(str(i) for i in index) if isinstance(index, tuple) else str(index)
-        return self.pattern.format(element=element, index=idx_str, bus_type=bus_type)
+        return self.pattern.format(element=element, index=idx_str, kind=kind)
 
 
 # ---------------------------------------------------------------------------
@@ -113,26 +120,28 @@ class ElementSchema:
 class _DynamicElementAccessor:
     """Dynamic bus accessor — uses __getattr__, no static typing."""
 
-    def __init__(self, schema: ElementSchema, index: int | tuple) -> None:
+    def __init__(self, schema: ElementSchema, index: int | tuple, parent_schema: BusSchema) -> None:
         self._schema = schema
         self._index = index
+        self._parent_schema = parent_schema
 
-    def __getattr__(self, bus_type: str) -> BusRef:
-        if bus_type.startswith("_"):
-            raise AttributeError(bus_type)
-        if bus_type not in self._schema.buses:
+    def __getattr__(self, kind: str) -> BusRef:
+        if kind.startswith("_"):
+            raise AttributeError(kind)
+        if kind not in self._schema.buses:
             available = ", ".join(self._schema.bus_names)
-            msg = f"'{self._schema.name}' has no bus '{bus_type}'. Available: {available}"
+            msg = f"'{self._schema.name}' has no bus '{kind}'. Available: {available}"
             raise AttributeError(msg)
-        channel, acquires = self._schema.buses[bus_type]
-        raw = self._schema.naming.resolve(self._schema.name, self._index, bus_type)
+        channel, acquires = self._schema.buses[kind]
+        raw = self._schema.naming.resolve(self._schema.name, self._index, kind)
         return BusRef(
             raw,
             element=self._schema.name,
             index=self._index,
-            type=bus_type,
+            kind=kind,
             channel=channel,
             acquires=acquires,
+            schema=self._parent_schema,
         )
 
     def __repr__(self) -> str:
@@ -143,11 +152,12 @@ class _DynamicElementAccessor:
 class _DynamicElementFactory:
     """Dynamic element factory — subscriptable, no static typing."""
 
-    def __init__(self, schema: ElementSchema) -> None:
+    def __init__(self, schema: ElementSchema, parent_schema: BusSchema) -> None:
         self._schema = schema
+        self._parent_schema = parent_schema
 
     def __getitem__(self, index: int | tuple) -> _DynamicElementAccessor:
-        return _DynamicElementAccessor(self._schema, index)
+        return _DynamicElementAccessor(self._schema, index, self._parent_schema)
 
     def __repr__(self) -> str:
         buses = ", ".join(f"{b}: {info}" for b, info in self._schema.buses.items())
@@ -162,20 +172,22 @@ class _DynamicElementFactory:
 class _TypedElementAccessor:
     """Base for typed element accessors. Subclasses add bus properties."""
 
-    def __init__(self, element: str, index: int | tuple, naming: BusNaming) -> None:
+    def __init__(self, element: str, index: int | tuple, naming: BusNaming, schema: BusSchema) -> None:
         self._element = element
         self._index = index
         self._naming = naming
+        self._schema = schema
 
-    def _ref(self, bus_type: str, channel: ChannelType, *, acquires: bool = False) -> BusRef:
-        raw = self._naming.resolve(self._element, self._index, bus_type)
+    def _ref(self, kind: str, channel: ChannelType, *, acquires: bool = False) -> BusRef:
+        raw = self._naming.resolve(self._element, self._index, kind)
         return BusRef(
             raw,
             element=self._element,
             index=self._index,
-            type=bus_type,
+            kind=kind,
             channel=channel,
             acquires=acquires,
+            schema=self._schema,
         )
 
     def __repr__(self) -> str:
@@ -187,12 +199,13 @@ class _TypedElementFactory:
 
     _accessor_cls: type[_TypedElementAccessor]
 
-    def __init__(self, element: str, naming: BusNaming) -> None:
+    def __init__(self, element: str, naming: BusNaming, schema: BusSchema) -> None:
         self._element = element
         self._naming = naming
+        self._schema = schema
 
     def __getitem__(self, index: int) -> _TypedElementAccessor:
-        return self._accessor_cls(self._element, index, self._naming)
+        return self._accessor_cls(self._element, index, self._naming, self._schema)
 
 
 # --- Transmon qubit buses: drive (IQ), readout (IQ, acquires) ---
@@ -218,7 +231,7 @@ class TransmonQubitFactory(_TypedElementFactory):
     _accessor_cls = TransmonQubitBuses
 
     def __getitem__(self, index: int) -> TransmonQubitBuses:
-        return TransmonQubitBuses(self._element, index, self._naming)
+        return TransmonQubitBuses(self._element, index, self._naming, self._schema)
 
 
 # --- Flux-tunable transmon qubit buses: drive, readout, flux ---
@@ -237,7 +250,7 @@ class FluxTunableTransmonQubitFactory(_TypedElementFactory):
     _accessor_cls = FluxTunableTransmonQubitBuses
 
     def __getitem__(self, index: int) -> FluxTunableTransmonQubitBuses:
-        return FluxTunableTransmonQubitBuses(self._element, index, self._naming)
+        return FluxTunableTransmonQubitBuses(self._element, index, self._naming, self._schema)
 
 
 # --- Fluxonium qubit buses: drive, readout, flux_x, flux_z ---
@@ -261,7 +274,7 @@ class FluxoniumQubitFactory(_TypedElementFactory):
     _accessor_cls = FluxoniumQubitBuses
 
     def __getitem__(self, index: int) -> FluxoniumQubitBuses:
-        return FluxoniumQubitBuses(self._element, index, self._naming)
+        return FluxoniumQubitBuses(self._element, index, self._naming, self._schema)
 
 
 # --- Coupler buses: flux ---
@@ -280,7 +293,7 @@ class CouplerFactory(_TypedElementFactory):
     _accessor_cls = CouplerBuses
 
     def __getitem__(self, index: int | tuple) -> CouplerBuses:
-        return CouplerBuses(self._element, index, self._naming)
+        return CouplerBuses(self._element, index, self._naming, self._schema)
 
 
 # ---------------------------------------------------------------------------
@@ -309,11 +322,37 @@ class BusSchema:
         schema.q[0].drive  # works at runtime, but IDE doesn't know about .q
 
     3. **Custom typed** — subclass for your own qubit types (see example below).
+
+    Attributes:
+        KIND: Class-level identifier (e.g. ``"transmon"``). Built-in presets
+            set this; user subclasses should set their own. Used by the ``.qp``
+            writer to emit a one-liner ``schema: <KIND>`` for known presets,
+            and as a fallback name when the instance ``name`` is unset.
+        name: Instance-level alias for the schema in a serialized ``.qp``
+            file. When multiple schemas of the same KIND appear in one
+            program, each needs a distinct ``name``. Defaults to ``KIND`` for
+            preset subclasses.
     """
 
-    def __init__(self, naming: BusNaming | None = None) -> None:
+    KIND: ClassVar[str] = ""
+
+    def __init__(self, name: str = "", naming: BusNaming | None = None) -> None:
+        self._name = name or self.KIND
         self._naming = naming or BusNaming()
         self._elements: dict[str, ElementSchema] = {}
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def naming(self) -> BusNaming:
+        return self._naming
+
+    @property
+    def elements(self) -> dict[str, ElementSchema]:
+        """Read-only view of registered element schemas (for serialization)."""
+        return self._elements
 
     def add_element(self, name: str, buses: dict[str, tuple[ChannelType, bool]]) -> None:
         """Register an element type with its bus types and properties (dynamic, untyped).
@@ -329,7 +368,7 @@ class BusSchema:
         if name.startswith("_"):
             raise AttributeError(name)
         if name in self._elements:
-            return _DynamicElementFactory(self._elements[name])
+            return _DynamicElementFactory(self._elements[name], self)
         available = ", ".join(self._elements.keys())
         msg = f"No element '{name}' in schema. Available: {available}"
         raise AttributeError(msg)
@@ -346,57 +385,61 @@ class BusSchema:
     # ------------------------------------------------------------------
 
     @classmethod
-    def transmon(cls, naming: BusNaming | None = None) -> TransmonSchema:
+    def transmon(cls, name: str = "", naming: BusNaming | None = None) -> TransmonSchema:
         """Schema for fixed-frequency transmon qubits (no couplers).
 
         Qubit buses: ``drive`` (IQ), ``readout`` (IQ, acquires).
         """
-        return TransmonSchema(naming=naming)
+        return TransmonSchema(name=name, naming=naming)
 
     @classmethod
-    def transmon_coupled(cls, naming: BusNaming | None = None) -> TransmonCoupledSchema:
+    def transmon_coupled(cls, name: str = "", naming: BusNaming | None = None) -> TransmonCoupledSchema:
         """Schema for fixed-frequency transmon qubits with couplers.
 
         Qubit buses: ``drive`` (IQ), ``readout`` (IQ, acquires).
         Coupler buses: ``flux`` (single).
         """
-        return TransmonCoupledSchema(naming=naming)
+        return TransmonCoupledSchema(name=name, naming=naming)
 
     @classmethod
-    def flux_tunable_transmon(cls, naming: BusNaming | None = None) -> FluxTunableTransmonSchema:
+    def flux_tunable_transmon(cls, name: str = "", naming: BusNaming | None = None) -> FluxTunableTransmonSchema:
         """Schema for flux-tunable transmon qubits (no couplers).
 
         Qubit buses: ``drive`` (IQ), ``readout`` (IQ, acquires), ``flux`` (single).
         """
-        return FluxTunableTransmonSchema(naming=naming)
+        return FluxTunableTransmonSchema(name=name, naming=naming)
 
     @classmethod
-    def flux_tunable_transmon_coupled(cls, naming: BusNaming | None = None) -> FluxTunableTransmonCoupledSchema:
+    def flux_tunable_transmon_coupled(
+        cls,
+        name: str = "",
+        naming: BusNaming | None = None,
+    ) -> FluxTunableTransmonCoupledSchema:
         """Schema for flux-tunable transmon qubits with couplers.
 
         Qubit buses: ``drive`` (IQ), ``readout`` (IQ, acquires), ``flux`` (single).
         Coupler buses: ``flux`` (single).
         """
-        return FluxTunableTransmonCoupledSchema(naming=naming)
+        return FluxTunableTransmonCoupledSchema(name=name, naming=naming)
 
     @classmethod
-    def fluxonium(cls, naming: BusNaming | None = None) -> FluxoniumSchema:
+    def fluxonium(cls, name: str = "", naming: BusNaming | None = None) -> FluxoniumSchema:
         """Schema for fluxonium qubits (no couplers).
 
         Qubit buses: ``drive`` (IQ), ``readout`` (IQ, acquires),
         ``flux_x`` (single), ``flux_z`` (single).
         """
-        return FluxoniumSchema(naming=naming)
+        return FluxoniumSchema(name=name, naming=naming)
 
     @classmethod
-    def fluxonium_coupled(cls, naming: BusNaming | None = None) -> FluxoniumCoupledSchema:
+    def fluxonium_coupled(cls, name: str = "", naming: BusNaming | None = None) -> FluxoniumCoupledSchema:
         """Schema for fluxonium qubits with couplers.
 
         Qubit buses: ``drive`` (IQ), ``readout`` (IQ, acquires),
         ``flux_x`` (single), ``flux_z`` (single).
         Coupler buses: ``flux`` (single).
         """
-        return FluxoniumCoupledSchema(naming=naming)
+        return FluxoniumCoupledSchema(name=name, naming=naming)
 
 
 # ---------------------------------------------------------------------------
@@ -407,46 +450,112 @@ class BusSchema:
 class TransmonSchema(BusSchema):
     """Typed schema for transmon qubits. IDE sees ``q`` with full autocomplete."""
 
+    KIND = "transmon"
+
+    def __init__(self, name: str = "", naming: BusNaming | None = None) -> None:
+        super().__init__(name=name, naming=naming)
+        self.add_element("q", {"drive": ("IQ", False), "readout": ("IQ", True)})
+
     @property
     def q(self) -> TransmonQubitFactory:
-        return TransmonQubitFactory("q", self._naming)
+        return TransmonQubitFactory("q", self._naming, self)
 
 
 class TransmonCoupledSchema(TransmonSchema):
     """Typed schema for transmon qubits + couplers. Adds ``c`` property."""
 
+    KIND = "transmon_coupled"
+
+    def __init__(self, name: str = "", naming: BusNaming | None = None) -> None:
+        super().__init__(name=name, naming=naming)
+        self.add_element("c", {"flux": ("single", False)})
+
     @property
     def c(self) -> CouplerFactory:
-        return CouplerFactory("c", self._naming)
+        return CouplerFactory("c", self._naming, self)
 
 
 class FluxTunableTransmonSchema(BusSchema):
     """Typed schema for flux-tunable transmon qubits."""
 
+    KIND = "flux_tunable_transmon"
+
+    def __init__(self, name: str = "", naming: BusNaming | None = None) -> None:
+        super().__init__(name=name, naming=naming)
+        self.add_element("q", {"drive": ("IQ", False), "readout": ("IQ", True), "flux": ("single", False)})
+
     @property
     def q(self) -> FluxTunableTransmonQubitFactory:
-        return FluxTunableTransmonQubitFactory("q", self._naming)
+        return FluxTunableTransmonQubitFactory("q", self._naming, self)
 
 
 class FluxTunableTransmonCoupledSchema(FluxTunableTransmonSchema):
     """Typed schema for flux-tunable transmon qubits + couplers."""
 
+    KIND = "flux_tunable_transmon_coupled"
+
+    def __init__(self, name: str = "", naming: BusNaming | None = None) -> None:
+        super().__init__(name=name, naming=naming)
+        self.add_element("c", {"flux": ("single", False)})
+
     @property
     def c(self) -> CouplerFactory:
-        return CouplerFactory("c", self._naming)
+        return CouplerFactory("c", self._naming, self)
 
 
 class FluxoniumSchema(BusSchema):
     """Typed schema for fluxonium qubits."""
 
+    KIND = "fluxonium"
+
+    def __init__(self, name: str = "", naming: BusNaming | None = None) -> None:
+        super().__init__(name=name, naming=naming)
+        self.add_element(
+            "q",
+            {
+                "drive": ("IQ", False),
+                "readout": ("IQ", True),
+                "flux_x": ("single", False),
+                "flux_z": ("single", False),
+            },
+        )
+
     @property
     def q(self) -> FluxoniumQubitFactory:
-        return FluxoniumQubitFactory("q", self._naming)
+        return FluxoniumQubitFactory("q", self._naming, self)
 
 
 class FluxoniumCoupledSchema(FluxoniumSchema):
     """Typed schema for fluxonium qubits + couplers."""
 
+    KIND = "fluxonium_coupled"
+
+    def __init__(self, name: str = "", naming: BusNaming | None = None) -> None:
+        super().__init__(name=name, naming=naming)
+        self.add_element("c", {"flux": ("single", False)})
+
     @property
     def c(self) -> CouplerFactory:
-        return CouplerFactory("c", self._naming)
+        return CouplerFactory("c", self._naming, self)
+
+
+# Registry of built-in preset schemas, keyed by KIND. The ``.qp`` parser uses
+# this to instantiate a preset from a one-liner ``schema: <kind>`` declaration.
+_BUILTIN_PRESETS: dict[str, type[BusSchema]] = {
+    TransmonSchema.KIND: TransmonSchema,
+    TransmonCoupledSchema.KIND: TransmonCoupledSchema,
+    FluxTunableTransmonSchema.KIND: FluxTunableTransmonSchema,
+    FluxTunableTransmonCoupledSchema.KIND: FluxTunableTransmonCoupledSchema,
+    FluxoniumSchema.KIND: FluxoniumSchema,
+    FluxoniumCoupledSchema.KIND: FluxoniumCoupledSchema,
+}
+
+
+def get_preset_class(kind: str) -> type[BusSchema] | None:
+    """Return the built-in preset class registered under ``kind``, or ``None``."""
+    return _BUILTIN_PRESETS.get(kind)
+
+
+def is_builtin_preset(schema: BusSchema) -> bool:
+    """Return ``True`` if ``schema`` is an instance of a built-in preset class."""
+    return type(schema) in _BUILTIN_PRESETS.values()

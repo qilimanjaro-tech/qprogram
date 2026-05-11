@@ -12,7 +12,7 @@ from qprogram.blocks.block import Block
 from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
-from qprogram.buses import BusRef
+from qprogram.buses import BusNaming, BusRef, BusSchema, get_preset_class
 from qprogram.crosstalk_matrix import CrosstalkMatrix
 from qprogram.operations.get_parameter import GetParameter
 from qprogram.operations.measure import Measure
@@ -60,6 +60,13 @@ def load(path: str) -> QProgram:
 # ---------------------------------------------------------------------------
 
 
+_BUS_PATH_RE = re.compile(r"^(\w+)\.(\w+)\[(\d+(?:,\d+)*)\]\.(\w+)$")
+_SCHEMA_HEADER_RE = re.compile(r"^schema(?:\s+(\w+))?\s*:\s*(.*)$")
+_SCHEMA_KIND_RE = re.compile(r'^(\w+)(?:\(\s*"(.+?)"\s*\))?$')
+_ELEMENT_HEADER_RE = re.compile(r"^element\s+(\w+)\s*:\s*$")
+_BUS_LINE_RE = re.compile(r"^(\w+)\s+info=(\S+)\s*$")
+
+
 class _Parser:
     def __init__(self, text: str) -> None:
         self._lines = text.splitlines()
@@ -67,7 +74,7 @@ class _Parser:
         self._program = QProgram()
         self._variables: dict[str, Variable] = {}
         self._required_vendors: set[str] = set()
-        self._bus_refs: dict[str, BusRef] = {}
+        self._schemas: dict[str, BusSchema] = {}
 
     # -- public entry point --------------------------------------------------
 
@@ -82,9 +89,8 @@ class _Parser:
             if line == "metadata:":
                 self._pos += 1
                 self._parse_metadata()
-            elif line == "schema:":
-                self._pos += 1
-                self._parse_schema()
+            elif line.startswith(("schema:", "schema ")):
+                self._parse_schema_decl()
             elif line == "body:":
                 self._pos += 1
                 self._parse_body()
@@ -196,80 +202,122 @@ class _Parser:
                     self._program.description = val
             self._pos += 1
 
-    # -- schema (BusRef declarations) ---------------------------------------
+    # -- schema declarations (preset one-liner or inline custom/dynamic) -----
 
-    _BUS_ATTRS: ClassVar[frozenset[str]] = frozenset({"info", "type", "element", "index"})
     _INFO_CHANNELS: ClassVar[frozenset[str]] = frozenset({"single", "IQ"})
     _INFO_FLAGS: ClassVar[frozenset[str]] = frozenset({"acquires"})
 
-    def _parse_schema(self) -> None:
-        """Parse the optional ``schema:`` section into ``self._bus_refs``."""
+    def _parse_schema_decl(self) -> None:
+        """Parse one schema declaration starting at the current line.
+
+        One-liner forms (preset):
+          ``schema: <kind>``                       — name = kind, default naming
+          ``schema: <kind>("<pattern>")``          — name = kind, custom naming
+          ``schema <name>: <kind>``                — aliased preset
+          ``schema <name>: <kind>("<pattern>")``   — aliased + custom naming
+
+        Inline form (custom / dynamic; ``<name>`` is mandatory):
+          ``schema <name>:``                       — body follows on indented lines
+              ``naming: "<pattern>"``              (optional)
+              ``element <elem>:``
+                  ``<bus_type> info=<channel>[+acquires]``
+        """
+        line = self._stripped()
+        header = _SCHEMA_HEADER_RE.match(line)
+        if not header:
+            msg = f"invalid schema declaration: {line!r}"
+            raise ParseError(msg, self._pos + 1)
+        alias, rest = header.group(1), header.group(2).strip()
+        self._pos += 1
+        if rest:
+            self._build_preset_schema(alias or "", rest)
+        else:
+            if not alias:
+                msg = "inline schema declaration requires a name: `schema <name>:`"
+                raise ParseError(msg, self._pos)
+            self._build_inline_schema(alias)
+
+    def _build_preset_schema(self, alias: str, kind_expr: str) -> None:
+        m = _SCHEMA_KIND_RE.match(kind_expr)
+        if not m:
+            msg = f"invalid schema kind expression: {kind_expr!r}"
+            raise ParseError(msg, self._pos)
+        kind, pattern = m.group(1), m.group(2)
+        preset_cls = get_preset_class(kind)
+        if preset_cls is None:
+            msg = f"unknown preset schema kind {kind!r}; expected an inline `schema <name>:` body or one of the built-in presets"
+            raise ParseError(msg, self._pos)
+        naming = BusNaming(pattern) if pattern is not None else None
+        schema_name = alias or kind
+        if schema_name in self._schemas:
+            msg = f"duplicate schema name {schema_name!r}"
+            raise ParseError(msg, self._pos)
+        self._schemas[schema_name] = preset_cls(name=schema_name, naming=naming)
+
+    def _build_inline_schema(self, name: str) -> None:
+        if name in self._schemas:
+            msg = f"duplicate schema name {name!r}"
+            raise ParseError(msg, self._pos)
+        naming_pattern: str | None = None
+        elements: dict[str, dict[str, tuple]] = {}
         while self._pos < len(self._lines):
-            line = self._stripped()
             indent = self._indent()
+            line = self._stripped()
             if not line:
                 self._pos += 1
                 continue
             if indent < 2:
                 break
-            if not line.startswith("bus "):
-                msg = f"unexpected line in schema section: {line!r}"
+            if line.startswith("naming:"):
+                _, _, val = line.partition(":")
+                val = val.strip()
+                if len(val) < 2 or not (val.startswith('"') and val.endswith('"')):
+                    msg = f"schema `naming` must be a quoted string: {line!r}"
+                    raise ParseError(msg, self._pos + 1)
+                naming_pattern = _unescape_str(val[1:-1])
+                self._pos += 1
+                continue
+            elem_match = _ELEMENT_HEADER_RE.match(line)
+            if not elem_match:
+                msg = f"unexpected line in schema body: {line!r}"
                 raise ParseError(msg, self._pos + 1)
-            ref = self._parse_bus_decl(line)
-            if str(ref) in self._bus_refs:
-                msg = f"duplicate bus declaration {str(ref)!r}"
-                raise ParseError(msg, self._pos + 1)
-            self._bus_refs[str(ref)] = ref
+            elem_name = elem_match.group(1)
             self._pos += 1
+            elements[elem_name] = self._parse_inline_element_buses()
+        if not elements:
+            msg = f"schema {name!r} has no element declarations"
+            raise ParseError(msg, self._pos)
+        naming = BusNaming(naming_pattern) if naming_pattern is not None else None
+        schema = BusSchema(name=name, naming=naming)
+        for elem, buses in elements.items():
+            schema.add_element(elem, buses)
+        self._schemas[name] = schema
 
-    def _parse_bus_decl(self, line: str) -> BusRef:
-        tokens = _tokenize(line)
-        if len(tokens) < 2 or tokens[0] != "bus":
-            msg = (
-                f"`bus` declaration must have the form "
-                f'`bus "<name>" [type="..."] [element="..."] [index=N] info=<single|IQ>[+acquires]`. '
-                f"Got: {line!r}"
-            )
-            raise ParseError(msg, self._pos + 1)
-        name = self._unquote_or_raise(tokens[1], "bus name")
-        attrs: dict[str, object] = {"channel": "single", "acquires": False, "element": "", "index": 0, "type": ""}
-        seen: set[str] = set()
-        for tok in tokens[2:]:
-            self._apply_bus_token(tok, attrs, seen)
-        return BusRef(
-            name,
-            element=attrs["element"],  # type: ignore[arg-type]
-            index=attrs["index"],  # type: ignore[arg-type]
-            type=attrs["type"],  # type: ignore[arg-type]
-            channel=attrs["channel"],  # type: ignore[arg-type]
-            acquires=attrs["acquires"],  # type: ignore[arg-type]
-        )
-
-    def _apply_bus_token(self, tok: str, attrs: dict[str, object], seen: set[str]) -> None:
-        if "=" not in tok:
-            msg = f"unexpected token {tok!r} in `bus` declaration; expected key=value"
-            raise ParseError(msg, self._pos + 1)
-        key, _, value = tok.partition("=")
-        key = key.strip()
-        value = value.strip()
-        if key not in self._BUS_ATTRS:
-            allowed = ", ".join(sorted(self._BUS_ATTRS))
-            msg = f"unknown bus attribute {key!r}; allowed: {allowed}"
-            raise ParseError(msg, self._pos + 1)
-        if key in seen:
-            msg = f"duplicate bus attribute {key!r}"
-            raise ParseError(msg, self._pos + 1)
-        seen.add(key)
-        if key == "info":
-            channel, acquires = self._parse_bus_info(value)
-            attrs["channel"] = channel
-            attrs["acquires"] = acquires
-        elif key == "index":
-            attrs["index"] = self._parse_bus_index(value)
-        elif key == "type":
-            attrs["type"] = self._unquote_or_raise(value, "bus `type`")
-        else:  # element
-            attrs[key] = self._unquote_or_raise(value, f"bus `{key}`")
+    def _parse_inline_element_buses(self) -> dict[str, tuple[str, bool]]:
+        buses: dict[str, tuple[str, bool]] = {}
+        while self._pos < len(self._lines):
+            indent = self._indent()
+            line = self._stripped()
+            if not line:
+                self._pos += 1
+                continue
+            if indent < 4:
+                break
+            m = _BUS_LINE_RE.match(line)
+            if not m:
+                msg = (
+                    f"invalid bus declaration in schema body: {line!r}; "
+                    f"expected `<kind> info=<channel>[+acquires]`"
+                )
+                raise ParseError(msg, self._pos + 1)
+            kind, info_value = m.group(1), m.group(2)
+            if kind in buses:
+                msg = f"duplicate bus {kind!r} in element"
+                raise ParseError(msg, self._pos + 1)
+            channel, acquires = self._parse_bus_info(info_value)
+            buses[kind] = (channel, acquires)
+            self._pos += 1
+        return buses
 
     def _parse_bus_info(self, value: str) -> tuple[str, bool]:
         """Parse ``info=channel[+flag[+flag...]]``.
@@ -306,37 +354,57 @@ class _Parser:
             raise ParseError(msg, self._pos + 1)
         return channel, acquires
 
-    def _parse_bus_index(self, value: str) -> int | tuple:
-        try:
-            if "," in value:
-                return tuple(int(p.strip()) for p in value.split(","))
-            return int(value)
-        except ValueError as e:
-            msg = f"bus `index` must be an integer or comma-separated integers, got {value!r}"
-            raise ParseError(msg, self._pos + 1) from e
-
-    def _unquote_or_raise(self, value: str, label: str) -> str:
-        if len(value) < 2 or not (value.startswith('"') and value.endswith('"')):
-            msg = f"{label} must be a quoted string, got {value!r}"
-            raise ParseError(msg, self._pos + 1)
-        return _unescape_str(value[1:-1])
-
     def _upgrade_busrefs(self, op: object) -> None:
-        """Replace plain-string bus attributes with their declared BusRef.
+        """Replace bus-path strings on an operation with resolved BusRef instances.
 
-        Walks the operation's instance attributes; any string value that is
-        not already a BusRef but matches a declared bus name is swapped in
-        place. Also handles ``list[str]`` attributes (e.g. ``Sync.buses``).
+        Walks instance attributes for string values that look like
+        ``schema.element[index].kind`` and resolves each against the parsed
+        schemas. Plain strings that don't match the path syntax are left
+        alone (case 1: raw string buses). ``list`` attributes (e.g.
+        ``Sync.buses``) are handled too.
         """
-        if not self._bus_refs:
+        if not self._schemas:
             return
         for key, value in vars(op).items():
-            if isinstance(value, str) and not isinstance(value, BusRef) and value in self._bus_refs:
-                setattr(op, key, self._bus_refs[value])
+            if isinstance(value, str) and not isinstance(value, BusRef):
+                ref = self._resolve_bus_path(value)
+                if ref is not None:
+                    setattr(op, key, ref)
             elif isinstance(value, list):
                 for i, item in enumerate(value):
-                    if isinstance(item, str) and not isinstance(item, BusRef) and item in self._bus_refs:
-                        value[i] = self._bus_refs[item]
+                    if isinstance(item, str) and not isinstance(item, BusRef):
+                        ref = self._resolve_bus_path(item)
+                        if ref is not None:
+                            value[i] = ref
+
+    def _resolve_bus_path(self, token: str) -> BusRef | None:
+        """Resolve ``schema.element[index].kind`` against the declared schemas.
+
+        Returns ``None`` if the token doesn't match the path syntax or the
+        schema name is unknown (in which case the caller leaves the value as
+        a plain string — that's the right behaviour for raw-string buses).
+        Raises ``ParseError`` if the path looks valid but the schema rejects
+        the element or bus kind, since that indicates a malformed file.
+        """
+        m = _BUS_PATH_RE.match(token)
+        if not m:
+            return None
+        schema_name, element, idx_str, kind = m.groups()
+        if schema_name not in self._schemas:
+            return None
+        schema = self._schemas[schema_name]
+        index: int | tuple = tuple(int(p) for p in idx_str.split(",")) if "," in idx_str else int(idx_str)
+        try:
+            factory = getattr(schema, element)
+            accessor = factory[index]
+            ref = getattr(accessor, kind)
+        except (AttributeError, KeyError) as e:
+            msg = f"bus path {token!r} does not resolve in schema {schema_name!r}: {e}"
+            raise ParseError(msg, self._pos + 1) from e
+        if not isinstance(ref, BusRef):  # pragma: no cover — defensive
+            msg = f"bus path {token!r} did not yield a BusRef"
+            raise ParseError(msg, self._pos + 1)
+        return ref
 
     # -- body ----------------------------------------------------------------
 

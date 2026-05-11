@@ -106,7 +106,7 @@ schema.add_element("q", buses={
 schema.add_element("resonator", buses={"probe": ("IQ", True)})
 ```
 ### Usage
-Access bus names through the schema with `element[index].bus_type` syntax:
+Access bus names through the schema with `element[index].<kind>` syntax (where `<kind>` is one of the bus kind names declared by the schema, e.g. `drive`, `readout`, `flux`):
 ```python
 schema = BusSchema.flux_tunable_transmon_coupled()
 q = schema.q
@@ -130,9 +130,11 @@ print(bus)              # "q0/drive"
 isinstance(bus, str)    # True
 bus.element             # "q"
 bus.index               # 0      (the slot shadows str.index — see note below)
-bus.type                # "drive"
+bus.kind                # "drive"
 bus.channel             # "IQ"
 bus.acquires            # False
+bus.schema              # the BusSchema instance that produced this ref
+                        # (or None for manually-constructed BusRefs outside a schema)
 
 q[0].readout.acquires   # True   (readout has ADC)
 ```
@@ -140,11 +142,21 @@ q[0].readout.acquires   # True   (readout has ADC)
 > The ``index`` slot shadows the inherited ``str.index()`` method on `BusRef`
 > instances. Use plain ``str(bus).index(...)`` for substring searches.
 
+The ``schema`` slot is what lets the ``.qp`` writer emit a ref as a schema
+path (``transmon.q[0].drive``) instead of a bare quoted string — see the
+*Serialization round-trip* note below.
+
 ### Serialization round-trip
 
-`BusRef` metadata is preserved across `.qp` round-trip via the file's `schema:` section. Each unique `BusRef` used in the program gets one `bus "<name>" type=… element=… index=… info=<single|IQ>[+acquires]` line; on load, the parser reconstructs equivalent `BusRef` instances and substitutes them into operations wherever the bare name appears. Plain `str` buses produce no `schema:` entry and remain plain strings on reload — validation is skipped for them in both directions, consistent with Python-side behavior.
+`BusRef` metadata is preserved across `.qp` round-trip via top-level `schema` declarations. The format follows the **three cases** a user actually creates buses through:
 
-The `BusSchema` *type* (e.g. `TransmonSchema`) is not serialized — schemas live platform-side. What gets preserved is the materialized BusRef metadata for buses actually used in the program, which is what `_validate_waveform_channel`, `_validate_acquires`, and downstream tooling care about.
+1. **Plain string** — written as `play "drive_q0_bus" pulse`. No schema declaration, no metadata.
+2. **Built-in preset** (e.g. `BusSchema.transmon()`) — one-liner declaration: `schema: transmon` (or `schema: transmon("<pattern>")` with custom naming, or `schema <alias>: transmon` for multi-schema programs). Operations reference buses as paths: `play transmon.q[0].drive pulse`. On load the parser reinstantiates the preset class and resolves each path through it.
+3. **Custom / dynamic schema** (`BusSchema(name="chip")` populated via `add_element`, or a user subclass of `BusSchema` with `KIND` set) — full inline declaration of `element`/bus blocks; the parser rebuilds a `BusSchema` via `add_element()` so the structural data round-trips even though the user's Python class doesn't.
+
+Each `BusRef` carries a `schema` reference identifying the schema that produced it; the writer uses this to choose the path form vs the quoted-string form. A program can mix any of the three in a single file.
+
+User-typed subclasses (`MyChipSchema` etc.) should set `KIND = "my_chip"` as a class attribute. The writer serializes them via the inline form (case 3), preserving the structure; on load the user gets a dynamic `BusSchema` with the same elements, just without the original Python class identity.
 
 ### Validation
 When a bus is referenced through the schema, operations validate at program-construction time:
@@ -237,7 +249,7 @@ schema = BusSchema.flux_tunable_transmon()
 
 # QiliLab-style: "drive_q0_bus"
 schema = BusSchema.flux_tunable_transmon(
-    naming=BusNaming("{bus_type}_{element}{index}_bus")
+    naming=BusNaming("{kind}_{element}{index}_bus")
 )
 ```
 ### Platform-provided schemas
@@ -259,7 +271,9 @@ from qprogram.buses import (
 )
 
 # 1. Define a bus accessor — one @property per bus type.
-#    `_ref(type, channel, *, acquires=False)` builds the BusRef.
+#    `_ref(type, channel, *, acquires=False)` builds the BusRef and
+#    automatically tags it with the schema instance, so it serialises
+#    as `my_chip.q[0].drive` rather than a bare string.
 class MyQubitBuses(_TypedElementAccessor):
     @property
     def drive(self) -> BusRef:
@@ -273,22 +287,37 @@ class MyQubitBuses(_TypedElementAccessor):
     def charge(self) -> BusRef:
         return self._ref("charge", "single")
 
-# 2. Define a factory — returns the accessor on subscript
+# 2. Define a factory — returns the accessor on subscript.
+#    The accessor needs the schema instance to tag every BusRef it produces.
 class MyQubitFactory(_TypedElementFactory):
     _accessor_cls = MyQubitBuses
 
     def __getitem__(self, index: int) -> MyQubitBuses:
-        return MyQubitBuses(self._element, index, self._naming)
+        return MyQubitBuses(self._element, index, self._naming, self._schema)
 
-# 3. Define the typed schema — one @property per element type
+# 3. Define the typed schema — set KIND, populate _elements in __init__,
+#    and expose one @property per element type for IDE autocomplete.
+#    The serializer reads `_elements` (populated by add_element) so the
+#    inline-schema form in .qp files round-trips structural data.
 class MyChipSchema(BusSchema):
+    KIND = "my_chip"
+
+    def __init__(self, name: str = "", naming: BusNaming | None = None) -> None:
+        super().__init__(name=name, naming=naming)
+        self.add_element("q", {
+            "drive":   ("IQ", False),
+            "readout": ("IQ", True),
+            "charge":  ("single", False),
+        })
+        self.add_element("c", {"flux": ("single", False)})
+
     @property
     def q(self) -> MyQubitFactory:
-        return MyQubitFactory("q", self._naming)
+        return MyQubitFactory("q", self._naming, self)
 
     @property
     def c(self) -> CouplerFactory:
-        return CouplerFactory("c", self._naming)
+        return CouplerFactory("c", self._naming, self)
 
 # Usage — full IDE autocomplete
 schema = MyChipSchema()

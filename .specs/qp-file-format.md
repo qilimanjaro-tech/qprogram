@@ -111,23 +111,23 @@ A `BusSchema` instance itself is **not** serialized — only the materialized Bu
 
 ```
 schema:
-  bus "q0/drive"   channel=IQ            element="q" index=0   bus_type="drive"
-  bus "q0/readout" channel=IQ acquires   element="q" index=0   bus_type="readout"
-  bus "c0_1/flux"  channel=single        element="c" index=0,1 bus_type="flux"
+  bus "q0/drive"   type="drive"   element="q" index=0   info=IQ
+  bus "q0/readout" type="readout" element="q" index=0   info=IQ+acquires
+  bus "c0_1/flux"  type="flux"    element="c" index=0,1 info=single
 ```
 
 **Form** (one declaration per line):
 
 ```
-bus "<name>" channel=<single|IQ> [acquires] [element="..."] [index=<int>|<i,j,...>] [bus_type="..."]
+bus "<name>" [type="..."] [element="..."] [index=<int>|<i,j,...>] info=<single|IQ>[+acquires]
 ```
 
 - `<name>` is the bus string used everywhere else in the body. Each `bus` line maps a name to its full BusRef metadata.
-- `channel=` is a bare keyword: `single` for real waveforms, `IQ` for complex.
-- `acquires` is a bare flag — present iff the bus has an ADC (`measure()` is allowed). Absent means `acquires=false`.
-- `element=` and `bus_type=` are quoted strings (free-form per platform — typically `"q"`, `"c"`, `"drive"`, `"readout"`, `"flux"`).
+- `type=` is a quoted string naming the bus role within an element (typically `"drive"`, `"readout"`, `"flux"`, `"flux_x"`, etc.).
+- `element=` is a quoted string naming the element kind (typically `"q"`, `"c"`).
 - `index=` is an integer (`index=0`) or a comma-separated tuple of integers (`index=0,1`). Tuples are unquoted and use the same comma form that BusNaming uses for the printed index suffix.
-- `element`/`index`/`bus_type` are emitted as a triplet only when at least one is non-default; bare BusRefs get just `channel`/`acquires`.
+- `info=` is a `+`-separated set whose first/only channel token is `single` or `IQ`, optionally followed by the bare flag `acquires` (bus has an ADC and supports `measure()`). Examples: `info=single`, `info=IQ`, `info=IQ+acquires`. Channel is required; flags are optional and may not be duplicated. Order is canonical (channel first) on emission but flexible on parse.
+- `type`/`element`/`index` are emitted as a triplet only when at least one is non-default; bare BusRefs get just `info`. `info` is always emitted because it drives validation.
 
 **Round-trip behavior:**
 
@@ -139,11 +139,11 @@ bus "<name>" channel=<single|IQ> [acquires] [element="..."] [index=<int>|<i,j,..
 The parser rejects:
 
 - duplicate `bus` declarations for the same name,
-- unquoted `element`/`bus_type` values,
-- a `channel=` value other than `single` or `IQ`,
+- unquoted `type`/`element` values,
+- an `info=` value that lacks a channel, has multiple channels, or contains an unknown token,
 - non-integer `index` components,
 - duplicate or unknown bus attributes,
-- stray tokens that are neither `acquires` nor a recognised `key=value`.
+- stray tokens that are not a recognised `key=value`.
 
 ---
 
@@ -392,12 +392,14 @@ kv_pair        := IDENT ":" value
 
 schema_sec     := "schema:" NEWLINE INDENT bus_decl+
 bus_decl       := "bus" STRING bus_attr*
-bus_attr       := "acquires"
-                | "channel" "=" ("single" | "IQ")
+bus_attr       := "type"    "=" STRING
                 | "element" "=" STRING
-                | "index" "=" INDEX
-                | "bus_type" "=" STRING
+                | "index"   "=" INDEX
+                | "info"    "=" INFO
 INDEX          := NUMBER | NUMBER ("," NUMBER)+
+INFO           := CHANNEL ("+" INFO_FLAG)*
+CHANNEL        := "single" | "IQ"
+INFO_FLAG      := "acquires"
 
 body_sec       := "body:" NEWLINE INDENT statement+
 statement      := var_decl | operation | control_block

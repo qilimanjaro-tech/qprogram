@@ -126,13 +126,14 @@ bus = q[0].drive
 print(bus)              # "q0/drive"
 isinstance(bus, str)    # True
 bus.element             # "q"
-bus.index               # 0
-bus.bus_type            # "drive"
+bus.index               # 0      (named `idx`, not `index`, so str.index() stays accessible)
+bus.type                # "drive"
 bus.info                # BusInfo(IQ)
 bus.channel_type        # "IQ"   (shortcut for bus.info.channel)
 bus.acquires            # False  (shortcut for bus.info.acquires)
 
 q[0].readout.acquires   # True   (readout has ADC)
+bus.index("q")          # 0      (inherited str.index — finds substring)
 ```
 
 ### Serialization round-trip

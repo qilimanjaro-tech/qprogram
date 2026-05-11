@@ -106,7 +106,6 @@ class QProgram:
         self._body = Block()
         self._block_stack: deque[Block] = deque([self._body])
         self._variables: list[Variable] = []
-        self._buses: set[str] = set()
 
     # --- Properties ---
 
@@ -116,7 +115,14 @@ class QProgram:
 
     @property
     def buses(self) -> set[str]:
-        return self._buses
+        """Set of bus names referenced anywhere in the program tree.
+
+        Computed by walking the AST on each access — there is no separate
+        tracking field, so this stays consistent across deserialization,
+        ``with_bus_mapping``, and any other path that appends operations
+        directly to a block.
+        """
+        return _collect_buses(self._body)
 
     @property
     def variables(self) -> list[Variable]:
@@ -167,49 +173,34 @@ class QProgram:
         msg = f"No vendor namespace '{name}' registered on QProgram"
         raise AttributeError(msg)
 
-    # --- Bus tracking ---
-
-    def _track_bus(self, bus: str) -> None:
-        self._buses.add(bus)
-
     # --- Core operations ---
 
     def play(self, bus: str, waveform: Waveform | IQWaveform | str) -> None:
         _validate_waveform_channel(bus, waveform)
-        self._track_bus(bus)
         self._active_block.append(Play(bus=bus, waveform=waveform))
 
     def measure(self, bus: str, waveform: IQWaveform | str, weights: IQWaveform | str, save_adc: bool = False) -> None:
         _validate_acquires(bus)
         _validate_waveform_channel(bus, waveform)
         _validate_waveform_channel(bus, weights)
-        self._track_bus(bus)
         self._active_block.append(Measure(bus=bus, waveform=waveform, weights=weights, save_adc=save_adc))
 
     def wait(self, bus: str, duration: int | Expression) -> None:
-        self._track_bus(bus)
         self._active_block.append(Wait(bus=bus, duration=duration))
 
     def sync(self, buses: list[str] | None = None) -> None:
-        if buses:
-            for b in buses:
-                self._track_bus(b)
         self._active_block.append(Sync(buses=buses))
 
     def set_frequency(self, bus: str, frequency: float | Expression) -> None:
-        self._track_bus(bus)
         self._active_block.append(SetFrequency(bus=bus, frequency=frequency))
 
     def set_phase(self, bus: str, phase: float | Expression) -> None:
-        self._track_bus(bus)
         self._active_block.append(SetPhase(bus=bus, phase=phase))
 
     def reset_phase(self, bus: str) -> None:
-        self._track_bus(bus)
         self._active_block.append(ResetPhase(bus=bus))
 
     def set_gain(self, bus: str, gain: float | Expression) -> None:
-        self._track_bus(bus)
         self._active_block.append(SetGain(bus=bus, gain=gain))
 
     def set_offset(
@@ -218,7 +209,6 @@ class QProgram:
         offset_path0: float | Expression,
         offset_path1: float | Expression | None = None,
     ) -> None:
-        self._track_bus(bus)
         self._active_block.append(SetOffset(bus=bus, offset_path0=offset_path0, offset_path1=offset_path1))
 
     def set_parameter(
@@ -272,10 +262,13 @@ class QProgram:
     # --- Transformations ---
 
     def with_bus_mapping(self, bus_mapping: dict[str, str]) -> QProgram:
-        """Return a copy with bus references remapped."""
+        """Return a copy with bus references remapped.
+
+        The ``buses`` property is computed from the AST, so it automatically
+        reflects the remapping — no separate bookkeeping needed.
+        """
         new_program = copy.deepcopy(self)
         _remap_buses(new_program._body, bus_mapping)
-        new_program._buses = {bus_mapping.get(b, b) for b in new_program._buses}
         return new_program
 
     def with_waveforms(self, waveform_mapping: dict[str, Waveform | IQWaveform]) -> QProgram:
@@ -344,6 +337,30 @@ def _validate_waveform_channel(bus: str, waveform: Waveform | IQWaveform | str) 
         raise TypeError(
             msg,
         )
+
+
+def _collect_buses(block: Block) -> set[str]:
+    """Walk a block tree and return the set of bus names it references.
+
+    Looks for the ``bus`` and ``control_bus`` string attributes (covers all
+    core operations plus most vendor ops) and the ``buses`` list attribute
+    (``Sync``). Vendor operations that use a different attribute name for a
+    bus will not be picked up here — vendor authors should follow the
+    ``bus`` / ``control_bus`` convention.
+    """
+    result: set[str] = set()
+    for el in block.elements:
+        if isinstance(el, Block):
+            result |= _collect_buses(el)
+            continue
+        for attr in ("bus", "control_bus"):
+            value = getattr(el, attr, None)
+            if isinstance(value, str):
+                result.add(value)
+        buses_list = getattr(el, "buses", None)
+        if isinstance(buses_list, list):
+            result.update(b for b in buses_list if isinstance(b, str))
+    return result
 
 
 def _sanitize_id(s: str) -> str:

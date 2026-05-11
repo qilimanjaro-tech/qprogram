@@ -5,8 +5,8 @@ metadata:
   description: "Sweep drive frequency to find qubit resonance"
 
 schema:
-  bus "drive_q0_bus" channel=IQ element="q" index=0 bus_type="drive"
-  bus "readout_q0_bus" channel=IQ acquires element="q" index=0 bus_type="readout"
+  bus "drive_q0_bus" type="drive" element="q" index=0 info=IQ
+  bus "readout_q0_bus" type="readout" element="q" index=0 info=IQ+acquires
 
 body:
   var frequency label="Qubit Frequency" units="Hz"
@@ -14,6 +14,6 @@ body:
   average 1000:
     for frequency in range(4500000000.0, 5500000000.0, 1000000.0):
       set_frequency "drive_q0_bus" frequency
-      play "drive_q0_bus" IQPair(I=Square(amplitude=0.05, duration=10000), Q=Square(amplitude=0.0, duration=10000))
+      play "q[0].drive" IQPair(I=Square(amplitude=0.05, duration=10000), Q=Square(amplitude=0.0, duration=10000))
       sync
       measure "readout_q0_bus" IQPair(I=Square(amplitude=0.5, duration=2000), Q=Square(amplitude=0.0, duration=2000)) IQPair(I=Square(amplitude=1.0, duration=2000), Q=Square(amplitude=1.0, duration=2000))

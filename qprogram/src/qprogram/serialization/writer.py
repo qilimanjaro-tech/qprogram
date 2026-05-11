@@ -137,18 +137,20 @@ class _Writer:
 
     @staticmethod
     def _serialize_bus_decl(ref: BusRef) -> str:
-        parts = [f'bus "{_escape_str(str(ref))}" channel={ref.info.channel}']
-        if ref.info.acquires:
-            parts.append("acquires")
-        # Emit element/index/bus_type as a triplet only when any is non-default
-        # — bare BusRefs (no schema metadata) get just channel/acquires.
-        if ref.element or ref.bus_type or ref.index != 0:
+        parts = [f'bus "{_escape_str(str(ref))}"']
+        # Emit type/element/index as a triplet only when any is non-default —
+        # bare BusRefs (no schema metadata) get just `info`.
+        if ref.type or ref.element or ref.index != 0:
+            parts.append(f'type="{_escape_str(ref.type)}"')
             parts.append(f'element="{_escape_str(ref.element)}"')
             if isinstance(ref.index, tuple):
                 parts.append(f"index={','.join(str(i) for i in ref.index)}")
             else:
                 parts.append(f"index={ref.index}")
-            parts.append(f'bus_type="{_escape_str(ref.bus_type)}"')
+        info_value = ref.info.channel
+        if ref.info.acquires:
+            info_value += "+acquires"
+        parts.append(f"info={info_value}")
         return " ".join(parts)
 
     @staticmethod

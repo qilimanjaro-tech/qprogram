@@ -198,7 +198,9 @@ class _Parser:
 
     # -- schema (BusRef declarations) ---------------------------------------
 
-    _BUS_ATTRS: ClassVar[frozenset[str]] = frozenset({"channel", "element", "index", "bus_type"})
+    _BUS_ATTRS: ClassVar[frozenset[str]] = frozenset({"info", "type", "element", "index"})
+    _INFO_CHANNELS: ClassVar[frozenset[str]] = frozenset({"single", "IQ"})
+    _INFO_FLAGS: ClassVar[frozenset[str]] = frozenset({"acquires"})
 
     def _parse_schema(self) -> None:
         """Parse the optional ``schema:`` section into ``self._bus_refs``."""
@@ -225,12 +227,12 @@ class _Parser:
         if len(tokens) < 2 or tokens[0] != "bus":
             msg = (
                 f"`bus` declaration must have the form "
-                f'`bus "<name>" channel=<single|IQ> [acquires] [element="..."] [index=N] [bus_type="..."]`. '
+                f'`bus "<name>" [type="..."] [element="..."] [index=N] info=<single|IQ>[+acquires]`. '
                 f"Got: {line!r}"
             )
             raise ParseError(msg, self._pos + 1)
         name = self._unquote_or_raise(tokens[1], "bus name")
-        attrs: dict[str, object] = {"channel": "single", "acquires": False, "element": "", "index": 0, "bus_type": ""}
+        attrs: dict[str, object] = {"channel": "single", "acquires": False, "element": "", "index": 0, "type": ""}
         seen: set[str] = set()
         for tok in tokens[2:]:
             self._apply_bus_token(tok, attrs, seen)
@@ -239,41 +241,70 @@ class _Parser:
             name,
             element=attrs["element"],  # type: ignore[arg-type]
             index=attrs["index"],  # type: ignore[arg-type]
-            bus_type=attrs["bus_type"],  # type: ignore[arg-type]
+            type=attrs["type"],  # type: ignore[arg-type]
             info=info,
         )
 
     def _apply_bus_token(self, tok: str, attrs: dict[str, object], seen: set[str]) -> None:
-        if tok == "acquires":
-            if "acquires" in seen:
-                msg = "duplicate `acquires` flag in bus declaration"
-                raise ParseError(msg, self._pos + 1)
-            seen.add("acquires")
-            attrs["acquires"] = True
-            return
         if "=" not in tok:
-            msg = f"unexpected token {tok!r} in `bus` declaration; expected key=value or `acquires`"
+            msg = f"unexpected token {tok!r} in `bus` declaration; expected key=value"
             raise ParseError(msg, self._pos + 1)
         key, _, value = tok.partition("=")
         key = key.strip()
         value = value.strip()
         if key not in self._BUS_ATTRS:
             allowed = ", ".join(sorted(self._BUS_ATTRS))
-            msg = f"unknown bus attribute {key!r}; allowed: {allowed}, acquires"
+            msg = f"unknown bus attribute {key!r}; allowed: {allowed}"
             raise ParseError(msg, self._pos + 1)
         if key in seen:
             msg = f"duplicate bus attribute {key!r}"
             raise ParseError(msg, self._pos + 1)
         seen.add(key)
-        if key == "channel":
-            if value not in ("single", "IQ"):
-                msg = f"bus `channel` must be `single` or `IQ`, got {value!r}"
-                raise ParseError(msg, self._pos + 1)
-            attrs["channel"] = value
+        if key == "info":
+            channel, acquires = self._parse_bus_info(value)
+            attrs["channel"] = channel
+            attrs["acquires"] = acquires
         elif key == "index":
             attrs["index"] = self._parse_bus_index(value)
-        else:  # element or bus_type — both are quoted strings
+        elif key == "type":
+            attrs["type"] = self._unquote_or_raise(value, "bus `type`")
+        else:  # element
             attrs[key] = self._unquote_or_raise(value, f"bus `{key}`")
+
+    def _parse_bus_info(self, value: str) -> tuple[str, bool]:
+        """Parse ``info=channel[+flag[+flag...]]``.
+
+        Channel must be ``single`` or ``IQ`` and appear exactly once. Currently
+        the only supported flag is ``acquires``.
+        """
+        if not value:
+            msg = "bus `info` must specify a channel (single|IQ), got empty value"
+            raise ParseError(msg, self._pos + 1)
+        channel: str | None = None
+        acquires = False
+        seen_flags: set[str] = set()
+        for raw in value.split("+"):
+            part = raw.strip()
+            if part in self._INFO_CHANNELS:
+                if channel is not None:
+                    msg = f"bus `info` has multiple channel tokens (single|IQ): {value!r}"
+                    raise ParseError(msg, self._pos + 1)
+                channel = part
+            elif part in self._INFO_FLAGS:
+                if part in seen_flags:
+                    msg = f"bus `info` has duplicate flag {part!r}: {value!r}"
+                    raise ParseError(msg, self._pos + 1)
+                seen_flags.add(part)
+                if part == "acquires":
+                    acquires = True
+            else:
+                allowed = ", ".join(sorted(self._INFO_CHANNELS | self._INFO_FLAGS))
+                msg = f"bus `info` has unknown token {part!r}; allowed: {allowed}"
+                raise ParseError(msg, self._pos + 1)
+        if channel is None:
+            msg = f"bus `info` must specify a channel (single|IQ): {value!r}"
+            raise ParseError(msg, self._pos + 1)
+        return channel, acquires
 
     def _parse_bus_index(self, value: str) -> int | tuple:
         try:

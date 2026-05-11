@@ -62,27 +62,27 @@ class BusRef(str):
     Attributes:
         element: Element name (e.g. "q", "coupler").
         index: Element index (e.g. 0, (0, 1)).
-        bus_type: Bus type name (e.g. "drive", "flux").
+        type: Bus type name (e.g. "drive", "flux").
         info: BusInfo with channel type, acquires flag, etc.
     """
 
     # Declare slots so a ``str`` subclass can still carry these attributes.
     # An empty ``__slots__ = ()`` would forbid attribute assignment entirely
     # (str has no __dict__).
-    __slots__ = ("bus_type", "element", "index", "info")
+    __slots__ = ("element", "index", "info", "type")
 
     def __new__(
         cls,
         value: str,
         element: str = "",
         index: int | tuple = 0,
-        bus_type: str = "",
+        type: str = "",  # noqa: A002  shadowing builtin is intentional — attribute is named `type`
         info: BusInfo | None = None,
     ) -> Self:
         instance = super().__new__(cls, value)
         instance.element = element
-        instance.index = index  # type: ignore[assignment]  # slot shadows str.index()
-        instance.bus_type = bus_type
+        instance.index = index
+        instance.type = type
         instance.info = info or BusInfo()
         return instance
 
@@ -147,7 +147,7 @@ class _DynamicElementAccessor:
             raise AttributeError(msg)
         info = self._schema.buses[bus_type]
         raw = self._schema.naming.resolve(self._schema.name, self._index, bus_type)
-        return BusRef(raw, element=self._schema.name, index=self._index, bus_type=bus_type, info=info)
+        return BusRef(raw, element=self._schema.name, index=self._index, type=bus_type, info=info)
 
     def __repr__(self) -> str:
         buses = ", ".join(f".{b}({info})" for b, info in self._schema.buses.items())
@@ -183,7 +183,7 @@ class _TypedElementAccessor:
 
     def _ref(self, bus_type: str, info: BusInfo) -> BusRef:
         raw = self._naming.resolve(self._element, self._index, bus_type)
-        return BusRef(raw, element=self._element, index=self._index, bus_type=bus_type, info=info)
+        return BusRef(raw, element=self._element, index=self._index, type=bus_type, info=info)
 
     def __repr__(self) -> str:
         return f"{self._element}[{self._index}]"

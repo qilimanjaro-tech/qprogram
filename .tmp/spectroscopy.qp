@@ -4,7 +4,7 @@ metadata:
   label: "Qubit Spectroscopy"
   description: "Sweep drive frequency to find qubit resonance"
 
-schema: transmon("{kind}_{element}{index}_bus")
+schema: transmon
 
 body:
   var frequency label="Qubit Frequency" units="Hz"
@@ -12,6 +12,6 @@ body:
   average 1000:
     for frequency in range(4500000000.0, 5500000000.0, 1000000.0):
       set_frequency transmon.q[0].drive frequency
-      play "q[0].drive" IQPair(I=Square(amplitude=0.05, duration=10000), Q=Square(amplitude=0.0, duration=10000))
+      play transmon.q[0].drive IQPair(I=Square(amplitude=0.05, duration=10000), Q=Square(amplitude=0.0, duration=10000))
       sync
       measure transmon.q[0].readout IQPair(I=Square(amplitude=0.5, duration=2000), Q=Square(amplitude=0.0, duration=2000)) IQPair(I=Square(amplitude=1.0, duration=2000), Q=Square(amplitude=1.0, duration=2000))

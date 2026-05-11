@@ -53,16 +53,16 @@ class BusRef(str):
     def __new__(  # noqa: PLR0913  flat constructor — six metadata fields plus the str value
         cls,
         value: str,
-        element: str = "",
-        index: int | tuple = 0,
-        kind: str = "",
-        channel: ChannelType = "single",
-        acquires: bool = False,
+        element: str,
+        index: int | tuple[int, ...],
+        kind: str,
+        channel: ChannelType,
+        acquires: bool,
         schema: BusSchema | None = None,
     ) -> Self:
         instance = super().__new__(cls, value)
         instance.element = element
-        instance.index = index  # type: ignore[assignment]  # slot shadows str.index()
+        instance.index = index
         instance.kind = kind
         instance.channel = channel
         instance.acquires = acquires

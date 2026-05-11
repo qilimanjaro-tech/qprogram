@@ -649,6 +649,17 @@ program.set_crosstalk(crosstalk: CrosstalkMatrix)
 ```
 ## 5.4 Vendor Extensions
 The QProgram library provides a registration mechanism for vendor-specific operations. Core operations (play, measure, wait, etc.) are always available. Vendor operations are registered under a namespace and accessed via `program.<vendor>.<operation>()`.
+
+### What a vendor operation can be
+
+Because QProgram treats hardware and software execution uniformly (Section 6.3) — the compiler decides which is which — a vendor extension is free to expose any operation whose execution the platform knows how to interpret. There is no requirement that vendor operations map 1-1 to a single hardware sequencer instruction. Three useful shapes:
+
+- **Simple 1-1 hardware operations** — wrap one sequencer instruction. Example: `qblox.set_markers(bus, mask)` writes the 4-bit marker register.
+- **Complex orchestrations** — bundle several primitive steps into a higher-level intent; the vendor library lowers them to multiple sequencer instructions at compile time. Example: `qblox.active_reset(bus, ..., control_bus, reset_pulse, ...)` expands into a readout + integration + conditional reset pulse via the trigger network.
+- **Software-only operations** — have no sequencer footprint at all; the platform realizes them via QCoDeS / instrument drivers / other slow-control plumbing at execution time. Example: `qblox.set_acquisition_threshold(bus, value)` sets a QCoDeS parameter; nothing is emitted to the sequencer.
+
+All three are registered the same way, serialize the same way (`qblox.<op_name> <args>` in `.qp` files), and are presented to users behind the same `program.<vendor>.*` namespace. The platform-side compiler distinguishes them and dispatches accordingly when executing. From the user's perspective, vendor extensions are the natural place for *any* vendor-specific concept — pulse-level primitives, calibration-side configuration, multi-step protocols — without a parallel API for the slow-control parts.
+
 ### Architecture
 The extension system has three layers:
 1. **Operation classes** — subclass `Operation`, hold the data that goes into the AST
@@ -673,7 +684,8 @@ class SetMarkers(Operation):
         self.bus = bus
         self.mask = mask
 
-class MeasureReset(Operation):
+class ActiveReset(Operation):
+    """Complex orchestration — measure + conditional reset pulse."""
     def __init__(self, bus: str, waveform: IQWaveform | str, weights: IQWaveform | str,
                  control_bus: str, reset_pulse: IQWaveform | str,
                  trigger_address: int = 1, save_adc: bool = False):
@@ -684,6 +696,12 @@ class MeasureReset(Operation):
         self.reset_pulse = reset_pulse
         self.trigger_address = trigger_address
         self.save_adc = save_adc
+
+class SetAcquisitionThreshold(Operation):
+    """Software-only — the platform sets a QCoDeS parameter at execution."""
+    def __init__(self, bus: str, value: float | Expression):
+        self.bus = bus
+        self.value = value
 ```
 ### Step 2: Define a typed VendorNamespace
 The namespace class provides the typed methods that users call. Each method instantiates the corresponding Operation and appends it to the program's active block via `self._append()`. This is where **strong typing lives** — IDE autocompletion and mypy validation work because the methods have explicit signatures.
@@ -699,14 +717,18 @@ class QbloxNamespace(VendorNamespace):
         """Set 4-bit marker mask."""
         self._append(SetMarkers(bus=bus, mask=mask))
 
-    def measure_reset(self, bus: str, waveform: IQWaveform | str, weights: IQWaveform | str,
-                      control_bus: str, reset_pulse: IQWaveform | str,
-                      trigger_address: int = 1, save_adc: bool = False) -> None:
-        """Active reset with conditional feedback."""
-        self._append(MeasureReset(
+    def active_reset(self, bus: str, waveform: IQWaveform | str, weights: IQWaveform | str,
+                     control_bus: str, reset_pulse: IQWaveform | str,
+                     trigger_address: int = 1, save_adc: bool = False) -> None:
+        """Active reset — complex orchestration, no single sequencer instruction."""
+        self._append(ActiveReset(
             bus=bus, waveform=waveform, weights=weights, control_bus=control_bus,
             reset_pulse=reset_pulse, trigger_address=trigger_address, save_adc=save_adc
         ))
+
+    def set_acquisition_threshold(self, bus: str, value: float | Expression) -> None:
+        """Software-only — translates to a QCoDeS parameter set at execution time."""
+        self._append(SetAcquisitionThreshold(bus=bus, value=value))
 ```
 ### Step 3: Register the vendor and its protocol version
 ```python
@@ -1095,7 +1117,7 @@ print(I_values)
 - [x] **`.qp`**** file format**: **Resolved** — custom text-based indentation language. See .qp File Format Specification subpage.
 - [x] **Waveform parametrization in loops**: **Resolved** — waveforms are Variable-aware. Users can pass Variables as waveform parameters (see Section 4.2).
 - [x] **Trigger operations**: **Resolved** — `set_trigger`, `wait_trigger`, `set_markers` move to `qblox.*` vendor namespace via the extension mechanism (Section 5.4).
-- [x] **MeasureReset**: **Resolved** — `measure_reset` is a `qblox.*` vendor extension, not a core operation.
+- [x] **Active reset**: **Resolved** — `active_reset` is a `qblox.*` vendor extension (complex orchestration), not a core operation.
 - [x] **`set_offset`**** dual path**: **Resolved** — core `set_offset` keeps a generic signature; Qblox-specific dual-path behavior is handled by the compiler.
 - [x] **Variable arithmetic**: **Resolved** — expressions support `+`, `-`, `*`, `/`, and unary `-` via the `Expression` AST (Section 3).
 - [ ] **Error model**: How should the compiler report unsupported operations? Exceptions? Warnings? A validation pass before compilation?

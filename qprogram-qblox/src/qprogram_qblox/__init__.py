@@ -9,6 +9,20 @@ This package provides:
 
 3. **Pre-combined QProgram** — ``QProgram`` from this package has ``.qblox`` typed.
 
+The operations cover the full spectrum that a vendor extension can offer —
+QProgram makes no distinction between hardware and software execution, so a
+vendor namespace can mix:
+
+- simple 1-1 sequencer instructions (``acquire``, ``set_markers``,
+  ``set_trigger``, ``wait_trigger``),
+- complex multi-step orchestrations (``active_reset`` — measure + conditional
+  reset pulse via the trigger network),
+- and software-only operations (``set_acquisition_threshold`` — translates to
+  a QCoDeS parameter set at execution time, not to any sequencer instruction).
+
+All three serialize identically in ``.qp`` files (``qblox.<op_name> <args>``);
+the platform decides at execution time how to realize each one.
+
 Usage (simplest — typed QProgram with Qblox)::
 
     from qprogram_qblox import QProgram
@@ -16,6 +30,7 @@ Usage (simplest — typed QProgram with Qblox)::
     qp = QProgram(label="example")
     qp.qblox.acquire("readout_q0", "weights")       # IDE autocomplete works
     qp.qblox.set_markers("drive_q0", "0001")         # IDE autocomplete works
+    qp.qblox.set_acquisition_threshold("readout_q0", value=0.42)  # software-only
 
 Usage (mixin — combine multiple vendors)::
 
@@ -46,7 +61,14 @@ from qprogram.serialization.registry import register_vendor_operation, register_
 
 from qprogram_qblox.mixin import QbloxMixin
 from qprogram_qblox.namespace import QbloxNamespace
-from qprogram_qblox.operations import Acquire, MeasureReset, SetMarkers, SetTrigger, WaitTrigger
+from qprogram_qblox.operations import (
+    Acquire,
+    ActiveReset,
+    SetAcquisitionThreshold,
+    SetMarkers,
+    SetTrigger,
+    WaitTrigger,
+)
 
 # Resolve our own package version once. This is the single source of truth
 # for the qblox vendor protocol version: parsers will check that the file's
@@ -65,11 +87,18 @@ _BaseQProgram.register_vendor("qblox", QbloxNamespace)
 register_vendor_version("qblox", __version__)
 
 # --- Step 3: Register operations with the .qp serializer ---
+# Operations cover the full spectrum a vendor can offer:
+#   - simple 1-1 hardware ops (acquire, set_markers, set_trigger, wait_trigger),
+#   - complex orchestrations (active_reset — measure + conditional reset),
+#   - pure software ops (set_acquisition_threshold — QCoDeS at execution time).
+# The .qp serializer treats them all uniformly; the platform decides at runtime
+# how to lower each one onto its hardware.
 register_vendor_operation("qblox", "acquire", Acquire)
 register_vendor_operation("qblox", "set_markers", SetMarkers)
 register_vendor_operation("qblox", "set_trigger", SetTrigger)
 register_vendor_operation("qblox", "wait_trigger", WaitTrigger)
-register_vendor_operation("qblox", "measure_reset", MeasureReset)
+register_vendor_operation("qblox", "active_reset", ActiveReset)
+register_vendor_operation("qblox", "set_acquisition_threshold", SetAcquisitionThreshold)
 
 
 # --- Step 3: Pre-combined typed QProgram ---
@@ -85,10 +114,11 @@ class QProgram(QbloxMixin, _BaseQProgram):
 
 __all__ = [
     "Acquire",
-    "MeasureReset",
+    "ActiveReset",
     "QProgram",
     "QbloxMixin",
     "QbloxNamespace",
+    "SetAcquisitionThreshold",
     "SetMarkers",
     "SetTrigger",
     "WaitTrigger",

@@ -6,10 +6,22 @@ so IDE autocomplete and mypy work when users write ``program.qblox.acquire(...)`
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from qprogram.vendor import VendorNamespace
 from qprogram.waveforms.waveform import IQWaveform
 
-from qprogram_qblox.operations import Acquire, MeasureReset, SetMarkers, SetTrigger, WaitTrigger
+from qprogram_qblox.operations import (
+    Acquire,
+    ActiveReset,
+    SetAcquisitionThreshold,
+    SetMarkers,
+    SetTrigger,
+    WaitTrigger,
+)
+
+if TYPE_CHECKING:
+    from qprogram.variable import Expression
 
 
 class QbloxNamespace(VendorNamespace):
@@ -64,7 +76,7 @@ class QbloxNamespace(VendorNamespace):
         """
         self._append(WaitTrigger(bus=bus, duration=duration, port=port))
 
-    def measure_reset(
+    def active_reset(
         self,
         bus: str,
         waveform: IQWaveform | str,
@@ -72,9 +84,13 @@ class QbloxNamespace(VendorNamespace):
         control_bus: str,
         reset_pulse: IQWaveform | str,
         trigger_address: int = 1,
-        save_adc: bool = False,
     ) -> None:
-        """Active reset: measure and conditionally apply a reset pulse.
+        """Active qubit reset: measure and conditionally apply a reset pulse.
+
+        A *complex* operation — the qblox compiler expands it into a readout
+        pulse + integration + conditional reset pulse driven via the trigger
+        network. There's no single sequencer instruction that does this; the
+        vendor library owns the lowering from user intent to instructions.
 
         Args:
             bus: Readout bus name.
@@ -83,16 +99,32 @@ class QbloxNamespace(VendorNamespace):
             control_bus: Drive bus for the reset pulse.
             reset_pulse: Reset pulse waveform.
             trigger_address: Trigger network address for conditional execution.
-            save_adc: Whether to save raw ADC data.
         """
         self._append(
-            MeasureReset(
+            ActiveReset(
                 bus=bus,
                 waveform=waveform,
                 weights=weights,
                 control_bus=control_bus,
                 reset_pulse=reset_pulse,
                 trigger_address=trigger_address,
-                save_adc=save_adc,
             )
         )
+
+    def set_acquisition_threshold(self, bus: str, value: float | Expression) -> None:
+        """Set the qubit-state discrimination threshold on a readout bus.
+
+        A *software-only* operation — the qblox platform translates this to a
+        QCoDeS parameter set at execution time, not to any sequencer
+        instruction. It demonstrates that a vendor namespace can expose
+        operations whose effect is entirely off-sequencer; the platform
+        decides at execution time how to realize each operation (sequencer
+        instruction, slow-control set, multi-step orchestration, …).
+
+        Args:
+            bus: Readout bus whose discrimination threshold to set.
+            value: Threshold value (volts after integration). Accepts an
+                :class:`~qprogram.Expression` so it can be swept by an
+                enclosing loop.
+        """
+        self._append(SetAcquisitionThreshold(bus=bus, value=value))

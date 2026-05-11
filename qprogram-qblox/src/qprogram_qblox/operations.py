@@ -7,7 +7,7 @@ These are the data nodes — they hold typed attributes and get serialized to `.
 from __future__ import annotations
 
 from qprogram.operations.operation import Operation
-from qprogram.variable import Variable
+from qprogram.variable import Expression, Variable
 from qprogram.waveforms.waveform import IQWaveform
 
 
@@ -65,12 +65,13 @@ class WaitTrigger(Operation):
         self.port = port
 
 
-class MeasureReset(Operation):
-    """Active reset: measure, then conditionally apply a reset pulse.
+class ActiveReset(Operation):
+    """Active qubit reset: measure, then conditionally apply a reset pulse.
 
-    This is a Qblox-specific operation that uses the sequencer's conditional
-    execution capability to perform active qubit reset based on the measurement
-    outcome.
+    A **complex** vendor operation — it doesn't map 1-1 to a single sequencer
+    instruction. The qblox compiler expands it into the underlying choreography
+    (readout pulse + integration + conditional reset pulse driven by the
+    trigger network), but the user expresses intent at the experiment level.
     """
 
     def __init__(
@@ -89,4 +90,25 @@ class MeasureReset(Operation):
         self.control_bus = control_bus
         self.reset_pulse = reset_pulse
         self.trigger_address = trigger_address
-        self.save_adc = save_adc
+
+
+class SetAcquisitionThreshold(Operation):
+    """Set the qubit-state discrimination threshold on a readout bus.
+
+    A **software-only** vendor operation — the qblox platform translates it to
+    a QCoDeS parameter set at execution time rather than emitting any
+    sequencer instruction. It illustrates that vendor ops don't have to map to
+    hardware sequencer instructions at all: a vendor extension can expose any
+    operation whose execution the platform knows how to interpret, whether
+    that's a sequencer command, a slow-control parameter, or a multi-step
+    orchestration.
+    """
+
+    def __init__(self, bus: str, value: float | Expression) -> None:
+        self.bus = bus
+        self.value = value
+
+    def get_variables(self) -> set[Variable]:
+        if isinstance(self.value, Expression):
+            return self.value.variables()
+        return set()

@@ -77,17 +77,15 @@ The `BusSchema` system provides typed, validated, discoverable bus references th
 Different platforms name their buses differently. One platform might use `"q0/drive"`, another `"drive_q0_bus"`. Different qubit types expose different bus types: a transmon has `drive` and `readout`, a flux-tunable transmon adds `flux`, a fluxonium has `flux_x` and `flux_z` instead.
 Users shouldn't need to memorize string conventions. They should get tab-completion, validation, and clear errors.
 ### BusSchema
-A `BusSchema` declares which bus types each element kind has and their properties via `BusInfo`. It does **not** define how many qubits or couplers exist — any index is accepted and the schema constructs the string.
-Each bus type has a `BusInfo` with:
-- `channel`: `"single"` (real-valued, accepts `Waveform`) or `"IQ"` (complex, accepts `IQWaveform`)
-- `acquires`: whether the bus has an ADC and supports `measure()` operations
-Convenience constants: `IQ`, `IQ_ACQUIRES`, `SINGLE`.
+A `BusSchema` declares which bus types each element kind has and their properties — `channel` (`"single"` vs `"IQ"`) and `acquires` (has an ADC). It does **not** define how many qubits or couplers exist — any index is accepted and the schema constructs the string.
+
 When a bus is referenced through the schema, `play()` validates waveform type and `measure()` validates acquisition support at program-construction time.
+
 There are two modes:
 1. **Presets** — return fully typed subclasses. IDE autocomplete works on `.q`, `.c`, `.drive`, `.readout`, etc. Should cover 99% of the cases.
 2. **Dynamic** — use `add_element()` for custom topologies. Works at runtime but no static typing.
 ```python
-from qprogram.buses import BusSchema, BusInfo, IQ, IQ_ACQUIRES, SINGLE
+from qprogram.buses import BusSchema
 
 # Typed presets — full IDE autocomplete
 schema = BusSchema.transmon()                        # .q only
@@ -97,10 +95,15 @@ schema = BusSchema.flux_tunable_transmon_coupled()   # .q with flux + .c
 schema = BusSchema.fluxonium()                       # .q with flux_x, flux_z
 schema = BusSchema.fluxonium_coupled()               # .q with flux_x, flux_z + .c
 
-# Dynamic (untyped) — for exotic topologies
+# Dynamic (untyped) — for exotic topologies.
+# Each bus name maps to a (channel, acquires) tuple.
 schema = BusSchema()
-schema.add_element("q", buses={"drive": IQ, "readout": IQ_ACQUIRES, "charge": SINGLE})
-schema.add_element("resonator", buses={"probe": IQ_ACQUIRES})
+schema.add_element("q", buses={
+    "drive":   ("IQ",     False),
+    "readout": ("IQ",     True),
+    "charge":  ("single", False),
+})
+schema.add_element("resonator", buses={"probe": ("IQ", True)})
 ```
 ### Usage
 Access bus names through the schema with `element[index].bus_type` syntax:
@@ -126,19 +129,20 @@ bus = q[0].drive
 print(bus)              # "q0/drive"
 isinstance(bus, str)    # True
 bus.element             # "q"
-bus.index               # 0      (named `idx`, not `index`, so str.index() stays accessible)
+bus.index               # 0      (the slot shadows str.index — see note below)
 bus.type                # "drive"
-bus.info                # BusInfo(IQ)
-bus.channel_type        # "IQ"   (shortcut for bus.info.channel)
-bus.acquires            # False  (shortcut for bus.info.acquires)
+bus.channel             # "IQ"
+bus.acquires            # False
 
 q[0].readout.acquires   # True   (readout has ADC)
-bus.index("q")          # 0      (inherited str.index — finds substring)
 ```
+
+> The ``index`` slot shadows the inherited ``str.index()`` method on `BusRef`
+> instances. Use plain ``str(bus).index(...)`` for substring searches.
 
 ### Serialization round-trip
 
-`BusRef` metadata is preserved across `.qp` round-trip via the file's `schema:` section. Each unique `BusRef` used in the program gets one `bus "<name>" channel=… [acquires] element=… index=… bus_type=…` line; on load, the parser reconstructs equivalent `BusRef` instances and substitutes them into operations wherever the bare name appears. Plain `str` buses produce no `schema:` entry and remain plain strings on reload — validation is skipped for them in both directions, consistent with Python-side behavior.
+`BusRef` metadata is preserved across `.qp` round-trip via the file's `schema:` section. Each unique `BusRef` used in the program gets one `bus "<name>" type=… element=… index=… info=<single|IQ>[+acquires]` line; on load, the parser reconstructs equivalent `BusRef` instances and substitutes them into operations wherever the bare name appears. Plain `str` buses produce no `schema:` entry and remain plain strings on reload — validation is skipped for them in both directions, consistent with Python-side behavior.
 
 The `BusSchema` *type* (e.g. `TransmonSchema`) is not serialized — schemas live platform-side. What gets preserved is the materialized BusRef metadata for buses actually used in the program, which is what `_validate_waveform_channel`, `_validate_acquires`, and downstream tooling care about.
 
@@ -249,24 +253,25 @@ program.play(q[0].drive, pulse)
 For qubit types not covered by the presets, you can define your own typed schema with full IDE support. This follows the same pattern the presets use internally:
 ```python
 from qprogram.buses import (
-    BusSchema, BusRef, BusInfo, BusNaming,
+    BusSchema, BusRef, BusNaming,
     _TypedElementAccessor, _TypedElementFactory,
-    IQ, IQ_ACQUIRES, SINGLE, CouplerFactory,
+    CouplerFactory,
 )
 
-# 1. Define a bus accessor — one @property per bus type
+# 1. Define a bus accessor — one @property per bus type.
+#    `_ref(type, channel, *, acquires=False)` builds the BusRef.
 class MyQubitBuses(_TypedElementAccessor):
     @property
     def drive(self) -> BusRef:
-        return self._ref("drive", IQ)
+        return self._ref("drive", "IQ")
 
     @property
     def readout(self) -> BusRef:
-        return self._ref("readout", IQ_ACQUIRES)
+        return self._ref("readout", "IQ", acquires=True)
 
     @property
     def charge(self) -> BusRef:
-        return self._ref("charge", SINGLE)
+        return self._ref("charge", "single")
 
 # 2. Define a factory — returns the accessor on subscript
 class MyQubitFactory(_TypedElementFactory):

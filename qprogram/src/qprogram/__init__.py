@@ -1,6 +1,6 @@
 """QProgram: A Domain-Specific Language for Pulse-Level Quantum Programming."""
 
-from qprogram.buses import IQ, IQ_ACQUIRES, SINGLE, BusInfo, BusNaming, BusRef, BusSchema
+from qprogram.buses import BusNaming, BusRef, BusSchema
 from qprogram.crosstalk_matrix import CrosstalkMatrix
 from qprogram.platform import PlatformProtocol
 from qprogram.qprogram import QProgram
@@ -19,12 +19,8 @@ from qprogram.variable import (
 from qprogram.vendor import VendorNamespace
 
 __all__ = [
-    "IQ",
-    "IQ_ACQUIRES",
-    "SINGLE",
     "UNASSIGNED",
     "BinaryOp",
-    "BusInfo",
     "BusNaming",
     "BusRef",
     "BusSchema",

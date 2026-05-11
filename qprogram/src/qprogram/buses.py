@@ -21,35 +21,9 @@ Typing approach:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Literal, Self
 
 ChannelType = Literal["single", "IQ"]
-
-
-@dataclass(frozen=True)
-class BusInfo:
-    """Properties of a bus type within an element.
-
-    Attributes:
-        channel: "single" for real-valued waveforms, "IQ" for complex I/Q waveforms.
-        acquires: Whether this bus has an ADC and supports ``measure()`` operations.
-    """
-
-    channel: ChannelType = "single"
-    acquires: bool = False
-
-    def __repr__(self) -> str:
-        parts: list[str] = [self.channel]
-        if self.acquires:
-            parts.append("acquires")
-        return f"BusInfo({', '.join(parts)})"
-
-
-# Convenience constants for common bus configurations
-IQ = BusInfo(channel="IQ")
-IQ_ACQUIRES = BusInfo(channel="IQ", acquires=True)
-SINGLE = BusInfo(channel="single")
 
 
 class BusRef(str):
@@ -63,36 +37,31 @@ class BusRef(str):
         element: Element name (e.g. "q", "coupler").
         index: Element index (e.g. 0, (0, 1)).
         type: Bus type name (e.g. "drive", "flux").
-        info: BusInfo with channel type, acquires flag, etc.
+        channel: ``"single"`` for real-valued waveforms, ``"IQ"`` for complex I/Q.
+        acquires: Whether this bus has an ADC and supports ``measure()`` operations.
     """
 
     # Declare slots so a ``str`` subclass can still carry these attributes.
     # An empty ``__slots__ = ()`` would forbid attribute assignment entirely
     # (str has no __dict__).
-    __slots__ = ("element", "index", "info", "type")
+    __slots__ = ("acquires", "channel", "element", "index", "type")
 
-    def __new__(
+    def __new__(  # noqa: PLR0913  flat constructor — five metadata fields plus the str value
         cls,
         value: str,
         element: str = "",
         index: int | tuple = 0,
         type: str = "",  # noqa: A002  shadowing builtin is intentional — attribute is named `type`
-        info: BusInfo | None = None,
+        channel: ChannelType = "single",
+        acquires: bool = False,
     ) -> Self:
         instance = super().__new__(cls, value)
         instance.element = element
-        instance.index = index
+        instance.index = index  # type: ignore[assignment]  # slot shadows str.index()
         instance.type = type
-        instance.info = info or BusInfo()
+        instance.channel = channel
+        instance.acquires = acquires
         return instance
-
-    @property
-    def channel_type(self) -> ChannelType:
-        return self.info.channel  # ty:ignore[unresolved-attribute]
-
-    @property
-    def acquires(self) -> bool:
-        return self.info.acquires  # ty:ignore[unresolved-attribute]
 
 
 class BusNaming:
@@ -119,9 +88,19 @@ class BusNaming:
 
 
 class ElementSchema:
-    """Describes a type of element and its available bus types (for dynamic schemas)."""
+    """Describes a type of element and its available bus types (for dynamic schemas).
 
-    def __init__(self, name: str, buses: dict[str, BusInfo], naming: BusNaming) -> None:
+    ``buses`` maps each bus name (e.g. ``"drive"``, ``"readout"``) to a
+    ``(channel, acquires)`` tuple — the same data that lives on the
+    eventual :class:`BusRef`, just declared once per element kind.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        buses: dict[str, tuple[ChannelType, bool]],
+        naming: BusNaming,
+    ) -> None:
         self.name = name
         self.buses = buses
         self.naming = naming
@@ -145,9 +124,16 @@ class _DynamicElementAccessor:
             available = ", ".join(self._schema.bus_names)
             msg = f"'{self._schema.name}' has no bus '{bus_type}'. Available: {available}"
             raise AttributeError(msg)
-        info = self._schema.buses[bus_type]
+        channel, acquires = self._schema.buses[bus_type]
         raw = self._schema.naming.resolve(self._schema.name, self._index, bus_type)
-        return BusRef(raw, element=self._schema.name, index=self._index, type=bus_type, info=info)
+        return BusRef(
+            raw,
+            element=self._schema.name,
+            index=self._index,
+            type=bus_type,
+            channel=channel,
+            acquires=acquires,
+        )
 
     def __repr__(self) -> str:
         buses = ", ".join(f".{b}({info})" for b, info in self._schema.buses.items())
@@ -181,9 +167,16 @@ class _TypedElementAccessor:
         self._index = index
         self._naming = naming
 
-    def _ref(self, bus_type: str, info: BusInfo) -> BusRef:
+    def _ref(self, bus_type: str, channel: ChannelType, *, acquires: bool = False) -> BusRef:
         raw = self._naming.resolve(self._element, self._index, bus_type)
-        return BusRef(raw, element=self._element, index=self._index, type=bus_type, info=info)
+        return BusRef(
+            raw,
+            element=self._element,
+            index=self._index,
+            type=bus_type,
+            channel=channel,
+            acquires=acquires,
+        )
 
     def __repr__(self) -> str:
         return f"{self._element}[{self._index}]"
@@ -211,12 +204,12 @@ class TransmonQubitBuses(_TypedElementAccessor):
     @property
     def drive(self) -> BusRef:
         """Drive line (IQ channel)."""
-        return self._ref("drive", IQ)
+        return self._ref("drive", "IQ")
 
     @property
     def readout(self) -> BusRef:
         """Readout line (IQ channel, acquires)."""
-        return self._ref("readout", IQ_ACQUIRES)
+        return self._ref("readout", "IQ", acquires=True)
 
 
 class TransmonQubitFactory(_TypedElementFactory):
@@ -237,7 +230,7 @@ class FluxTunableTransmonQubitBuses(TransmonQubitBuses):
     @property
     def flux(self) -> BusRef:
         """Flux line (single channel)."""
-        return self._ref("flux", SINGLE)
+        return self._ref("flux", "single")
 
 
 class FluxTunableTransmonQubitFactory(_TypedElementFactory):
@@ -256,12 +249,12 @@ class FluxoniumQubitBuses(TransmonQubitBuses):
     @property
     def flux_x(self) -> BusRef:
         """Flux X line (single channel)."""
-        return self._ref("flux_x", SINGLE)
+        return self._ref("flux_x", "single")
 
     @property
     def flux_z(self) -> BusRef:
         """Flux Z line (single channel)."""
-        return self._ref("flux_z", SINGLE)
+        return self._ref("flux_z", "single")
 
 
 class FluxoniumQubitFactory(_TypedElementFactory):
@@ -280,7 +273,7 @@ class CouplerBuses(_TypedElementAccessor):
     @property
     def flux(self) -> BusRef:
         """Coupler flux line (single channel)."""
-        return self._ref("flux", SINGLE)
+        return self._ref("flux", "single")
 
 
 class CouplerFactory(_TypedElementFactory):
@@ -309,7 +302,10 @@ class BusSchema:
     2. **Dynamic** — use ``add_element()`` for custom topologies (no static typing)::
 
         schema = BusSchema()
-        schema.add_element("q", buses={"drive": IQ, "readout": IQ_ACQUIRES})
+        schema.add_element("q", buses={
+            "drive":   ("IQ", False),
+            "readout": ("IQ", True),
+        })
         schema.q[0].drive  # works at runtime, but IDE doesn't know about .q
 
     3. **Custom typed** — subclass for your own qubit types (see example below).
@@ -319,8 +315,11 @@ class BusSchema:
         self._naming = naming or BusNaming()
         self._elements: dict[str, ElementSchema] = {}
 
-    def add_element(self, name: str, buses: dict[str, BusInfo]) -> None:
+    def add_element(self, name: str, buses: dict[str, tuple[ChannelType, bool]]) -> None:
         """Register an element type with its bus types and properties (dynamic, untyped).
+
+        ``buses`` maps each bus name to a ``(channel, acquires)`` tuple, e.g.
+        ``{"drive": ("IQ", False), "readout": ("IQ", True), "flux": ("single", False)}``.
 
         For typed schemas, subclass BusSchema and add properties instead.
         """

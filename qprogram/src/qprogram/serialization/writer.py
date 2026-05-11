@@ -147,8 +147,8 @@ class _Writer:
                 parts.append(f"index={','.join(str(i) for i in ref.index)}")
             else:
                 parts.append(f"index={ref.index}")
-        info_value = ref.info.channel
-        if ref.info.acquires:
+        info_value = ref.channel
+        if ref.acquires:
             info_value += "+acquires"
         parts.append(f"info={info_value}")
         return " ".join(parts)

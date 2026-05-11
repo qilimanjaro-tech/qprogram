@@ -320,7 +320,7 @@ def _validate_waveform_channel(bus: str, waveform: Waveform | IQWaveform | str) 
     if not isinstance(bus, BusRef) or isinstance(waveform, str):
         return
 
-    channel = bus.channel_type
+    channel = bus.channel
     if channel == "IQ" and isinstance(waveform, Waveform) and not isinstance(waveform, IQWaveform):
         msg = (
             f"Bus '{bus}' is an IQ channel but received a single-channel Waveform "

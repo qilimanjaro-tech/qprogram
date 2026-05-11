@@ -12,7 +12,7 @@ from qprogram.blocks.block import Block
 from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
-from qprogram.buses import BusInfo, BusRef
+from qprogram.buses import BusRef
 from qprogram.crosstalk_matrix import CrosstalkMatrix
 from qprogram.operations.get_parameter import GetParameter
 from qprogram.operations.measure import Measure
@@ -236,13 +236,13 @@ class _Parser:
         seen: set[str] = set()
         for tok in tokens[2:]:
             self._apply_bus_token(tok, attrs, seen)
-        info = BusInfo(channel=attrs["channel"], acquires=attrs["acquires"])  # type: ignore[arg-type]
         return BusRef(
             name,
             element=attrs["element"],  # type: ignore[arg-type]
             index=attrs["index"],  # type: ignore[arg-type]
             type=attrs["type"],  # type: ignore[arg-type]
-            info=info,
+            channel=attrs["channel"],  # type: ignore[arg-type]
+            acquires=attrs["acquires"],  # type: ignore[arg-type]
         )
 
     def _apply_bus_token(self, tok: str, attrs: dict[str, object], seen: set[str]) -> None:

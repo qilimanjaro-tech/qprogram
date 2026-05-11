@@ -4,8 +4,12 @@ metadata:
   label: "Qubit Spectroscopy"
   description: "Sweep drive frequency to find qubit resonance"
 
+schema:
+  bus "drive_q0_bus" channel=IQ element="q" index=0 bus_type="drive"
+  bus "readout_q0_bus" channel=IQ acquires element="q" index=0 bus_type="readout"
+
 body:
-  var frequency long_name="Qubit Frequency" units="Hz"
+  var frequency label="Qubit Frequency" units="Hz"
 
   average 1000:
     for frequency in range(4500000000.0, 5500000000.0, 1000000.0):

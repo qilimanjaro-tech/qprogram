@@ -42,27 +42,26 @@ structurally identical ``BinaryOp`` are equal).
 
 from __future__ import annotations
 
-import itertools
 import re
 from abc import ABC, abstractmethod
 from typing import Final, Literal, Self
 
-# Valid variable labels: Python-style identifiers — letter/underscore start,
-# then letters/digits/underscores. Labels are used verbatim as identifiers in
+# Valid variable ids: Python-style identifiers — letter/underscore start,
+# then letters/digits/underscores. Ids are used verbatim as identifiers in
 # the .qp file format, so they must be safe to embed without quoting.
-_LABEL_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_ID_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-class InvalidVariableLabelError(ValueError):
-    """Raised when a Variable label does not match ``[A-Za-z_][A-Za-z0-9_]*``."""
+class InvalidVariableIdError(ValueError):
+    """Raised when a Variable id does not match ``[A-Za-z_][A-Za-z0-9_]*``."""
 
-    def __init__(self, label: str) -> None:
+    def __init__(self, id: str) -> None:  # noqa: A002
         super().__init__(
-            f"Variable label {label!r} is invalid: must match [A-Za-z_][A-Za-z0-9_]* "
+            f"Variable id {id!r} is invalid: must match [A-Za-z_][A-Za-z0-9_]* "
             f"(letters, digits, underscores only; cannot start with a digit, no spaces "
-            f"or special characters). Use the optional `long_name` for human-readable names."
+            f"or special characters). Use the optional `label` for human-readable names."
         )
-        self.label = label
+        self.id = id
 
 # Operators supported by BinaryOp and UnaryOp.
 type BinaryOperator = Literal["+", "-", "*", "/"]
@@ -190,53 +189,45 @@ class Expression(ABC):
 class Variable(Expression):
     """A symbolic variable. Leaf node that holds a value (initially ``UNASSIGNED``).
 
-    Identity-based equality: each ``Variable(label)`` is a distinct instance.
-    Each variable gets an auto-assigned integer ID for hashing.
+    Identity-based equality: each ``Variable(id)`` is a distinct instance.
 
     The runtime executor sets the value via ``set_value()`` per loop iteration.
     Reading ``value`` (or calling ``evaluate()``) returns the current value or
     ``UNASSIGNED`` if no value has been set.
 
     Args:
-        label: Mandatory short name. Must match ``[A-Za-z_][A-Za-z0-9_]*`` —
+        id: Mandatory short name. Must match ``[A-Za-z_][A-Za-z0-9_]*`` —
             it doubles as the identifier in the ``.qp`` file format and so
             cannot contain spaces or punctuation.
-        long_name: Optional human-readable name (free-form string). Use this
+        label: Optional human-readable name (free-form string). Use this
             for axis labels, plot titles, etc.
         units: Optional unit string (e.g. ``"Hz"``, ``"ns"``, ``"V"``).
         description: Optional longer description.
     """
 
-    _id_counter = itertools.count()
-
     def __init__(
         self,
-        label: str,
+        id: str,  # noqa: A002
         *,
-        long_name: str | None = None,
+        label: str | None = None,
         units: str | None = None,
         description: str | None = None,
     ) -> None:
-        if not _LABEL_RE.match(label):
-            raise InvalidVariableLabelError(label)
-        self._id: int = next(Variable._id_counter)
-        self._label: str = label
-        self._long_name: str | None = long_name
+        if not _ID_RE.match(id):
+            raise InvalidVariableIdError(id)
+        self._id: str = id
+        self._label: str | None = label
         self._units: str | None = units
         self._description: str | None = description
         self._value: int | float | _UnassignedType = UNASSIGNED
 
     @property
-    def id(self) -> int:
+    def id(self) -> str:
         return self._id
 
     @property
-    def label(self) -> str:
+    def label(self) -> str | None:
         return self._label
-
-    @property
-    def long_name(self) -> str | None:
-        return self._long_name
 
     @property
     def units(self) -> str | None:
@@ -273,7 +264,7 @@ class Variable(Expression):
         return self is other
 
     def __repr__(self) -> str:
-        return f"Variable('{self._label}')"
+        return f"Variable('{self._id}')"
 
 
 class Constant(Expression):

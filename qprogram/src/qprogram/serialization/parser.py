@@ -12,6 +12,7 @@ from qprogram.blocks.block import Block
 from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
+from qprogram.buses import BusInfo, BusRef
 from qprogram.crosstalk_matrix import CrosstalkMatrix
 from qprogram.operations.get_parameter import GetParameter
 from qprogram.operations.measure import Measure
@@ -27,7 +28,7 @@ from qprogram.operations.sync import Sync
 from qprogram.operations.wait import Wait
 from qprogram.qprogram import QProgram
 from qprogram.serialization.registry import get_operation_class, get_vendor_version, get_waveform_class
-from qprogram.variable import _LABEL_RE
+from qprogram.variable import _ID_RE
 
 if TYPE_CHECKING:
     from qprogram.variable import Expression, Variable
@@ -66,6 +67,7 @@ class _Parser:
         self._program = QProgram()
         self._variables: dict[str, Variable] = {}
         self._required_vendors: set[str] = set()
+        self._bus_refs: dict[str, BusRef] = {}
 
     # -- public entry point --------------------------------------------------
 
@@ -80,6 +82,9 @@ class _Parser:
             if line == "metadata:":
                 self._pos += 1
                 self._parse_metadata()
+            elif line == "schema:":
+                self._pos += 1
+                self._parse_schema()
             elif line == "body:":
                 self._pos += 1
                 self._parse_body()
@@ -191,6 +196,117 @@ class _Parser:
                     self._program.description = val
             self._pos += 1
 
+    # -- schema (BusRef declarations) ---------------------------------------
+
+    _BUS_ATTRS: ClassVar[frozenset[str]] = frozenset({"channel", "element", "index", "bus_type"})
+
+    def _parse_schema(self) -> None:
+        """Parse the optional ``schema:`` section into ``self._bus_refs``."""
+        while self._pos < len(self._lines):
+            line = self._stripped()
+            indent = self._indent()
+            if not line:
+                self._pos += 1
+                continue
+            if indent < 2:
+                break
+            if not line.startswith("bus "):
+                msg = f"unexpected line in schema section: {line!r}"
+                raise ParseError(msg, self._pos + 1)
+            ref = self._parse_bus_decl(line)
+            if str(ref) in self._bus_refs:
+                msg = f"duplicate bus declaration {str(ref)!r}"
+                raise ParseError(msg, self._pos + 1)
+            self._bus_refs[str(ref)] = ref
+            self._pos += 1
+
+    def _parse_bus_decl(self, line: str) -> BusRef:
+        tokens = _tokenize(line)
+        if len(tokens) < 2 or tokens[0] != "bus":
+            msg = (
+                f"`bus` declaration must have the form "
+                f'`bus "<name>" channel=<single|IQ> [acquires] [element="..."] [index=N] [bus_type="..."]`. '
+                f"Got: {line!r}"
+            )
+            raise ParseError(msg, self._pos + 1)
+        name = self._unquote_or_raise(tokens[1], "bus name")
+        attrs: dict[str, object] = {"channel": "single", "acquires": False, "element": "", "index": 0, "bus_type": ""}
+        seen: set[str] = set()
+        for tok in tokens[2:]:
+            self._apply_bus_token(tok, attrs, seen)
+        info = BusInfo(channel=attrs["channel"], acquires=attrs["acquires"])  # type: ignore[arg-type]
+        return BusRef(
+            name,
+            element=attrs["element"],  # type: ignore[arg-type]
+            index=attrs["index"],  # type: ignore[arg-type]
+            bus_type=attrs["bus_type"],  # type: ignore[arg-type]
+            info=info,
+        )
+
+    def _apply_bus_token(self, tok: str, attrs: dict[str, object], seen: set[str]) -> None:
+        if tok == "acquires":
+            if "acquires" in seen:
+                msg = "duplicate `acquires` flag in bus declaration"
+                raise ParseError(msg, self._pos + 1)
+            seen.add("acquires")
+            attrs["acquires"] = True
+            return
+        if "=" not in tok:
+            msg = f"unexpected token {tok!r} in `bus` declaration; expected key=value or `acquires`"
+            raise ParseError(msg, self._pos + 1)
+        key, _, value = tok.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if key not in self._BUS_ATTRS:
+            allowed = ", ".join(sorted(self._BUS_ATTRS))
+            msg = f"unknown bus attribute {key!r}; allowed: {allowed}, acquires"
+            raise ParseError(msg, self._pos + 1)
+        if key in seen:
+            msg = f"duplicate bus attribute {key!r}"
+            raise ParseError(msg, self._pos + 1)
+        seen.add(key)
+        if key == "channel":
+            if value not in ("single", "IQ"):
+                msg = f"bus `channel` must be `single` or `IQ`, got {value!r}"
+                raise ParseError(msg, self._pos + 1)
+            attrs["channel"] = value
+        elif key == "index":
+            attrs["index"] = self._parse_bus_index(value)
+        else:  # element or bus_type — both are quoted strings
+            attrs[key] = self._unquote_or_raise(value, f"bus `{key}`")
+
+    def _parse_bus_index(self, value: str) -> int | tuple:
+        try:
+            if "," in value:
+                return tuple(int(p.strip()) for p in value.split(","))
+            return int(value)
+        except ValueError as e:
+            msg = f"bus `index` must be an integer or comma-separated integers, got {value!r}"
+            raise ParseError(msg, self._pos + 1) from e
+
+    def _unquote_or_raise(self, value: str, label: str) -> str:
+        if len(value) < 2 or not (value.startswith('"') and value.endswith('"')):
+            msg = f"{label} must be a quoted string, got {value!r}"
+            raise ParseError(msg, self._pos + 1)
+        return _unescape_str(value[1:-1])
+
+    def _upgrade_busrefs(self, op: object) -> None:
+        """Replace plain-string bus attributes with their declared BusRef.
+
+        Walks the operation's instance attributes; any string value that is
+        not already a BusRef but matches a declared bus name is swapped in
+        place. Also handles ``list[str]`` attributes (e.g. ``Sync.buses``).
+        """
+        if not self._bus_refs:
+            return
+        for key, value in vars(op).items():
+            if isinstance(value, str) and not isinstance(value, BusRef) and value in self._bus_refs:
+                setattr(op, key, self._bus_refs[value])
+            elif isinstance(value, list):
+                for i, item in enumerate(value):
+                    if isinstance(item, str) and not isinstance(item, BusRef) and item in self._bus_refs:
+                        value[i] = self._bus_refs[item]
+
     # -- body ----------------------------------------------------------------
 
     def _parse_body(self) -> None:
@@ -206,12 +322,12 @@ class _Parser:
             if indent < min_indent:
                 break
             if line.startswith("var "):
-                label, attrs = self._parse_var_decl(line)
-                if label in self._variables:
-                    msg = f"duplicate variable label '{label}'"
+                var_id, attrs = self._parse_var_decl(line)
+                if var_id in self._variables:
+                    msg = f"duplicate variable id '{var_id}'"
                     raise ParseError(msg, self._pos + 1)
-                var = self._program.variable(label, **attrs)
-                self._variables[label] = var
+                var = self._program.variable(var_id, **attrs)
+                self._variables[var_id] = var
                 self._pos += 1
             elif line.startswith("for ") or ("|" in line and "for " in line):
                 self._parse_loop_or_parallel(parent, min_indent)
@@ -222,32 +338,33 @@ class _Parser:
             else:
                 op = self._parse_operation(line)
                 if op is not None:
+                    self._upgrade_busrefs(op)
                     parent.append(op)
                 self._pos += 1
 
     # -- variable declarations ----------------------------------------------
 
-    _VAR_ATTRS: ClassVar[frozenset[str]] = frozenset({"long_name", "units", "description"})
+    _VAR_ATTRS: ClassVar[frozenset[str]] = frozenset({"label", "units", "description"})
 
     def _parse_var_decl(self, line: str) -> tuple[str, dict[str, str]]:
-        """Parse a ``var <label> [key="value"]...`` line.
+        """Parse a ``var <id> [key="value"]...`` line.
 
-        The label must be a Python-style identifier. Optional ``long_name``,
+        The id must be a Python-style identifier. Optional ``label``,
         ``units``, and ``description`` may appear in any order as quoted
-        ``key="value"`` pairs. Returns ``(label, attrs)``.
+        ``key="value"`` pairs. Returns ``(id, attrs)``.
         """
         tokens = _tokenize(line)
         if len(tokens) < 2 or tokens[0] != "var":
             msg = (
                 f"`var` declaration must have the form "
-                f'`var <label> [long_name="..."] [units="..."] [description="..."]`. '
+                f'`var <id> [label="..."] [units="..."] [description="..."]`. '
                 f"Got: {line!r}"
             )
             raise ParseError(msg, self._pos + 1)
-        label = tokens[1]
-        if not _LABEL_RE.match(label):
+        var_id = tokens[1]
+        if not _ID_RE.match(var_id):
             msg = (
-                f"variable label {label!r} is invalid: must match "
+                f"variable id {var_id!r} is invalid: must match "
                 f"[A-Za-z_][A-Za-z0-9_]* (no spaces or special characters)"
             )
             raise ParseError(msg, self._pos + 1)
@@ -271,7 +388,7 @@ class _Parser:
                 msg = f"variable attribute {key!r} must be a quoted string, got: {value!r}"
                 raise ParseError(msg, self._pos + 1)
             attrs[key] = _unescape_str(value[1:-1])
-        return label, attrs
+        return var_id, attrs
 
     # -- loops ---------------------------------------------------------------
 

@@ -26,6 +26,7 @@ from qprogram.blocks.block import Block
 from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
+from qprogram.buses import BusRef
 from qprogram.operations.get_parameter import GetParameter
 from qprogram.operations.measure import Measure
 from qprogram.operations.play import Play
@@ -72,7 +73,7 @@ class _Writer:
         self._out = StringIO()
         # Map Variable.id -> chosen identifier in the .qp file. Built lazily
         # by allocate_var_idents() before any body emission.
-        self._var_idents: dict[int, str] = {}
+        self._var_idents: dict[str, str] = {}
 
     # -- public ---------------------------------------------------------------
 
@@ -81,6 +82,7 @@ class _Writer:
         self._write_header()
         self._write_requires()
         self._write_metadata()
+        self._write_schema()
         self._write_body()
         return self._out.getvalue()
 
@@ -116,13 +118,67 @@ class _Writer:
             if self._program.description:
                 self._out.write(f'  description: "{_escape_str(self._program.description)}"\n')
 
+    # -- schema (BusRef declarations) ----------------------------------------
+
+    def _write_schema(self) -> None:
+        """Emit a ``schema:`` section declaring every BusRef used in the body.
+
+        Plain ``str`` buses are not declared. The declarations preserve
+        ``channel``, ``acquires``, ``element``, ``index``, and ``bus_type`` so
+        the parser can rebuild the BusRef instances on load and downstream
+        validation (waveform channel type, acquisition support) keeps working.
+        """
+        busrefs = self._collect_busrefs(self._program.body)
+        if not busrefs:
+            return
+        self._out.write("\nschema:\n")
+        for ref in sorted(busrefs, key=str):
+            self._out.write(f"  {self._serialize_bus_decl(ref)}\n")
+
+    @staticmethod
+    def _serialize_bus_decl(ref: BusRef) -> str:
+        parts = [f'bus "{_escape_str(str(ref))}" channel={ref.info.channel}']
+        if ref.info.acquires:
+            parts.append("acquires")
+        # Emit element/index/bus_type as a triplet only when any is non-default
+        # — bare BusRefs (no schema metadata) get just channel/acquires.
+        if ref.element or ref.bus_type or ref.index != 0:
+            parts.append(f'element="{_escape_str(ref.element)}"')
+            if isinstance(ref.index, tuple):
+                parts.append(f"index={','.join(str(i) for i in ref.index)}")
+            else:
+                parts.append(f"index={ref.index}")
+            parts.append(f'bus_type="{_escape_str(ref.bus_type)}"')
+        return " ".join(parts)
+
+    @staticmethod
+    def _collect_busrefs(block: Block) -> set[BusRef]:
+        """Walk the block tree and collect every BusRef instance used."""
+        acc: dict[str, BusRef] = {}
+        _Writer._walk_busrefs(block, acc)
+        return set(acc.values())
+
+    @staticmethod
+    def _walk_busrefs(block: Block, acc: dict[str, BusRef]) -> None:
+        for el in block.elements:
+            if isinstance(el, Block):
+                _Writer._walk_busrefs(el, acc)
+                continue
+            for value in vars(el).values():
+                if isinstance(value, BusRef):
+                    acc[str(value)] = value
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, BusRef):
+                            acc[str(item)] = item
+
     # -- body & variable declarations -----------------------------------------
 
     def _write_body(self) -> None:
         self._out.write("\nbody:\n")
-        # Variable labels are valid identifiers and unique within a program
+        # Variable ids are valid identifiers and unique within a program
         # (validated by Variable.__init__ and QProgram.variable), so they are
-        # used verbatim as identifiers here. Optional metadata (long_name,
+        # used verbatim as identifiers here. Optional metadata (label,
         # units, description) is emitted as `key="value"` kwargs.
         for var in self._program.variables:
             self._out.write(f"  {self._serialize_var_decl(var)}\n")
@@ -131,9 +187,9 @@ class _Writer:
         self._write_block_contents(self._program.body, indent=2)
 
     def _serialize_var_decl(self, var: Variable) -> str:
-        parts = [f"var {var.label}"]
-        if var.long_name is not None:
-            parts.append(f'long_name="{_escape_str(var.long_name)}"')
+        parts = [f"var {var.id}"]
+        if var.label is not None:
+            parts.append(f'label="{_escape_str(var.label)}"')
         if var.units is not None:
             parts.append(f'units="{_escape_str(var.units)}"')
         if var.description is not None:
@@ -281,12 +337,12 @@ class _Writer:
     def _allocate_var_idents(self) -> None:
         """Map each Variable to its identifier in the .qp file.
 
-        Variable labels are validated to be Python-style identifiers
+        Variable ids are validated to be Python-style identifiers
         (``[A-Za-z_][A-Za-z0-9_]*``) and ``QProgram.variable`` rejects
-        duplicates, so the label is used verbatim as the identifier.
+        duplicates, so the id is used verbatim as the identifier.
         """
         for var in self._program.variables:
-            self._var_idents[var.id] = var.label
+            self._var_idents[var.id] = var.id
 
     # -- vendor collection ----------------------------------------------------
 

@@ -22,7 +22,7 @@ Design goals:
 
 # 2. File Structure
 
-A `.qp` file has two sections, in order. `metadata` is optional; `body` is required.
+A `.qp` file has up to three optional sections plus a required body, in order. `metadata` and `schema` are optional; `body` is required.
 
 ```
 #!QProgram 1.0
@@ -31,6 +31,9 @@ require <vendor> <major.minor>   # optional, one per vendor dependency
 
 metadata:
   ...
+
+schema:
+  ...                            # optional, declares BusRef metadata for typed buses
 
 body:
   ...
@@ -100,48 +103,92 @@ All fields are optional. Values are strings (quoted), numbers, or booleans (`tru
 
 ---
 
+# 3a. Schema Section
+
+The optional `schema:` section declares per-bus metadata (channel type, acquisition support, structural element/index/bus_type) for buses that were originally `BusRef` instances in Python. Without this section a bus name is just a string, so on round-trip the program loses the metadata that drives `_validate_waveform_channel` and `_validate_acquires`.
+
+A `BusSchema` instance itself is **not** serialized — only the materialized BusRefs that the schema produced for buses actually used in the program. The schema *type* (e.g. `TransmonSchema`) is platform-side and is reconstructed by the platform on load if needed.
+
+```
+schema:
+  bus "q0/drive"   channel=IQ            element="q" index=0   bus_type="drive"
+  bus "q0/readout" channel=IQ acquires   element="q" index=0   bus_type="readout"
+  bus "c0_1/flux"  channel=single        element="c" index=0,1 bus_type="flux"
+```
+
+**Form** (one declaration per line):
+
+```
+bus "<name>" channel=<single|IQ> [acquires] [element="..."] [index=<int>|<i,j,...>] [bus_type="..."]
+```
+
+- `<name>` is the bus string used everywhere else in the body. Each `bus` line maps a name to its full BusRef metadata.
+- `channel=` is a bare keyword: `single` for real waveforms, `IQ` for complex.
+- `acquires` is a bare flag — present iff the bus has an ADC (`measure()` is allowed). Absent means `acquires=false`.
+- `element=` and `bus_type=` are quoted strings (free-form per platform — typically `"q"`, `"c"`, `"drive"`, `"readout"`, `"flux"`).
+- `index=` is an integer (`index=0`) or a comma-separated tuple of integers (`index=0,1`). Tuples are unquoted and use the same comma form that BusNaming uses for the printed index suffix.
+- `element`/`index`/`bus_type` are emitted as a triplet only when at least one is non-default; bare BusRefs get just `channel`/`acquires`.
+
+**Round-trip behavior:**
+
+- A `BusRef` in the program produces a `bus` line in the schema. On load, the parser reconstructs an equivalent `BusRef` and substitutes it everywhere the bare name appears in operations (including `Sync.buses` and vendor-operation bus attributes).
+- A plain `str` bus produces no `bus` line. On load, the bus stays a plain `str`. Validation continues to be skipped for plain-string buses, exactly as in Python.
+- The section is optional. A program that uses only plain strings serialises with no `schema:` section.
+- Within a file, each `<name>` may be declared at most once.
+
+The parser rejects:
+
+- duplicate `bus` declarations for the same name,
+- unquoted `element`/`bus_type` values,
+- a `channel=` value other than `single` or `IQ`,
+- non-integer `index` components,
+- duplicate or unknown bus attributes,
+- stray tokens that are neither `acquires` nor a recognised `key=value`.
+
+---
+
 # 4. Body Section
 
 The body contains variable declarations and the operation/control flow tree.
 
 ## 4.1 Variable Declarations
 
-Each variable is declared with a mandatory **`label`** (which doubles as the identifier used everywhere else in the body) and up to three optional metadata attributes — `long_name`, `units`, `description`. The form is:
+Each variable is declared with a mandatory **`id`** (which doubles as the identifier used everywhere else in the body) and up to three optional metadata attributes — `label`, `units`, `description`. The form is:
 
 ```
-var <label> [long_name="..."] [units="..."] [description="..."]
+var <id> [label="..."] [units="..."] [description="..."]
 ```
 
-- `<label>` must match `[A-Za-z_][A-Za-z0-9_]*` (Python identifier rules — letters, digits, underscores only; cannot start with a digit; no spaces or punctuation). Labels are used **verbatim** as the identifier in references such as `for <label> in range(...)`, so no transformation or quoting happens at write time.
-- `<label>` must be unique among `var` declarations in a single file.
-- Optional attributes (`long_name`, `units`, `description`) carry human-readable metadata for plotting, results coordinates, and documentation. They appear as quoted `key="value"` pairs in any order, separated by whitespace, on the same line as the `var` keyword. Each attribute may appear at most once.
+- `<id>` must match `[A-Za-z_][A-Za-z0-9_]*` (Python identifier rules — letters, digits, underscores only; cannot start with a digit; no spaces or punctuation). Ids are used **verbatim** as the identifier in references such as `for <id> in range(...)`, so no transformation or quoting happens at write time.
+- `<id>` must be unique among `var` declarations in a single file.
+- Optional attributes (`label`, `units`, `description`) carry human-readable metadata for plotting, results coordinates, and documentation. They appear as quoted `key="value"` pairs in any order, separated by whitespace, on the same line as the `var` keyword. Each attribute may appear at most once.
 - Backslashes and double quotes inside attribute values are escaped (`\\`, `\"`).
 
 **Examples**
 
 ```
 body:
-  var freq                                                          # bare label, no metadata
-  var amp long_name="Amplitude"
+  var freq                                                          # bare id, no metadata
+  var amp label="Amplitude"
   var dur units="ns"
-  var t   long_name="Idle time" units="ns"
-  var phi long_name="Phase offset" units="rad" description="NCO phase for echo arm"
+  var t   label="Idle time" units="ns"
+  var phi label="Phase offset" units="rad" description="NCO phase for echo arm"
 ```
 
 The parser rejects:
 
-- labels that contain spaces or non-identifier characters (`var Wait Duration (ns)`),
-- labels that start with a digit (`var 1freq`),
-- duplicate labels in the same file,
-- unquoted attribute values (`long_name=foo`),
+- ids that contain spaces or non-identifier characters (`var Wait Duration (ns)`),
+- ids that start with a digit (`var 1freq`),
+- duplicate ids in the same file,
+- unquoted attribute values (`label=foo`),
 - unknown attributes (`foo="bar"`),
 - duplicate attributes on a single `var` line.
 
 Each line ends after the last `key="value"` pair; tokens past those (without `=`) are reported as `unexpected token … in `var` declaration`.
 
-**Why labels must be identifiers.** Labels are referenced unquoted inside loops, expressions, and `get_parameter -> <label>`. Restricting them to identifier syntax keeps the grammar regular and the parser simple. The optional `long_name` covers the cases that previously needed the free-form label string (axis names, plot titles, anything with spaces).
+**Why ids must be identifiers.** Ids are referenced unquoted inside loops, expressions, and `get_parameter -> <id>`. Restricting them to identifier syntax keeps the grammar regular and the parser simple. The optional `label` covers the cases that need a free-form string (axis names, plot titles, anything with spaces).
 
-**Identity-based variables in the Python API.** Variables in Python use identity-based equality, but `program.variable(label, ...)` enforces label uniqueness within a program, so a saved `.qp` file always has unique `<label>`s and no disambiguation suffixes are emitted.
+**Identity-based variables in the Python API.** Variables in Python use identity-based equality, but `program.variable(id, ...)` enforces id uniqueness within a program, so a saved `.qp` file always has unique `<id>`s and no disambiguation suffixes are emitted.
 
 ## 4.2 Operations
 
@@ -338,16 +385,25 @@ body:
 file           := header require* section*
 header         := "#!QProgram" VERSION
 require        := "require" IDENT VERSION
-section        := metadata_sec | body_sec
+section        := metadata_sec | schema_sec | body_sec
 
 metadata_sec   := "metadata:" NEWLINE INDENT kv_pair+
 kv_pair        := IDENT ":" value
 
+schema_sec     := "schema:" NEWLINE INDENT bus_decl+
+bus_decl       := "bus" STRING bus_attr*
+bus_attr       := "acquires"
+                | "channel" "=" ("single" | "IQ")
+                | "element" "=" STRING
+                | "index" "=" INDEX
+                | "bus_type" "=" STRING
+INDEX          := NUMBER | NUMBER ("," NUMBER)+
+
 body_sec       := "body:" NEWLINE INDENT statement+
 statement      := var_decl | operation | control_block
-var_decl       := "var" LABEL var_attr*
-var_attr       := ("long_name" | "units" | "description") "=" STRING
-LABEL          := [A-Za-z_][A-Za-z0-9_]*
+var_decl       := "var" ID var_attr*
+var_attr       := ("label" | "units" | "description") "=" STRING
+ID             := [A-Za-z_][A-Za-z0-9_]*
 operation      := (VENDOR ".")? OP_NAME arg*
 arg            := STRING | NUMBER | IDENT | waveform_expr | expression
 expression     := (IDENT | NUMBER) ("+" | "-") (IDENT | NUMBER)

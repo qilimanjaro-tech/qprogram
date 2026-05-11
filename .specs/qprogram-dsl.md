@@ -134,6 +134,13 @@ bus.acquires            # False  (shortcut for bus.info.acquires)
 
 q[0].readout.acquires   # True   (readout has ADC)
 ```
+
+### Serialization round-trip
+
+`BusRef` metadata is preserved across `.qp` round-trip via the file's `schema:` section. Each unique `BusRef` used in the program gets one `bus "<name>" channel=… [acquires] element=… index=… bus_type=…` line; on load, the parser reconstructs equivalent `BusRef` instances and substitutes them into operations wherever the bare name appears. Plain `str` buses produce no `schema:` entry and remain plain strings on reload — validation is skipped for them in both directions, consistent with Python-side behavior.
+
+The `BusSchema` *type* (e.g. `TransmonSchema`) is not serialized — schemas live platform-side. What gets preserved is the materialized BusRef metadata for buses actually used in the program, which is what `_validate_waveform_channel`, `_validate_acquires`, and downstream tooling care about.
+
 ### Validation
 When a bus is referenced through the schema, operations validate at program-construction time:
 **Waveform channel type** — `play()` checks waveform type matches the bus channel:
@@ -351,14 +358,14 @@ gain = program.variable("gain")
 ```
 There is a single `Variable` type. No `IntVariable`, `FloatVariable`, or `Domain` enum.
 
-### Label, long_name, units, description
+### Id, label, units, description
 
-Every `Variable` carries a mandatory **`label`** plus three optional pieces of metadata for documentation and downstream tooling (axis names, plot titles, results coordinates):
+Every `Variable` carries a mandatory **`id`** plus three optional pieces of metadata for documentation and downstream tooling (axis names, plot titles, results coordinates):
 
 ```python
 freq = program.variable(
     "freq",
-    long_name="Drive Frequency",
+    label="Drive Frequency",
     units="Hz",
     description="Carrier frequency swept across the qubit transition",
 )
@@ -366,26 +373,26 @@ freq = program.variable(
 
 | Field         | Type            | Required | Purpose                                                                                          |
 |---------------|-----------------|----------|--------------------------------------------------------------------------------------------------|
-| `label`       | `str`           | yes      | Short identifier. Doubles as the identifier in the `.qp` file format.                            |
-| `long_name`   | `str \| None`   | no       | Free-form human-readable name (used for axis labels, plot titles, result-array dimension names). |
+| `id`          | `str`           | yes      | Short identifier. Doubles as the identifier in the `.qp` file format.                            |
+| `label`       | `str \| None`   | no       | Free-form human-readable name (used for axis labels, plot titles, result-array dimension names). |
 | `units`       | `str \| None`   | no       | Unit string (e.g. `"Hz"`, `"ns"`, `"V"`). Carried into result coordinates.                       |
 | `description` | `str \| None`   | no       | Longer description of what the variable represents.                                              |
 
-**`label` rules.** Because the label is also the identifier in `.qp` files, it is restricted to a Python-style identifier:
+**`id` rules.** Because the id is also the identifier in `.qp` files, it is restricted to a Python-style identifier:
 
 - Must match `[A-Za-z_][A-Za-z0-9_]*` — letters, digits, underscores only; cannot start with a digit; no spaces or punctuation.
 - Must be unique within a single `QProgram`. `program.variable("freq")` raises `ValueError` if `"freq"` is already declared.
-- An invalid label raises `InvalidVariableLabelError` (a `ValueError` subclass) at construction time.
+- An invalid id raises `InvalidVariableIdError` (a `ValueError` subclass) at construction time.
 
-For anything richer than a short identifier — spaces, units, full sentences — use `long_name` and `description`. Examples:
+For anything richer than a short identifier — spaces, units, full sentences — use `label` and `description`. Examples:
 
 ```python
-program.variable("freq", long_name="Drive frequency (q0)", units="Hz")
-program.variable("t_pi", long_name="π-pulse duration", units="ns")
-program.variable("phi",  long_name="Phase", units="rad", description="NCO phase offset for echo sequence")
+program.variable("freq", label="Drive frequency (q0)", units="Hz")
+program.variable("t_pi", label="π-pulse duration", units="ns")
+program.variable("phi",  label="Phase", units="rad", description="NCO phase offset for echo sequence")
 ```
 
-The runtime executor still uses `label` for identity-bearing operations; `long_name`/`units`/`description` are pure metadata and never affect program semantics.
+The runtime executor still uses `id` for identity-bearing operations; `label`/`units`/`description` are pure metadata and never affect program semantics.
 ## 3.3 Building expressions
 All arithmetic operators are supported on any `Expression`. Literals are auto-wrapped:
 ```python

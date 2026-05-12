@@ -22,7 +22,7 @@ Design goals:
 
 # 2. File Structure
 
-A `.qp` file has up to three kinds of optional declarations plus a required body, in order. `metadata` is optional; any number of `schema` declarations may appear (zero or more); `body` is required.
+A `.qp` file has up to three kinds of optional declarations plus a required body, in order. `metadata` is optional; **at most one** `schema` declaration may appear (zero or one); `body` is required.
 
 ```
 #!QProgram 1.0
@@ -32,11 +32,7 @@ require <vendor> <major.minor>   # optional, one per vendor dependency
 metadata:
   ...
 
-schema: transmon                 # zero or more schema declarations (Section 3a)
-schema chip:
-  element q:
-    drive info=IQ
-  ...
+schema: transmon                 # optional, at most one (Section 3a)
 
 body:
   ...
@@ -106,34 +102,30 @@ All fields are optional. Values are strings (quoted), numbers, or booleans (`tru
 
 ---
 
-# 3a. Schema Declarations
+# 3a. Schema Declaration
 
 Buses fall into three categories, each with its own serialization:
 
 1. **Plain string** — `play "drive_q0_bus" pulse`. No schema section. The bus is just a string, no metadata.
 2. **Preset schema** (one of the built-in `BusSchema` subclasses — `transmon`, `transmon_coupled`, `flux_tunable_transmon`, `flux_tunable_transmon_coupled`, `fluxonium`, `fluxonium_coupled`). One-liner declaration; the parser instantiates the preset class.
-3. **Custom / dynamic schema** (`BusSchema(name=...)` populated via `add_element`, or a user subclass of `BusSchema`). Full inline declaration so the parser can rebuild the structure without the user's Python class.
+3. **Custom / dynamic schema** (`BusSchema()` populated via `add_element`, or a user subclass of `BusSchema`). Full inline declaration so the parser can rebuild the structure without the user's Python class.
 
-Schema declarations are independent top-level items, written **before** `body:` and **after** any `require` and `metadata:` sections. A program may declare any number of schemas; each must have a unique name.
+**One schema per program.** A `.qp` file declares at most one `schema:` block (written before `body:` and after `require` / `metadata:`). The single-schema model lets operation bus references be terse paths — `q[0].drive` rather than `transmon.q[0].drive` — because there's only one schema they could resolve against. Programs that need multiple chip layouts can still use plain-string buses for the second-citizen ones, or roll them into a single inline schema with disjoint element names.
 
 ## 3a.1 Preset (one-liner) form
 
 ```
-schema: transmon                                    # name = "transmon", default naming
-schema: transmon("{kind}_{element}{index}_bus")     # default name, custom naming pattern
-schema A: transmon                                  # aliased preset (useful with multiple schemas)
-schema A: transmon("{kind}_{element}{index}_bus")   # aliased + custom naming
+schema: transmon                                    # default naming
+schema: transmon("{kind}_{element}{index}_bus")     # custom naming pattern
 ```
 
-- `schema: <kind>` — bare form, equivalent to `schema <kind>: <kind>`.
-- `schema <name>: <kind>` — gives the schema an explicit `<name>`. The body uses this name in bus paths.
-- Optional `("<pattern>")` after the kind sets the `BusNaming` pattern. The pattern uses `{element}`, `{index}`, `{kind}` placeholders.
 - `<kind>` must be a built-in preset (else the parser errors and points at the inline form).
+- Optional `("<pattern>")` after the kind sets the `BusNaming` pattern. The pattern uses `{element}`, `{index}`, `{kind}` placeholders.
 
 ## 3a.2 Custom / dynamic (inline) form
 
 ```
-schema chip:
+schema:
   naming: "{element}{index}/{kind}"                # optional; default if omitted
   element q:
     drive   info=IQ
@@ -143,8 +135,7 @@ schema chip:
     flux    info=single
 ```
 
-- `schema <name>:` with no kind on the same line opens an inline body.
-- `<name>` is mandatory and unique within the file.
+- `schema:` with no kind on the same line opens an inline body.
 - Optional `naming: "<pattern>"` line; the default is `"{element}{index}/{kind}"`.
 - One or more `element <elem>:` blocks. Each lists bus kinds as `<kind> info=<channel>[+acquires]` lines.
 - `info=` channel is required (`single` or `IQ`); the only currently defined flag is `acquires` (bus has an ADC). Examples: `info=single`, `info=IQ`, `info=IQ+acquires`.
@@ -154,35 +145,34 @@ User-typed `BusSchema` subclasses (e.g. `MyChipSchema` with `KIND = "my_chip"` a
 
 ## 3a.3 Bus references in operations
 
-Buses backed by a schema reference are written as paths in operation arguments:
+Buses backed by the program's schema are written as paths in operation arguments — no schema name prefix, since there's only one schema:
 
 ```
-play   transmon.q[0].drive    pulse
-measure transmon.q[0].readout "r" "w"
-set_offset chip.c[0,1].flux   0.5
-sync   transmon.q[0].readout  transmon.q[1].readout
+play   q[0].drive    pulse
+measure q[0].readout "r" "w"
+set_offset c[0,1].flux 0.5
+sync   q[0].readout  q[1].readout
 ```
 
-- Form: `<schema_name>.<element>[<index>].<kind>`.
+- Form: `<element>[<index>].<kind>`.
 - `<index>` is an integer (`q[0]`) or a comma-separated tuple of integers (`c[0,1]`). No spaces inside brackets.
 - Plain string buses stay quoted (`"raw_bus"`), as in case 1.
-- The parser resolves each path against the parsed schemas to produce a `BusRef` with full metadata (`kind`, `element`, `index`, `channel`, `acquires`, `schema`). Validation (`_validate_waveform_channel`, `_validate_acquires`) works post-load on these refs.
+- The parser resolves each path against `program.schema` (the one and only schema attached to the program) to produce a `BusRef` with full metadata (`kind`, `element`, `index`, `channel`, `acquires`). Validation (`_validate_waveform_channel`, `_validate_acquires`) works post-load on these refs.
 
 ## 3a.4 Round-trip notes
 
-- Built-in preset → one-liner. Loader instantiates the same preset class.
-- Custom/dynamic schema → inline. Loader rebuilds a `BusSchema` via `add_element()` calls. The schema instance is dynamic, not the original user subclass.
+- Built-in preset → one-liner. Loader instantiates the same preset class and attaches it as `program.schema`.
+- Custom/dynamic schema → inline. Loader rebuilds a `BusSchema` via `add_element()` calls and attaches it as `program.schema`. The schema instance is dynamic, not the original user subclass.
 - Plain string buses → no declaration; remain plain strings on reload.
-- Mixed: a single program can use any combination — multiple presets (each with a unique alias), plus a custom schema, plus plain strings.
-- `BusRef` instances reconstructed by the loader carry the same `schema` link, so re-serialization is byte-stable.
+- Mixed: a single program can mix schema-backed bus paths with plain-string buses freely.
 
 The parser rejects:
 
+- a second `schema:` declaration in the same file,
 - unknown preset `<kind>` with no inline body,
 - inline schemas with no element declarations,
-- duplicate schema names,
 - malformed `info=` values (no channel, multiple channels, unknown token, duplicate flag),
-- bus paths whose schema name is declared but whose element/kind don't exist on it,
+- bus paths whose element/kind don't exist on the program's schema,
 - bus paths with non-integer index components.
 
 ---
@@ -431,8 +421,8 @@ metadata_sec   := "metadata:" NEWLINE INDENT kv_pair+
 kv_pair        := IDENT ":" value
 
 schema_decl    := preset_schema | inline_schema
-preset_schema  := "schema" (IDENT)? ":" KIND ("(" STRING ")")? NEWLINE
-inline_schema  := "schema" IDENT ":" NEWLINE INDENT
+preset_schema  := "schema:" KIND ("(" STRING ")")? NEWLINE
+inline_schema  := "schema:" NEWLINE INDENT
                     ("naming:" STRING NEWLINE)?
                     element_block+
 element_block  := "element" IDENT ":" NEWLINE INDENT bus_line+
@@ -444,8 +434,7 @@ KIND           := "transmon" | "transmon_coupled"
                 | "flux_tunable_transmon" | "flux_tunable_transmon_coupled"
                 | "fluxonium" | "fluxonium_coupled"
 bus_ref        := STRING | bus_path
-bus_path       := SCHEMA_NAME "." ELEMENT "[" INDEX "]" "." KIND_NAME
-SCHEMA_NAME    := IDENT
+bus_path       := ELEMENT "[" INDEX "]" "." KIND_NAME
 ELEMENT        := IDENT
 KIND_NAME      := IDENT
 INDEX          := NUMBER | NUMBER ("," NUMBER)+

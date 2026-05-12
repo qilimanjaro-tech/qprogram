@@ -26,7 +26,7 @@ from qprogram.blocks.block import Block
 from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
-from qprogram.buses import BusNaming, BusRef, BusSchema, is_builtin_preset
+from qprogram.buses import BusNaming, BusRef, is_builtin_preset
 from qprogram.operations.get_parameter import GetParameter
 from qprogram.operations.measure import Measure
 from qprogram.operations.play import Play
@@ -118,50 +118,32 @@ class _Writer:
             if self._program.description:
                 self._out.write(f'  description: "{_escape_str(self._program.description)}"\n')
 
-    # -- schema declarations -------------------------------------------------
+    # -- schema declaration --------------------------------------------------
 
     def _write_schema(self) -> None:
-        """Emit one ``schema ...`` block per distinct schema used in the body.
+        """Emit the optional single ``schema`` block declared on the program.
 
-        Built-in presets emit a one-liner (``schema: transmon`` or with an
-        alias / custom naming pattern). User subclasses and dynamic schemas
-        emit a full inline block with element/bus declarations so the parser
-        can rebuild the structure without knowing the user's Python class.
+        Built-in presets emit a one-liner (``schema: transmon`` or with a
+        custom naming pattern). User subclasses and dynamic schemas emit a
+        full inline block with element/bus declarations so the parser can
+        rebuild the structure without knowing the user's Python class.
 
-        Plain ``str`` buses and BusRefs with no ``schema`` link produce no
-        declaration and round-trip as bare quoted strings.
+        If the program has no schema (``program.schema is None``), this is a
+        no-op and bus references in operations fall back to quoted strings.
         """
-        schemas = self._collect_schemas(self._program.body)
-        if not schemas:
+        schema = self._program.schema
+        if schema is None:
             return
-        seen_names: dict[str, BusSchema] = {}
-        for schema in schemas:
-            name = schema.name
-            if not name:
-                msg = (
-                    f"Cannot serialize: schema of type {type(schema).__name__} has no "
-                    f"name. Either use a preset (which auto-sets `name = KIND`) or pass "
-                    f'`name="..."` to the schema constructor.'
-                )
-                raise RuntimeError(msg)
-            if name in seen_names and seen_names[name] is not schema:
-                msg = (
-                    f"Cannot serialize: two distinct schemas share the name {name!r}. "
-                    f"Give each a unique `name=` when constructing."
-                )
-                raise RuntimeError(msg)
-            seen_names[name] = schema
-        for schema in sorted(schemas, key=lambda s: s.name):
-            self._out.write("\n")
-            self._write_one_schema(schema)
-
-    def _write_one_schema(self, schema: BusSchema) -> None:
+        self._out.write("\n")
         custom_naming = schema.naming.pattern != BusNaming.DEFAULT_PATTERN
         if is_builtin_preset(schema):
-            self._out.write(self._serialize_preset_header(schema, custom_naming=custom_naming) + "\n")
+            if custom_naming:
+                self._out.write(f'schema: {schema.KIND}("{_escape_str(schema.naming.pattern)}")\n')
+            else:
+                self._out.write(f"schema: {schema.KIND}\n")
             return
         # Inline form for user-typed subclasses and dynamic schemas.
-        self._out.write(f"schema {schema.name}:\n")
+        self._out.write("schema:\n")
         if custom_naming:
             self._out.write(f'  naming: "{_escape_str(schema.naming.pattern)}"\n')
         for element_name, element_schema in schema.elements.items():
@@ -169,53 +151,6 @@ class _Writer:
             for kind, (channel, acquires) in element_schema.buses.items():
                 info = channel + "+acquires" if acquires else channel
                 self._out.write(f"    {kind} info={info}\n")
-
-    @staticmethod
-    def _serialize_preset_header(schema: BusSchema, *, custom_naming: bool) -> str:
-        kind = schema.KIND
-        kind_expr = f'{kind}("{_escape_str(schema.naming.pattern)}")' if custom_naming else kind
-        # `schema: <kind>` when name == KIND (no alias); `schema <name>: <kind>` otherwise.
-        if schema.name == kind:
-            return f"schema: {kind_expr}"
-        return f"schema {schema.name}: {kind_expr}"
-
-    @staticmethod
-    def _collect_schemas(block: Block) -> list[BusSchema]:
-        """Return the distinct ``BusSchema`` instances referenced anywhere in ``block``."""
-        seen: list[BusSchema] = []
-        seen_ids: set[int] = set()
-        for ref in _Writer._collect_busrefs(block):
-            if ref.schema is None or id(ref.schema) in seen_ids:
-                continue
-            seen_ids.add(id(ref.schema))
-            seen.append(ref.schema)
-        return seen
-
-    @staticmethod
-    def _collect_busrefs(block: Block) -> list[BusRef]:
-        """Walk the block tree and collect every distinct BusRef used.
-
-        Distinct = unique by (string value, schema identity), so the same bus
-        path from two different schemas (e.g. ``q0/drive`` produced by both an
-        aliased ``transmon`` and an aliased ``fluxonium``) is not deduplicated.
-        """
-        acc: dict[tuple[str, int], BusRef] = {}
-        _Writer._walk_busrefs(block, acc)
-        return list(acc.values())
-
-    @staticmethod
-    def _walk_busrefs(block: Block, acc: dict[tuple[str, int], BusRef]) -> None:
-        for el in block.elements:
-            if isinstance(el, Block):
-                _Writer._walk_busrefs(el, acc)
-                continue
-            for value in vars(el).values():
-                if isinstance(value, BusRef):
-                    acc[(str(value), id(value.schema))] = value
-                elif isinstance(value, list):
-                    for item in value:
-                        if isinstance(item, BusRef):
-                            acc[(str(item), id(item.schema))] = item
 
     # -- body & variable declarations -----------------------------------------
 
@@ -277,19 +212,23 @@ class _Writer:
 
     # -- value / waveform / operation serialization ---------------------------
 
-    @staticmethod
-    def _serialize_bus(bus: str) -> str:
+    def _serialize_bus(self, bus: str) -> str:
         """Render a bus argument.
 
-        BusRef with an attached schema → path form ``name.element[index].kind``
-        (no quotes). Plain str (or BusRef without a schema link) → quoted
-        string. The ``schema:`` section provides the metadata for the path
-        form; quoted strings need no schema.
+        When the program has a schema attached and the bus is a BusRef with
+        element/kind metadata, emit the path form ``element[index].kind`` (no
+        quotes — the parser resolves it against ``program.schema``). Plain
+        strings, or schema-less programs, emit the bus as a quoted string.
         """
-        if isinstance(bus, BusRef) and bus.schema is not None:
+        if (
+            self._program.schema is not None
+            and isinstance(bus, BusRef)
+            and bus.element
+            and bus.kind
+        ):
             idx = bus.index
             idx_str = ",".join(str(i) for i in idx) if isinstance(idx, tuple) else str(idx)
-            return f"{bus.schema.name}.{bus.element}[{idx_str}].{bus.kind}"
+            return f"{bus.element}[{idx_str}].{bus.kind}"
         return f'"{_escape_str(str(bus))}"'
 
     def _serialize_value(self, val: object) -> str:

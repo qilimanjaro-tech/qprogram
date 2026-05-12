@@ -31,6 +31,7 @@ from qprogram.waveforms.waveform import IQWaveform, Waveform
 if TYPE_CHECKING:
     import numpy as np
 
+    from qprogram.buses import BusSchema
     from qprogram.crosstalk_matrix import CrosstalkMatrix
     from qprogram.vendor import VendorNamespace
 
@@ -100,18 +101,35 @@ class QProgram:
 
     _vendor_registry: ClassVar[dict[str, type[VendorNamespace]]] = {}
 
-    def __init__(self, label: str = "", description: str | None = None) -> None:
+    def __init__(
+        self,
+        label: str = "",
+        description: str | None = None,
+        schema: BusSchema | None = None,
+    ) -> None:
         self.label = label
         self.description = description
         self._body = Block()
         self._block_stack: deque[Block] = deque([self._body])
         self._variables: list[Variable] = []
+        self._schema = schema
 
     # --- Properties ---
 
     @property
     def body(self) -> Block:
         return self._body
+
+    @property
+    def schema(self) -> BusSchema | None:
+        """The :class:`BusSchema` attached to this program, or ``None``.
+
+        At most one schema per program: it defines the chip's elements and
+        bus kinds, and the ``.qp`` writer reads it to emit bus references as
+        compact paths (``q[0].drive``) rather than quoted strings. Plain-string
+        buses continue to work regardless.
+        """
+        return self._schema
 
     @property
     def buses(self) -> set[str]:

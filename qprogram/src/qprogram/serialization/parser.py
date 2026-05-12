@@ -60,8 +60,8 @@ def load(path: str) -> QProgram:
 # ---------------------------------------------------------------------------
 
 
-_BUS_PATH_RE = re.compile(r"^(\w+)\.(\w+)\[(\d+(?:,\d+)*)\]\.(\w+)$")
-_SCHEMA_HEADER_RE = re.compile(r"^schema(?:\s+(\w+))?\s*:\s*(.*)$")
+_BUS_PATH_RE = re.compile(r"^(\w+)\[(\d+(?:,\d+)*)\]\.(\w+)$")
+_SCHEMA_HEADER_RE = re.compile(r"^schema\s*:\s*(.*)$")
 _SCHEMA_KIND_RE = re.compile(r'^(\w+)(?:\(\s*"(.+?)"\s*\))?$')
 _ELEMENT_HEADER_RE = re.compile(r"^element\s+(\w+)\s*:\s*$")
 _BUS_LINE_RE = re.compile(r"^(\w+)\s+info=(\S+)\s*$")
@@ -74,7 +74,6 @@ class _Parser:
         self._program = QProgram()
         self._variables: dict[str, Variable] = {}
         self._required_vendors: set[str] = set()
-        self._schemas: dict[str, BusSchema] = {}
 
     # -- public entry point --------------------------------------------------
 
@@ -89,7 +88,7 @@ class _Parser:
             if line == "metadata:":
                 self._pos += 1
                 self._parse_metadata()
-            elif line.startswith(("schema:", "schema ")):
+            elif line.startswith("schema:"):
                 self._parse_schema_decl()
             elif line == "body:":
                 self._pos += 1
@@ -208,36 +207,37 @@ class _Parser:
     _INFO_FLAGS: ClassVar[frozenset[str]] = frozenset({"acquires"})
 
     def _parse_schema_decl(self) -> None:
-        """Parse one schema declaration starting at the current line.
+        """Parse the single ``schema`` declaration starting at the current line.
 
         One-liner forms (preset):
-          ``schema: <kind>``                       — name = kind, default naming
-          ``schema: <kind>("<pattern>")``          — name = kind, custom naming
-          ``schema <name>: <kind>``                — aliased preset
-          ``schema <name>: <kind>("<pattern>")``   — aliased + custom naming
+          ``schema: <kind>``                       — default naming
+          ``schema: <kind>("<pattern>")``          — custom naming pattern
 
-        Inline form (custom / dynamic; ``<name>`` is mandatory):
-          ``schema <name>:``                       — body follows on indented lines
+        Inline form (custom / dynamic):
+          ``schema:``                              — body follows on indented lines
               ``naming: "<pattern>"``              (optional)
               ``element <elem>:``
-                  ``<bus_type> info=<channel>[+acquires]``
+                  ``<kind> info=<channel>[+acquires]``
+
+        At most one schema per program — a second ``schema`` declaration in
+        the same file is rejected.
         """
+        if self._program.schema is not None:
+            msg = "duplicate schema declaration — a program may have at most one schema"
+            raise ParseError(msg, self._pos + 1)
         line = self._stripped()
         header = _SCHEMA_HEADER_RE.match(line)
         if not header:
             msg = f"invalid schema declaration: {line!r}"
             raise ParseError(msg, self._pos + 1)
-        alias, rest = header.group(1), header.group(2).strip()
+        rest = header.group(1).strip()
         self._pos += 1
         if rest:
-            self._build_preset_schema(alias or "", rest)
+            self._build_preset_schema(rest)
         else:
-            if not alias:
-                msg = "inline schema declaration requires a name: `schema <name>:`"
-                raise ParseError(msg, self._pos)
-            self._build_inline_schema(alias)
+            self._build_inline_schema()
 
-    def _build_preset_schema(self, alias: str, kind_expr: str) -> None:
+    def _build_preset_schema(self, kind_expr: str) -> None:
         m = _SCHEMA_KIND_RE.match(kind_expr)
         if not m:
             msg = f"invalid schema kind expression: {kind_expr!r}"
@@ -245,19 +245,15 @@ class _Parser:
         kind, pattern = m.group(1), m.group(2)
         preset_cls = get_preset_class(kind)
         if preset_cls is None:
-            msg = f"unknown preset schema kind {kind!r}; expected an inline `schema <name>:` body or one of the built-in presets"
+            msg = (
+                f"unknown preset schema kind {kind!r}; use a built-in preset "
+                f"or an inline `schema:` body for custom schemas"
+            )
             raise ParseError(msg, self._pos)
         naming = BusNaming(pattern) if pattern is not None else None
-        schema_name = alias or kind
-        if schema_name in self._schemas:
-            msg = f"duplicate schema name {schema_name!r}"
-            raise ParseError(msg, self._pos)
-        self._schemas[schema_name] = preset_cls(name=schema_name, naming=naming)
+        self._program._schema = preset_cls(naming=naming)  # noqa: SLF001
 
-    def _build_inline_schema(self, name: str) -> None:
-        if name in self._schemas:
-            msg = f"duplicate schema name {name!r}"
-            raise ParseError(msg, self._pos)
+    def _build_inline_schema(self) -> None:
         naming_pattern: str | None = None
         elements: dict[str, dict[str, tuple]] = {}
         while self._pos < len(self._lines):
@@ -285,13 +281,13 @@ class _Parser:
             self._pos += 1
             elements[elem_name] = self._parse_inline_element_buses()
         if not elements:
-            msg = f"schema {name!r} has no element declarations"
+            msg = "inline schema has no element declarations"
             raise ParseError(msg, self._pos)
         naming = BusNaming(naming_pattern) if naming_pattern is not None else None
-        schema = BusSchema(name=name, naming=naming)
+        schema = BusSchema(naming=naming)
         for elem, buses in elements.items():
             schema.add_element(elem, buses)
-        self._schemas[name] = schema
+        self._program._schema = schema  # noqa: SLF001
 
     def _parse_inline_element_buses(self) -> dict[str, tuple[str, bool]]:
         buses: dict[str, tuple[str, bool]] = {}
@@ -358,12 +354,12 @@ class _Parser:
         """Replace bus-path strings on an operation with resolved BusRef instances.
 
         Walks instance attributes for string values that look like
-        ``schema.element[index].kind`` and resolves each against the parsed
-        schemas. Plain strings that don't match the path syntax are left
+        ``element[index].kind`` and resolves each against the program's
+        schema. Plain strings that don't match the path syntax are left
         alone (case 1: raw string buses). ``list`` attributes (e.g.
         ``Sync.buses``) are handled too.
         """
-        if not self._schemas:
+        if self._program.schema is None:
             return
         for key, value in vars(op).items():
             if isinstance(value, str) and not isinstance(value, BusRef):
@@ -378,28 +374,28 @@ class _Parser:
                             value[i] = ref
 
     def _resolve_bus_path(self, token: str) -> BusRef | None:
-        """Resolve ``schema.element[index].kind`` against the declared schemas.
+        """Resolve ``element[index].kind`` against the program's schema.
 
-        Returns ``None`` if the token doesn't match the path syntax or the
-        schema name is unknown (in which case the caller leaves the value as
-        a plain string — that's the right behaviour for raw-string buses).
-        Raises ``ParseError`` if the path looks valid but the schema rejects
-        the element or bus kind, since that indicates a malformed file.
+        Returns ``None`` if the token doesn't match the path syntax (caller
+        leaves the value as a plain string — the right behaviour for
+        raw-string buses). Raises ``ParseError`` if the path looks valid but
+        the schema rejects the element or bus kind, since that indicates a
+        malformed file.
         """
+        schema = self._program.schema
+        if schema is None:
+            return None
         m = _BUS_PATH_RE.match(token)
         if not m:
             return None
-        schema_name, element, idx_str, kind = m.groups()
-        if schema_name not in self._schemas:
-            return None
-        schema = self._schemas[schema_name]
+        element, idx_str, kind = m.groups()
         index: int | tuple = tuple(int(p) for p in idx_str.split(",")) if "," in idx_str else int(idx_str)
         try:
             factory = getattr(schema, element)
             accessor = factory[index]
             ref = getattr(accessor, kind)
         except (AttributeError, KeyError) as e:
-            msg = f"bus path {token!r} does not resolve in schema {schema_name!r}: {e}"
+            msg = f"bus path {token!r} does not resolve against the program schema: {e}"
             raise ParseError(msg, self._pos + 1) from e
         if not isinstance(ref, BusRef):  # pragma: no cover — defensive
             msg = f"bus path {token!r} did not yield a BusRef"

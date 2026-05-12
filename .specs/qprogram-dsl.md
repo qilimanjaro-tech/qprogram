@@ -133,8 +133,6 @@ bus.index               # 0      (the slot shadows str.index — see note below)
 bus.kind                # "drive"
 bus.channel             # "IQ"
 bus.acquires            # False
-bus.schema              # the BusSchema instance that produced this ref
-                        # (or None for manually-constructed BusRefs outside a schema)
 
 q[0].readout.acquires   # True   (readout has ADC)
 ```
@@ -142,19 +140,20 @@ q[0].readout.acquires   # True   (readout has ADC)
 > The ``index`` slot shadows the inherited ``str.index()`` method on `BusRef`
 > instances. Use plain ``str(bus).index(...)`` for substring searches.
 
-The ``schema`` slot is what lets the ``.qp`` writer emit a ref as a schema
-path (``transmon.q[0].drive``) instead of a bare quoted string — see the
-*Serialization round-trip* note below.
+`BusRef` carries no back-pointer to its schema. Each `QProgram` holds at most
+one schema (passed to its constructor); the writer reads `program.schema`
+directly to decide whether to emit a ref as a path (``q[0].drive``) or as a
+quoted string — see the *Serialization round-trip* note below.
 
 ### Serialization round-trip
 
-`BusRef` metadata is preserved across `.qp` round-trip via top-level `schema` declarations. The format follows the **three cases** a user actually creates buses through:
+`BusRef` metadata is preserved across `.qp` round-trip via a single optional `schema:` declaration at the top of the file. The format follows the **three cases** a user actually creates buses through:
 
 1. **Plain string** — written as `play "drive_q0_bus" pulse`. No schema declaration, no metadata.
-2. **Built-in preset** (e.g. `BusSchema.transmon()`) — one-liner declaration: `schema: transmon` (or `schema: transmon("<pattern>")` with custom naming, or `schema <alias>: transmon` for multi-schema programs). Operations reference buses as paths: `play transmon.q[0].drive pulse`. On load the parser reinstantiates the preset class and resolves each path through it.
-3. **Custom / dynamic schema** (`BusSchema(name="chip")` populated via `add_element`, or a user subclass of `BusSchema` with `KIND` set) — full inline declaration of `element`/bus blocks; the parser rebuilds a `BusSchema` via `add_element()` so the structural data round-trips even though the user's Python class doesn't.
+2. **Built-in preset** (e.g. `BusSchema.transmon()`, passed as `QProgram(schema=...)`) — one-liner declaration: `schema: transmon` (or `schema: transmon("<pattern>")` with custom naming). Operations reference buses as paths: `play q[0].drive pulse`. On load, the parser reinstantiates the preset class, attaches it as `program.schema`, and resolves each path through it.
+3. **Custom / dynamic schema** (`BusSchema()` populated via `add_element`, or a user subclass of `BusSchema` with `KIND` set) — `schema:` followed by an inline `element`/bus body; the parser rebuilds a `BusSchema` via `add_element()` so the structural data round-trips even though the user's Python class doesn't.
 
-Each `BusRef` carries a `schema` reference identifying the schema that produced it; the writer uses this to choose the path form vs the quoted-string form. A program can mix any of the three in a single file.
+A program holds **at most one** schema (set via the `QProgram(schema=...)` constructor). That's why the operation bus paths drop the schema-name prefix — there's only one schema to resolve against. Plain-string buses can still coexist with a schema-backed program: anything quoted in the body sidesteps the schema entirely.
 
 User-typed subclasses (`MyChipSchema` etc.) should set `KIND = "my_chip"` as a class attribute. The writer serializes them via the inline form (case 3), preserving the structure; on load the user gets a dynamic `BusSchema` with the same elements, just without the original Python class identity.
 
@@ -288,12 +287,11 @@ class MyQubitBuses(_TypedElementAccessor):
         return self._ref("charge", "single")
 
 # 2. Define a factory — returns the accessor on subscript.
-#    The accessor needs the schema instance to tag every BusRef it produces.
 class MyQubitFactory(_TypedElementFactory):
     _accessor_cls = MyQubitBuses
 
     def __getitem__(self, index: int) -> MyQubitBuses:
-        return MyQubitBuses(self._element, index, self._naming, self._schema)
+        return MyQubitBuses(self._element, index, self._naming)
 
 # 3. Define the typed schema — set KIND, populate _elements in __init__,
 #    and expose one @property per element type for IDE autocomplete.
@@ -302,8 +300,8 @@ class MyQubitFactory(_TypedElementFactory):
 class MyChipSchema(BusSchema):
     KIND = "my_chip"
 
-    def __init__(self, name: str = "", naming: BusNaming | None = None) -> None:
-        super().__init__(name=name, naming=naming)
+    def __init__(self, naming: BusNaming | None = None) -> None:
+        super().__init__(naming=naming)
         self.add_element("q", {
             "drive":   ("IQ", False),
             "readout": ("IQ", True),
@@ -313,11 +311,11 @@ class MyChipSchema(BusSchema):
 
     @property
     def q(self) -> MyQubitFactory:
-        return MyQubitFactory("q", self._naming, self)
+        return MyQubitFactory("q", self._naming)
 
     @property
     def c(self) -> CouplerFactory:
-        return CouplerFactory("c", self._naming, self)
+        return CouplerFactory("c", self._naming)
 
 # Usage — full IDE autocomplete
 schema = MyChipSchema()

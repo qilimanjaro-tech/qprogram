@@ -39,19 +39,20 @@ class BusRef(str):
         kind: Bus kind name (e.g. "drive", "flux", "readout").
         channel: ``"single"`` for real-valued waveforms, ``"IQ"`` for complex I/Q.
         acquires: Whether this bus has an ADC and supports ``measure()`` operations.
-
-    No back-reference to the producing schema is stored on the BusRef itself —
-    each :class:`~qprogram.QProgram` has at most one schema (set via its
-    constructor), and the ``.qp`` writer queries ``program.schema`` directly
-    to decide whether to emit a ref as a path or as a quoted string.
+        schema: The :class:`BusSchema` instance that produced this ref, or
+            ``None`` if the BusRef was constructed manually outside any
+            schema. Used by :meth:`~qprogram.QProgram._validate_bus` to
+            reject buses that come from a different schema than the one
+            attached to the program (which would otherwise serialize fine
+            but mean something different on load).
     """
 
     # Declare slots so a ``str`` subclass can still carry these attributes.
     # An empty ``__slots__ = ()`` would forbid attribute assignment entirely
     # (str has no __dict__).
-    __slots__ = ("acquires", "channel", "element", "index", "kind")
+    __slots__ = ("acquires", "channel", "element", "index", "kind", "schema")
 
-    def __new__(  # noqa: PLR0913  flat constructor — five metadata fields plus the str value
+    def __new__(  # noqa: PLR0913  flat constructor — six metadata fields plus the str value
         cls,
         value: str,
         element: str,
@@ -59,6 +60,7 @@ class BusRef(str):
         kind: str,
         channel: ChannelType,
         acquires: bool,
+        schema: BusSchema | None = None,
     ) -> Self:
         instance = super().__new__(cls, value)
         instance.element = element
@@ -66,16 +68,21 @@ class BusRef(str):
         instance.kind = kind
         instance.channel = channel
         instance.acquires = acquires
+        instance.schema = schema
         return instance
 
-    def __getnewargs__(self) -> tuple[str, str, int | tuple[int, ...], str, ChannelType, bool]:  # ty:ignore[invalid-method-override]
+    def __getnewargs__(  # ty:ignore[invalid-method-override]
+        self,
+    ) -> tuple[str, str, int | tuple[int, ...], str, ChannelType, bool, BusSchema | None]:
         """Reconstruction args for ``pickle`` and ``copy.deepcopy``.
 
         ``str.__reduce_ex__`` only supplies the string value to ``__new__`` by
         default, which would fail here because our ``__new__`` requires the
-        metadata fields too.
+        metadata fields too. ``schema`` flows through the same path so the
+        deepcopied BusRef points to the *deepcopied* schema instance (the
+        memo dict shares the same copy across BusRefs).
         """
-        return (str(self), self.element, self.index, self.kind, self.channel, self.acquires)  # ty:ignore[invalid-return-type, unresolved-attribute]
+        return (str(self), self.element, self.index, self.kind, self.channel, self.acquires, self.schema)  # ty:ignore[invalid-return-type, unresolved-attribute]
 
 
 class BusNaming:
@@ -128,9 +135,10 @@ class ElementSchema:
 class _DynamicElementAccessor:
     """Dynamic bus accessor — uses __getattr__, no static typing."""
 
-    def __init__(self, schema: ElementSchema, index: int | tuple) -> None:
+    def __init__(self, schema: ElementSchema, index: int | tuple, parent: BusSchema) -> None:
         self._schema = schema
         self._index = index
+        self._parent = parent
 
     def __getattr__(self, kind: str) -> BusRef:
         if kind.startswith("_"):
@@ -148,6 +156,7 @@ class _DynamicElementAccessor:
             kind=kind,
             channel=channel,
             acquires=acquires,
+            schema=self._parent,
         )
 
     def __repr__(self) -> str:
@@ -158,11 +167,12 @@ class _DynamicElementAccessor:
 class _DynamicElementFactory:
     """Dynamic element factory — subscriptable, no static typing."""
 
-    def __init__(self, schema: ElementSchema) -> None:
+    def __init__(self, schema: ElementSchema, parent: BusSchema) -> None:
         self._schema = schema
+        self._parent = parent
 
     def __getitem__(self, index: int | tuple) -> _DynamicElementAccessor:
-        return _DynamicElementAccessor(self._schema, index)
+        return _DynamicElementAccessor(self._schema, index, self._parent)
 
     def __repr__(self) -> str:
         buses = ", ".join(f"{b}: {info}" for b, info in self._schema.buses.items())
@@ -177,10 +187,11 @@ class _DynamicElementFactory:
 class _TypedElementAccessor:
     """Base for typed element accessors. Subclasses add bus properties."""
 
-    def __init__(self, element: str, index: int | tuple, naming: BusNaming) -> None:
+    def __init__(self, element: str, index: int | tuple, naming: BusNaming, parent: BusSchema) -> None:
         self._element = element
         self._index = index
         self._naming = naming
+        self._parent = parent
 
     def _ref(self, kind: str, channel: ChannelType, *, acquires: bool = False) -> BusRef:
         raw = self._naming.resolve(self._element, self._index, kind)
@@ -191,6 +202,7 @@ class _TypedElementAccessor:
             kind=kind,
             channel=channel,
             acquires=acquires,
+            schema=self._parent,
         )
 
     def __repr__(self) -> str:
@@ -202,12 +214,13 @@ class _TypedElementFactory:
 
     _accessor_cls: type[_TypedElementAccessor]
 
-    def __init__(self, element: str, naming: BusNaming) -> None:
+    def __init__(self, element: str, naming: BusNaming, parent: BusSchema) -> None:
         self._element = element
         self._naming = naming
+        self._parent = parent
 
     def __getitem__(self, index: int) -> _TypedElementAccessor:
-        return self._accessor_cls(self._element, index, self._naming)
+        return self._accessor_cls(self._element, index, self._naming, self._parent)
 
 
 # --- Transmon qubit buses: drive (IQ), readout (IQ, acquires) ---
@@ -233,7 +246,7 @@ class TransmonQubitFactory(_TypedElementFactory):
     _accessor_cls = TransmonQubitBuses
 
     def __getitem__(self, index: int) -> TransmonQubitBuses:
-        return TransmonQubitBuses(self._element, index, self._naming)
+        return TransmonQubitBuses(self._element, index, self._naming, self._parent)
 
 
 # --- Flux-tunable transmon qubit buses: drive, readout, flux ---
@@ -252,7 +265,7 @@ class FluxTunableTransmonQubitFactory(_TypedElementFactory):
     _accessor_cls = FluxTunableTransmonQubitBuses
 
     def __getitem__(self, index: int) -> FluxTunableTransmonQubitBuses:
-        return FluxTunableTransmonQubitBuses(self._element, index, self._naming)
+        return FluxTunableTransmonQubitBuses(self._element, index, self._naming, self._parent)
 
 
 # --- Fluxonium qubit buses: drive, readout, flux_x, flux_z ---
@@ -276,7 +289,7 @@ class FluxoniumQubitFactory(_TypedElementFactory):
     _accessor_cls = FluxoniumQubitBuses
 
     def __getitem__(self, index: int) -> FluxoniumQubitBuses:
-        return FluxoniumQubitBuses(self._element, index, self._naming)
+        return FluxoniumQubitBuses(self._element, index, self._naming, self._parent)
 
 
 # --- Coupler buses: flux ---
@@ -295,7 +308,7 @@ class CouplerFactory(_TypedElementFactory):
     _accessor_cls = CouplerBuses
 
     def __getitem__(self, index: int | tuple) -> CouplerBuses:
-        return CouplerBuses(self._element, index, self._naming)
+        return CouplerBuses(self._element, index, self._naming, self._parent)
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +377,7 @@ class BusSchema:
         if name.startswith("_"):
             raise AttributeError(name)
         if name in self._elements:
-            return _DynamicElementFactory(self._elements[name])
+            return _DynamicElementFactory(self._elements[name], self)
         available = ", ".join(self._elements.keys())
         msg = f"No element '{name}' in schema. Available: {available}"
         raise AttributeError(msg)
@@ -450,7 +463,7 @@ class TransmonSchema(BusSchema):
 
     @property
     def q(self) -> TransmonQubitFactory:
-        return TransmonQubitFactory("q", self._naming)
+        return TransmonQubitFactory("q", self._naming, self)
 
 
 class TransmonCoupledSchema(TransmonSchema):
@@ -464,7 +477,7 @@ class TransmonCoupledSchema(TransmonSchema):
 
     @property
     def c(self) -> CouplerFactory:
-        return CouplerFactory("c", self._naming)
+        return CouplerFactory("c", self._naming, self)
 
 
 class FluxTunableTransmonSchema(BusSchema):
@@ -478,7 +491,7 @@ class FluxTunableTransmonSchema(BusSchema):
 
     @property
     def q(self) -> FluxTunableTransmonQubitFactory:
-        return FluxTunableTransmonQubitFactory("q", self._naming)
+        return FluxTunableTransmonQubitFactory("q", self._naming, self)
 
 
 class FluxTunableTransmonCoupledSchema(FluxTunableTransmonSchema):
@@ -492,7 +505,7 @@ class FluxTunableTransmonCoupledSchema(FluxTunableTransmonSchema):
 
     @property
     def c(self) -> CouplerFactory:
-        return CouplerFactory("c", self._naming)
+        return CouplerFactory("c", self._naming, self)
 
 
 class FluxoniumSchema(BusSchema):
@@ -514,7 +527,7 @@ class FluxoniumSchema(BusSchema):
 
     @property
     def q(self) -> FluxoniumQubitFactory:
-        return FluxoniumQubitFactory("q", self._naming)
+        return FluxoniumQubitFactory("q", self._naming, self)
 
 
 class FluxoniumCoupledSchema(FluxoniumSchema):
@@ -528,7 +541,7 @@ class FluxoniumCoupledSchema(FluxoniumSchema):
 
     @property
     def c(self) -> CouplerFactory:
-        return CouplerFactory("c", self._naming)
+        return CouplerFactory("c", self._naming, self)
 
 
 # Registry of built-in preset schemas, keyed by KIND. The ``.qp`` parser uses

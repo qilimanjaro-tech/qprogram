@@ -191,34 +191,78 @@ class QProgram:
         msg = f"No vendor namespace '{name}' registered on QProgram"
         raise AttributeError(msg)
 
+    # --- Bus validation ---
+
+    def _validate_bus(self, bus: str) -> None:
+        """Reject buses that don't belong to this program's schema.
+
+        Plain strings and BusRefs without metadata pass through. Schema-bound
+        BusRefs are checked against ``self._schema``: if the BusRef came from
+        a different schema, or the program has no schema attached, raise
+        ``ValueError`` with a pointer to the right call site.
+
+        This catches the case where a user holds onto a ``schema2.q[0].drive``
+        BusRef and uses it on a program built with ``schema=schema1``. Such a
+        program would serialize fine but its semantics would silently differ
+        from what the user wrote — better to reject loudly.
+        """
+        if not isinstance(bus, BusRef):
+            return
+        if not bus.element or not bus.kind:
+            return  # opaque/manually-constructed BusRef with no schema metadata
+        if bus.schema is None:
+            return  # no producer recorded — defer to other validators
+        if self._schema is None:
+            self._schema = bus.schema
+            return
+        if bus.schema is self._schema:
+            return
+        msg = (
+            f"BusRef {str(bus)!r} (element={bus.element!r}, kind={bus.kind!r}) comes "
+            f"from a different BusSchema than the one attached to this QProgram. "
+            f"A program may use only one schema; use a plain string bus name if you "
+            f"need to reference a bus that lives outside the schema."
+        )
+        raise ValueError(msg)
+
     # --- Core operations ---
 
     def play(self, bus: str, waveform: Waveform | IQWaveform | str) -> None:
+        self._validate_bus(bus)
         _validate_waveform_channel(bus, waveform)
         self._active_block.append(Play(bus=bus, waveform=waveform))
 
     def measure(self, bus: str, waveform: IQWaveform | str, weights: IQWaveform | str, save_adc: bool = False) -> None:
+        self._validate_bus(bus)
         _validate_acquires(bus)
         _validate_waveform_channel(bus, waveform)
         _validate_waveform_channel(bus, weights)
         self._active_block.append(Measure(bus=bus, waveform=waveform, weights=weights, save_adc=save_adc))
 
     def wait(self, bus: str, duration: int | Expression) -> None:
+        self._validate_bus(bus)
         self._active_block.append(Wait(bus=bus, duration=duration))
 
     def sync(self, buses: list[str] | None = None) -> None:
+        if buses:
+            for b in buses:
+                self._validate_bus(b)
         self._active_block.append(Sync(buses=buses))
 
     def set_frequency(self, bus: str, frequency: float | Expression) -> None:
+        self._validate_bus(bus)
         self._active_block.append(SetFrequency(bus=bus, frequency=frequency))
 
     def set_phase(self, bus: str, phase: float | Expression) -> None:
+        self._validate_bus(bus)
         self._active_block.append(SetPhase(bus=bus, phase=phase))
 
     def reset_phase(self, bus: str) -> None:
+        self._validate_bus(bus)
         self._active_block.append(ResetPhase(bus=bus))
 
     def set_gain(self, bus: str, gain: float | Expression) -> None:
+        self._validate_bus(bus)
         self._active_block.append(SetGain(bus=bus, gain=gain))
 
     def set_offset(
@@ -227,6 +271,7 @@ class QProgram:
         offset_path0: float | Expression,
         offset_path1: float | Expression | None = None,
     ) -> None:
+        self._validate_bus(bus)
         self._active_block.append(SetOffset(bus=bus, offset_path0=offset_path0, offset_path1=offset_path1))
 
     def set_parameter(

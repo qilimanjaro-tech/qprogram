@@ -4,12 +4,14 @@ metadata:
   label: "rabi"
   description: "Rabi oscillation"
 
+schema: flux_tunable_transmon
+
 body:
   var gain
 
   average 1000:
     for gain in range(0.0, 1.0, 0.01):
-      set_gain "q0/drive" gain
-      play "q0/drive" IQDrag(amplitude=0.5, duration=40, num_sigmas=2.5, drag_coefficient=0.1)
+      set_gain q[0].drive gain
+      play q[0].drive IQDrag(amplitude=0.5, duration=40, num_sigmas=2.5, drag_coefficient=0.1)
       sync
-      measure "q0/readout" IQPair(I=Square(amplitude=1.0, duration=2000), Q=Square(amplitude=0.0, duration=2000)) IQPair(I=Square(amplitude=1.0, duration=2000), Q=Square(amplitude=1.0, duration=2000))
+      measure q[0].readout IQPair(I=Square(amplitude=1.0, duration=2000), Q=Square(amplitude=0.0, duration=2000)) IQPair(I=Square(amplitude=1.0, duration=2000), Q=Square(amplitude=1.0, duration=2000))

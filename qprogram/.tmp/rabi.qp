@@ -1,0 +1,17 @@
+#!QProgram 1.0
+
+metadata:
+  label: "rabi"
+  description: "Rabi oscillation"
+
+schema: flux_tunable_transmon
+
+body:
+  var gain
+
+  average 1000:
+    for gain in range(0.0, 1.0, 0.01):
+      set_gain flux_tunable_transmon.q[0].drive gain
+      play flux_tunable_transmon.q[0].drive "pi_pulse"
+      sync
+      measure flux_tunable_transmon.q[0].readout "readout" "weights"

@@ -32,7 +32,7 @@ import numpy as np
 
 from qprogram.blocks.block import Block
 from qprogram.blocks.parallel import Parallel
-from qprogram.buses import BusNaming, BusRef, is_builtin_preset
+from qprogram.buses import BusNaming, BusRef
 from qprogram.operations.operation import Operation
 from qprogram.serialization import _specs
 from qprogram.serialization.registry import (
@@ -134,25 +134,20 @@ class _Writer:
     def _write_schema(self) -> None:
         """Emit the optional single ``schema`` block declared on the program.
 
-        Built-in presets emit the one-liner form. User subclasses and dynamic
-        schemas emit a full inline block with element/bus declarations so the
-        parser can rebuild the structure without knowing the user's Python
-        class.
+        Always emits the expanded inline form (element/bus declarations) —
+        even for the built-in presets like ``BusSchema.transmon()``. The
+        preset classes are construction-time conveniences on the Python
+        side; the file format records the structural contents directly so
+        future changes to a preset (a new bus, a renamed kind) can never
+        silently flip the meaning of an existing ``.qp`` file. Both the
+        custom-typed schemas and the dynamic schemas serialize through
+        this same code path.
         """
         schema = self._program.schema
         if schema is None:
             return
-        self._out.write("\n")
-        custom_naming = schema.naming.pattern != BusNaming.DEFAULT_PATTERN
-        if is_builtin_preset(schema):
-            if custom_naming:
-                self._out.write(f'schema: {schema.KIND}("{_escape_str(schema.naming.pattern)}")\n')
-            else:
-                self._out.write(f"schema: {schema.KIND}\n")
-            return
-        # Inline form for user-typed subclasses and dynamic schemas.
-        self._out.write("schema:\n")
-        if custom_naming:
+        self._out.write("\nschema:\n")
+        if schema.naming.pattern != BusNaming.DEFAULT_PATTERN:
             self._out.write(f'  naming: "{_escape_str(schema.naming.pattern)}"\n')
         for element_name, element_schema in schema.elements.items():
             self._out.write(f"  element {element_name}:\n")
@@ -261,8 +256,11 @@ class _Writer:
         Recognises the full :class:`~qprogram.Expression` AST (variables,
         constants, arithmetic, comparison, logical, math functions,
         conditional ``where``), waveform instances, bus references, plain
-        strings (quoted), booleans, numeric literals, and numpy integers.
-        Falls back to ``str(val)`` so the writer never raises mid-emit.
+        strings (quoted), booleans, numeric literals, numpy integers, and
+        tuples of strings (rendered as a single quoted comma-joined
+        token — the canonical form used by ``Measure.returns`` /
+        ``Acquire.returns``). Falls back to ``str(val)`` so the writer
+        never raises mid-emit.
 
         Symbolic operators (arithmetic, comparison, binary logical) all
         emit the canonical parenthesised ``(<left> <op> <right>)`` shape;
@@ -297,6 +295,14 @@ class _Writer:
             then = self.serialize_value(val.then)
             else_ = self.serialize_value(val.else_)
             return f"where({cond}, {then}, {else_})"
+        # Tuple of strings → single quoted, comma-joined token. The only
+        # current producer is ``Measure.returns`` / ``Acquire.returns``;
+        # any other tuple shape (e.g. ``BusRef.index = (0, 1)``) carries
+        # non-string elements and falls through to the generic path. The
+        # explicit list comprehension narrows the element type so
+        # ``str.join`` is statically resolvable.
+        if isinstance(val, tuple) and all(isinstance(v, str) for v in val):
+            return f'"{_escape_str(",".join([v for v in val if isinstance(v, str)]))}"'
         if isinstance(val, (Waveform, IQWaveform)):
             return self.serialize_waveform(val)
         if isinstance(val, np.integer):

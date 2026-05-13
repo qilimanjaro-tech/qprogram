@@ -4,7 +4,11 @@ metadata:
   label: "rabi"
   description: "Rabi oscillation"
 
-schema: flux_tunable_transmon
+schema:
+  element q:
+    drive info=IQ
+    readout info=IQ+acquires
+    flux info=single
 
 body:
   var gain
@@ -14,4 +18,4 @@ body:
       set_gain q[0].drive gain
       play q[0].drive "pi_pulse"
       sync
-      measure q[0].readout "readout" "weights"
+      measure q[0].readout "readout" "weights" "q0_m0"

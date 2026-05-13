@@ -147,15 +147,16 @@ quoted string — see the *Serialization round-trip* note below.
 
 ### Serialization round-trip
 
-`BusRef` metadata is preserved across `.qp` round-trip via a single optional `schema:` declaration at the top of the file. The format follows the **three cases** a user actually creates buses through:
+`BusRef` metadata is preserved across `.qp` round-trip via a single optional `schema:` declaration at the top of the file. The format has **two on-the-wire cases**:
 
 1. **Plain string** — written as `play "drive_q0_bus" pulse`. No schema declaration, no metadata.
-2. **Built-in preset** (e.g. `BusSchema.transmon()`, passed as `QProgram(schema=...)`) — one-liner declaration: `schema: transmon` (or `schema: transmon("<pattern>")` with custom naming). Operations reference buses as paths: `play q[0].drive pulse`. On load, the parser reinstantiates the preset class, attaches it as `program.schema`, and resolves each path through it.
-3. **Custom / dynamic schema** (`BusSchema()` populated via `add_element`, or a user subclass of `BusSchema` with `KIND` set) — `schema:` followed by an inline `element`/bus body; the parser rebuilds a `BusSchema` via `add_element()` so the structural data round-trips even though the user's Python class doesn't.
+2. **Schema-backed** — declared via a single inline `schema:` block at the top of the file. Operations then reference buses as paths: `play q[0].drive pulse`. On load, the parser rebuilds the schema by walking the `element`/bus declarations.
+
+The Python side ships preset constructors (`BusSchema.transmon()`, `BusSchema.fluxonium()`, …) and a dynamic builder (`BusSchema()` + `add_element(...)`) as construction-time conveniences. Both serialize to the **same inline form** — the file format records the structural element/bus contents, not which constructor the user reached for. This keeps `.qp` files immune to silent drift if a preset class ever grows a new bus or renames a kind.
 
 A program holds **at most one** schema (set via the `QProgram(schema=...)` constructor). That's why the operation bus paths drop the schema-name prefix — there's only one schema to resolve against. Plain-string buses can still coexist with a schema-backed program: anything quoted in the body sidesteps the schema entirely.
 
-User-typed subclasses (`MyChipSchema` etc.) should set `KIND = "my_chip"` as a class attribute. The writer serializes them via the inline form (case 3), preserving the structure; on load the user gets a dynamic `BusSchema` with the same elements, just without the original Python class identity.
+User-typed subclasses (`MyChipSchema` etc.) serialize through the same inline form, preserving the element/bus structure. On load the user gets a dynamic `BusSchema` with the same elements, just without the original Python class identity.
 
 ### Validation
 When a bus is referenced through the schema, operations validate at program-construction time:
@@ -596,10 +597,19 @@ These target a specific bus.
 program.play(bus: str, waveform: Waveform | IQWaveform | str)
 ```
 If `waveform` is a string, it is an alias that must be resolved via `with_waveforms()` or by the platform before execution.
-**`measure(bus, waveform, weights, save_adc=False)`** — play a readout pulse and acquire the result
+**`measure(bus, waveform, weights, *, name=None, returns=("iq",))`** — play a readout pulse and acquire the result; returns a :class:`MeasurementHandle`
 ```python
-program.measure(bus: str, waveform: IQWaveform | str, weights: IQWaveform | str, save_adc: bool = False)
+program.measure(
+    bus: str,
+    waveform: IQWaveform | str,
+    weights: IQWaveform | str,
+    *,
+    name: str | None = None,
+    returns: str | Iterable[str] = ("iq",),
+) -> MeasurementHandle
 ```
+
+`returns` controls what the platform produces for this measurement. The default `("iq",)` requests in-phase/quadrature data (the historical behaviour). Adding `"raw"` requests the raw ADC trace alongside. A future `"state"` token will request a classified outcome once the platform-side classifier lands. Accepts a comma-separated string (`"iq,raw"`) or any iterable of strings; values are normalised to a canonical `tuple[str, ...]` for storage and `.qp` serialization. Platforms decide which tokens they recognise.
 **`wait(bus, duration)`** — idle for a given duration (ns)
 ```python
 program.wait(bus: str, duration: int | Variable)
@@ -666,16 +676,18 @@ The extension system has three layers:
 ### Step 1: Define Operation classes
 Each vendor operation is a concrete `Operation` subclass with typed attributes. These are the nodes that live in the QProgram's block tree and get serialized to `.qp` files.
 ```python
-from qprogram import Operation
+from qprogram import MeasurementOperation, Operation
+from qprogram.operations.operation import normalize_returns
 
-class Acquire(Operation):
-    def __init__(self, bus: str, weights: IQWaveform | str, save_adc: bool = False):
+class Acquire(MeasurementOperation):
+    WAVEFORM_ATTRS = ("weights",)
+
+    def __init__(self, bus: str, weights: IQWaveform | str, name: str,
+                 returns: str | Iterable[str] = ("iq",)):
         self.bus = bus
         self.weights = weights
-        self.save_adc = save_adc
-
-    def get_variables(self) -> set[Variable]:
-        return {v for v in [self.weights] if isinstance(v, Variable)}
+        self.name = name
+        self.returns = normalize_returns(returns)
 
 class SetMarkers(Operation):
     def __init__(self, bus: str, mask: str):
@@ -684,16 +696,18 @@ class SetMarkers(Operation):
 
 class ActiveReset(Operation):
     """Complex orchestration — measure + conditional reset pulse."""
+    BUS_ATTRS = ("bus", "control_bus")
+    WAVEFORM_ATTRS = ("waveform", "weights", "reset_pulse")
+
     def __init__(self, bus: str, waveform: IQWaveform | str, weights: IQWaveform | str,
                  control_bus: str, reset_pulse: IQWaveform | str,
-                 trigger_address: int = 1, save_adc: bool = False):
+                 trigger_address: int = 1):
         self.bus = bus
         self.waveform = waveform
         self.weights = weights
         self.control_bus = control_bus
         self.reset_pulse = reset_pulse
         self.trigger_address = trigger_address
-        self.save_adc = save_adc
 
 class SetAcquisitionThreshold(Operation):
     """Software-only — the platform sets a QCoDeS parameter at execution."""
@@ -707,9 +721,13 @@ The namespace class provides the typed methods that users call. Each method inst
 from qprogram import VendorNamespace
 
 class QbloxNamespace(VendorNamespace):
-    def acquire(self, bus: str, weights: IQWaveform | str, save_adc: bool = False) -> None:
+    def acquire(self, bus: str, weights: IQWaveform | str,
+                returns: str | Iterable[str] = ("iq",),
+                *, name: str | None = None) -> MeasurementHandle:
         """Qblox-specific acquisition without play."""
-        self._append(Acquire(bus=bus, weights=weights, save_adc=save_adc))
+        return self._append_measurement(
+            Acquire, bus=bus, weights=weights, returns=returns, name=name,
+        )
 
     def set_markers(self, bus: str, mask: str) -> None:
         """Set 4-bit marker mask."""
@@ -717,11 +735,11 @@ class QbloxNamespace(VendorNamespace):
 
     def active_reset(self, bus: str, waveform: IQWaveform | str, weights: IQWaveform | str,
                      control_bus: str, reset_pulse: IQWaveform | str,
-                     trigger_address: int = 1, save_adc: bool = False) -> None:
+                     trigger_address: int = 1) -> None:
         """Active reset — complex orchestration, no single sequencer instruction."""
         self._append(ActiveReset(
             bus=bus, waveform=waveform, weights=weights, control_bus=control_bus,
-            reset_pulse=reset_pulse, trigger_address=trigger_address, save_adc=save_adc
+            reset_pulse=reset_pulse, trigger_address=trigger_address,
         ))
 
     def set_acquisition_threshold(self, bus: str, value: float | Expression) -> None:
@@ -818,8 +836,10 @@ qprogram-qblox/
 ```
 **`operations.py`** — `Operation` subclasses with typed attributes. These are the AST nodes:
 ```python
-class Acquire(Operation):
-    def __init__(self, bus: str, weights: IQWaveform | str, save_adc: bool = False): ...
+class Acquire(MeasurementOperation):
+    WAVEFORM_ATTRS = ("weights",)
+    def __init__(self, bus: str, weights: IQWaveform | str, name: str,
+                 returns: str | Iterable[str] = ("iq",)): ...
 
 class SetMarkers(Operation):
     def __init__(self, bus: str, mask: str): ...
@@ -827,8 +847,12 @@ class SetMarkers(Operation):
 **`namespace.py`** — `VendorNamespace` subclass with typed methods. IDE autocomplete comes from here:
 ```python
 class QbloxNamespace(VendorNamespace):
-    def acquire(self, bus: str, weights: IQWaveform | str, save_adc: bool = False) -> None:
-        self._append(Acquire(bus=bus, weights=weights, save_adc=save_adc))
+    def acquire(self, bus: str, weights: IQWaveform | str,
+                returns: str | Iterable[str] = ("iq",),
+                *, name: str | None = None) -> MeasurementHandle:
+        return self._append_measurement(
+            Acquire, bus=bus, weights=weights, returns=returns, name=name,
+        )
 
     def set_markers(self, bus: str, mask: str) -> None:
         self._append(SetMarkers(bus=bus, mask=mask))

@@ -53,6 +53,7 @@ __all__ = [
     "MathFunc",
     "MeasurementHandle",
     "MeasurementResult",
+    "ParseError",
     "PlatformProtocol",
     "QProgram",
     "QProgramResult",
@@ -86,10 +87,10 @@ __all__ = [
 
 
 def __getattr__(name: str):  # noqa: ANN202
-    # Lazy import parser to avoid circular deps at import time
-    if name in ("loads", "load"):
-        from qprogram.serialization.parser import load, loads  # noqa: PLC0415
+    # Lazy import parser bits to avoid circular deps at import time
+    if name in ("loads", "load", "ParseError"):
+        from qprogram.serialization.parser import ParseError, load, loads  # noqa: PLC0415
 
-        return {"loads": loads, "load": load}[name]
+        return {"loads": loads, "load": load, "ParseError": ParseError}[name]
     msg = f"module {__name__!r} has no attribute {name!r}"
     raise AttributeError(msg)

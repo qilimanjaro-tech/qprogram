@@ -6,15 +6,15 @@ These are the data nodes — they hold typed attributes and get serialized to `.
 Each class declares its ``BUS_ATTRS`` and ``WAVEFORM_ATTRS`` class attributes
 where its data shape differs from the core ``Operation`` defaults. The base
 ``Operation``'s introspection methods (``variables``, ``buses``,
-``waveforms``, ``attributes``, ``walk``) then work automatically without
-per-class overrides.
+``waveforms``, ``walk``) then work automatically without per-class overrides.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import ClassVar
 
-from qprogram.operations.operation import MeasurementOperation, Operation
+from qprogram.operations.operation import MeasurementOperation, Operation, normalize_returns
 from qprogram.variable import Expression
 from qprogram.waveforms.waveform import IQWaveform
 
@@ -28,15 +28,25 @@ class Acquire(MeasurementOperation):
     ``measure``; the measurement participates in the program's shared
     per-qubit name counter (so an ``acquire`` after a ``measure`` on the
     same qubit picks up the next free name on that qubit).
+
+    ``returns`` controls what the platform returns for this acquisition
+    (default ``("iq",)``); see :class:`~qprogram.operations.Measure` for
+    the full description.
     """
 
     WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ("weights",)
 
-    def __init__(self, bus: str, weights: IQWaveform | str, name: str, save_adc: bool = False) -> None:
+    def __init__(
+        self,
+        bus: str,
+        weights: IQWaveform | str,
+        name: str,
+        returns: str | Iterable[str] = ("iq",),
+    ) -> None:
         self.bus = bus
         self.weights = weights
         self.name = name
-        self.save_adc = save_adc
+        self.returns: tuple[str, ...] = normalize_returns(returns)
 
 
 class SetMarkers(Operation):
@@ -85,7 +95,11 @@ class ActiveReset(Operation):
 
     Has two bus references (``bus`` for the readout, ``control_bus`` for the
     reset pulse) and three waveforms (the readout ``waveform``, integration
-    ``weights``, and the conditional ``reset_pulse``).
+    ``weights``, and the conditional ``reset_pulse``). The ``save_adc``
+    boolean that previously gated the raw-ADC output has been folded into
+    the new core convention: a future revision can grow this op a
+    :attr:`returns` field of the same shape as :class:`Acquire`. Today it
+    is left out — re-add as soon as a real use-case lands.
     """
 
     BUS_ATTRS: ClassVar[tuple[str, ...]] = ("bus", "control_bus")
@@ -99,7 +113,6 @@ class ActiveReset(Operation):
         control_bus: str,
         reset_pulse: IQWaveform | str,
         trigger_address: int = 1,
-        save_adc: bool = False,  # noqa: ARG002  # legacy param kept for back-compat
     ) -> None:
         self.bus = bus
         self.waveform = waveform

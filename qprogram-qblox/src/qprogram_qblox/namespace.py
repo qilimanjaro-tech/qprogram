@@ -6,6 +6,7 @@ so IDE autocomplete and mypy work when users write ``program.qblox.acquire(...)`
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from qprogram.vendor import VendorNamespace
@@ -35,7 +36,7 @@ class QbloxNamespace(VendorNamespace):
         self,
         bus: str,
         weights: IQWaveform | str,
-        save_adc: bool = False,
+        returns: str | Iterable[str] = ("iq",),
         *,
         name: str | None = None,
     ) -> MeasurementHandle:
@@ -51,7 +52,9 @@ class QbloxNamespace(VendorNamespace):
             bus: Readout bus name.
             weights: Integration weights (:class:`IQWaveform` or
                 calibration alias).
-            save_adc: Whether to save raw ADC data.
+            returns: What the platform should return. Default ``("iq",)``;
+                accepts a comma-separated string (``"iq,raw"``) or any
+                iterable of strings. ``"raw"`` requests the raw ADC trace.
             name: Optional explicit measurement name; auto-allocated when
                 omitted.
         """
@@ -59,7 +62,7 @@ class QbloxNamespace(VendorNamespace):
             Acquire,
             bus=bus,
             weights=weights,
-            save_adc=save_adc,
+            returns=returns,
             name=name,
         )
 

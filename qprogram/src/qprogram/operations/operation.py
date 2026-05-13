@@ -35,7 +35,7 @@ from qprogram.variable import Expression, Variable
 from qprogram.waveforms.waveform import IQWaveform, Waveform
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
 
     from qprogram.blocks.block import Block
 
@@ -139,6 +139,37 @@ class MeasurementOperation(Operation):
     """
 
     name: str  # subclasses must set this
+
+
+def normalize_returns(value: str | Iterable[str]) -> tuple[str, ...]:
+    """Coerce a ``returns`` argument into the canonical ``tuple[str, ...]``.
+
+    Accepts the three input shapes users naturally reach for:
+
+    - a comma-separated string — ``"iq,raw"`` — tokenised on commas.
+    - any iterable of strings — ``["iq", "raw"]`` / ``("iq",)``.
+    - a single string token — ``"iq"`` (degenerates to a one-element tuple).
+
+    Empty entries (from doubled commas or whitespace tokens) are dropped;
+    a fully-empty input raises :class:`ValueError` so the field never ends
+    up as an empty tuple silently. The canonical tuple form is used for
+    storage, equality, and the ``.qp`` serializer's comma-joined output
+    (see the writer's ``serialize_value``).
+
+    No restriction on string contents at this layer — platforms decide
+    which return-type strings they recognise (``"iq"``, ``"raw"``,
+    ``"state"``, …) and raise their own error for unsupported ones.
+    """
+    parts = (
+        [p.strip() for p in value.split(",")]
+        if isinstance(value, str)
+        else [str(p).strip() for p in value]
+    )
+    cleaned = [p for p in parts if p]
+    if not cleaned:
+        msg = "`returns` must specify at least one return type"
+        raise ValueError(msg)
+    return tuple(cleaned)
 
 
 # ---------------------------------------------------------------------------

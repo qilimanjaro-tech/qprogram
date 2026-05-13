@@ -28,7 +28,7 @@ import numpy as np
 from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
-from qprogram.buses import BusNaming, BusRef, BusSchema, get_preset_class
+from qprogram.buses import BusNaming, BusRef, BusSchema
 from qprogram.qprogram import QProgram
 from qprogram.serialization import _specs as _core_specs
 from qprogram.serialization.registry import (
@@ -73,8 +73,6 @@ def load(path: str) -> QProgram:
 
 
 _BUS_PATH_RE = re.compile(r"^(\w+)\[(\d+(?:,\d+)*)\]\.(\w+)$")
-_SCHEMA_HEADER_RE = re.compile(r"^schema\s*:\s*(.*)$")
-_SCHEMA_KIND_RE = re.compile(r'^(\w+)(?:\(\s*"(.+?)"\s*\))?$')
 _ELEMENT_HEADER_RE = re.compile(r"^element\s+(\w+)\s*:\s*$")
 _BUS_LINE_RE = re.compile(r"^(\w+)\s+info=(\S+)\s*$")
 _FOR_HEADER_RE = re.compile(r"^for\s+(\w+)\s+in\s+(.*)$")
@@ -219,42 +217,32 @@ class _Parser:
                     self._program.description = val
             self._pos += 1
 
-    # -- schema declarations (preset one-liner or inline custom/dynamic) -----
+    # -- schema declaration (inline element/bus declarations) ---------------
 
     _INFO_CHANNELS: ClassVar[frozenset[str]] = frozenset({"single", "IQ"})
     _INFO_FLAGS: ClassVar[frozenset[str]] = frozenset({"acquires"})
 
     def _parse_schema_decl(self) -> None:
+        """Parse the single ``schema:`` block at the current position.
+
+        Always inline form — the file format has no preset keyword. The
+        Python side still has :func:`BusSchema.transmon` etc. as
+        construction-time conveniences, but those compile to the same
+        ``element/bus`` data the inline form records, and the writer
+        always emits that structural form.
+        """
         if self._program.schema is not None:
             msg = "duplicate schema declaration — a program may have at most one schema"
             raise ParseError(msg, self._pos + 1)
         line = self._stripped()
-        header = _SCHEMA_HEADER_RE.match(line)
-        if not header:
-            msg = f"invalid schema declaration: {line!r}"
-            raise ParseError(msg, self._pos + 1)
-        rest = header.group(1).strip()
-        self._pos += 1
-        if rest:
-            self._build_preset_schema(rest)
-        else:
-            self._build_inline_schema()
-
-    def _build_preset_schema(self, kind_expr: str) -> None:
-        m = _SCHEMA_KIND_RE.match(kind_expr)
-        if not m:
-            msg = f"invalid schema kind expression: {kind_expr!r}"
-            raise ParseError(msg, self._pos)
-        kind, pattern = m.group(1), m.group(2)
-        preset_cls = get_preset_class(kind)
-        if preset_cls is None:
+        if line != "schema:":
             msg = (
-                f"unknown preset schema kind {kind!r}; use a built-in preset "
-                f"or an inline `schema:` body for custom schemas"
+                f"invalid schema declaration: expected `schema:` followed by "
+                f"indented `element <name>:` / bus declarations; got {line!r}"
             )
-            raise ParseError(msg, self._pos)
-        naming = BusNaming(pattern) if pattern is not None else None
-        self._program._schema = preset_cls(naming=naming)  # noqa: SLF001
+            raise ParseError(msg, self._pos + 1)
+        self._pos += 1
+        self._build_inline_schema()
 
     def _build_inline_schema(self) -> None:
         naming_pattern: str | None = None

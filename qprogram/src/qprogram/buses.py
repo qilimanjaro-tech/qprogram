@@ -544,23 +544,9 @@ class FluxoniumCoupledSchema(FluxoniumSchema):
         return CouplerFactory("c", self._naming, self)
 
 
-# Registry of built-in preset schemas, keyed by KIND. The ``.qp`` parser uses
-# this to instantiate a preset from a one-liner ``schema: <kind>`` declaration.
-_BUILTIN_PRESETS: dict[str, type[BusSchema]] = {
-    TransmonSchema.KIND: TransmonSchema,
-    TransmonCoupledSchema.KIND: TransmonCoupledSchema,
-    FluxTunableTransmonSchema.KIND: FluxTunableTransmonSchema,
-    FluxTunableTransmonCoupledSchema.KIND: FluxTunableTransmonCoupledSchema,
-    FluxoniumSchema.KIND: FluxoniumSchema,
-    FluxoniumCoupledSchema.KIND: FluxoniumCoupledSchema,
-}
-
-
-def get_preset_class(kind: str) -> type[BusSchema] | None:
-    """Return the built-in preset class registered under ``kind``, or ``None``."""
-    return _BUILTIN_PRESETS.get(kind)
-
-
-def is_builtin_preset(schema: BusSchema) -> bool:
-    """Return ``True`` if ``schema`` is an instance of a built-in preset class."""
-    return type(schema) in _BUILTIN_PRESETS.values()
+# Preset classes (TransmonSchema, FluxoniumSchema, …) remain as
+# construction-time conveniences callable via ``BusSchema.transmon()`` etc.
+# They no longer have a special serialization shape — the writer always
+# emits the expanded inline form, so a preset and a hand-built dynamic
+# schema with the same elements/buses produce byte-identical ``.qp``
+# output.

@@ -5,14 +5,14 @@ metadata:
   description: "Sweep drive frequency to find qubit resonance"
 
 body:
-  var Frequency
-  var Frequency_2 "Frequency"
+  var freq_drive
+  var freq_readout
 
   average 1000:
-    for Frequency in range(4500000000.0, 5500000000.0, 1000000.0):
-      for Frequency_2 in range(100000000.0, 200000000.0, 10000000.0):
-        set_frequency "q0/drive" Frequency
-        set_frequency "q0/readout" Frequency_2
+    for freq_drive in range(4500000000.0, 5500000000.0, 1000000.0):
+      for freq_readout in range(100000000.0, 200000000.0, 10000000.0):
+        set_frequency "q0/drive" freq_drive
+        set_frequency "q0/readout" freq_readout
         play "q0/drive" IQPair(I=Square(amplitude=0.05, duration=10000), Q=Square(amplitude=0.0, duration=10000))
         sync
-        measure "q0/readout" IQPair(I=Square(amplitude=0.5, duration=2000), Q=Square(amplitude=0.0, duration=2000)) IQPair(I=Square(amplitude=1.0, duration=2000), Q=Square(amplitude=1.0, duration=2000))
+        measure "q0/readout" IQPair(I=Square(amplitude=0.5, duration=2000), Q=Square(amplitude=0.0, duration=2000)) IQPair(I=Square(amplitude=1.0, duration=2000), Q=Square(amplitude=1.0, duration=2000)) "m0"

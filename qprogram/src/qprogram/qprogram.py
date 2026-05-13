@@ -30,6 +30,8 @@ from qprogram.variable import Expression, Variable
 from qprogram.waveforms.waveform import IQWaveform, Waveform
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     import numpy as np
 
     from qprogram.buses import BusSchema
@@ -302,7 +304,7 @@ class QProgram:
         weights: IQWaveform | str,
         *,
         name: str | None = None,
-        save_adc: bool = False,
+        returns: str | Iterable[str] = ("iq",),
     ) -> MeasurementHandle:
         """Play a readout pulse, acquire the result, and return a handle.
 
@@ -319,7 +321,12 @@ class QProgram:
             name: Optional explicit name. When omitted, an auto-name is
                 allocated using the per-qubit convention described on
                 :meth:`_allocate_measurement_name`.
-            save_adc: Whether to also save the raw ADC trace.
+            returns: What this measurement should return. Default
+                ``("iq",)`` — in-phase + quadrature. Accepts a
+                comma-separated string (``"iq,raw"``) or any iterable of
+                strings (``["iq", "raw"]``). Platforms decide which tokens
+                they recognise; ``"raw"`` is the canonical name for the raw
+                ADC trace.
 
         Returns:
             The :class:`MeasurementHandle` for this measurement.
@@ -330,7 +337,7 @@ class QProgram:
         _validate_waveform_channel(bus, weights)
         allocated = self._allocate_measurement_name(bus, requested=name)
         self._active_block.append(
-            Measure(bus=bus, waveform=waveform, weights=weights, name=allocated, save_adc=save_adc),
+            Measure(bus=bus, waveform=waveform, weights=weights, name=allocated, returns=returns),
         )
         return MeasurementHandle(allocated)
 

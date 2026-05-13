@@ -21,6 +21,7 @@ from qprogram_qblox.operations import (
 )
 
 if TYPE_CHECKING:
+    from qprogram.result import MeasurementHandle
     from qprogram.variable import Expression
 
 
@@ -30,15 +31,37 @@ class QbloxNamespace(VendorNamespace):
     Accessed via ``program.qblox.<operation>()`` after registration.
     """
 
-    def acquire(self, bus: str, weights: IQWaveform | str, save_adc: bool = False) -> None:
+    def acquire(
+        self,
+        bus: str,
+        weights: IQWaveform | str,
+        save_adc: bool = False,
+        *,
+        name: str | None = None,
+    ) -> MeasurementHandle:
         """Acquire measurement data without playing a readout pulse.
+
+        Returns a :class:`~qprogram.MeasurementHandle` for retrieving the
+        result later. The handle's name participates in the same per-qubit
+        counter used by core ``QProgram.measure``, so two acquisitions on
+        ``q[0].readout`` produce ``q0_m0`` and ``q0_m1`` regardless of
+        whether a core ``measure`` is also present on that qubit.
 
         Args:
             bus: Readout bus name.
-            weights: Integration weights (IQWaveform or calibration alias).
+            weights: Integration weights (:class:`IQWaveform` or
+                calibration alias).
             save_adc: Whether to save raw ADC data.
+            name: Optional explicit measurement name; auto-allocated when
+                omitted.
         """
-        self._append(Acquire(bus=bus, weights=weights, save_adc=save_adc))
+        return self._append_measurement(
+            Acquire,
+            bus=bus,
+            weights=weights,
+            save_adc=save_adc,
+            name=name,
+        )
 
     def set_markers(self, bus: str, mask: str) -> None:
         """Set the 4-bit marker output mask.

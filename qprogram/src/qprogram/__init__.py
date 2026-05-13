@@ -4,7 +4,7 @@ from qprogram.buses import BusNaming, BusRef, BusSchema
 from qprogram.crosstalk_matrix import CrosstalkMatrix
 from qprogram.platform import PlatformProtocol
 from qprogram.qprogram import QProgram
-from qprogram.result import MeasurementResult, QProgramResult
+from qprogram.result import MeasurementHandle, MeasurementResult, QProgramResult
 from qprogram.serialization import dumps, register_vendor_operation, register_vendor_version, register_waveform, save
 from qprogram.variable import (
     UNASSIGNED,
@@ -51,6 +51,7 @@ __all__ = [
     "LogicalBinaryOp",
     "LogicalNot",
     "MathFunc",
+    "MeasurementHandle",
     "MeasurementResult",
     "PlatformProtocol",
     "QProgram",

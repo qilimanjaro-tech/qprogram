@@ -6,21 +6,26 @@ These are the data nodes — they hold typed attributes and get serialized to `.
 
 from __future__ import annotations
 
-from qprogram.operations.operation import Operation
+from qprogram.operations.operation import MeasurementOperation, Operation
 from qprogram.variable import Expression, Variable
 from qprogram.waveforms.waveform import IQWaveform
 
 
-class Acquire(Operation):
+class Acquire(MeasurementOperation):
     """Qblox-specific acquisition without play.
 
-    Unlike ``measure()`` which plays a readout pulse and acquires, this operation
-    only acquires — useful when the readout pulse is managed separately.
+    Unlike core ``measure()`` which plays a readout pulse and acquires, this
+    operation only acquires — useful when the readout pulse is managed
+    separately. Returns a :class:`~qprogram.MeasurementHandle` like
+    ``measure``; the measurement participates in the program's shared
+    per-qubit name counter (so an ``acquire`` after a ``measure`` on the
+    same qubit picks up the next free name on that qubit).
     """
 
-    def __init__(self, bus: str, weights: IQWaveform | str, save_adc: bool = False) -> None:
+    def __init__(self, bus: str, weights: IQWaveform | str, name: str, save_adc: bool = False) -> None:
         self.bus = bus
         self.weights = weights
+        self.name = name
         self.save_adc = save_adc
 
     def get_variables(self) -> set[Variable]:

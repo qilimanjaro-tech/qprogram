@@ -14,7 +14,7 @@ from qprogram.blocks.parallel import Parallel
 from qprogram.buses import BusRef
 from qprogram.operations.get_parameter import GetParameter
 from qprogram.operations.measure import Measure
-from qprogram.operations.operation import Operation
+from qprogram.operations.operation import MeasurementOperation, Operation
 from qprogram.operations.play import Play
 from qprogram.operations.reset_phase import ResetPhase
 from qprogram.operations.set_crosstalk import SetCrosstalk
@@ -25,6 +25,7 @@ from qprogram.operations.set_parameter import SetParameter
 from qprogram.operations.set_phase import SetPhase
 from qprogram.operations.sync import Sync
 from qprogram.operations.wait import Wait
+from qprogram.result import MeasurementHandle
 from qprogram.variable import Expression, Variable
 from qprogram.waveforms.waveform import IQWaveform, Waveform
 
@@ -150,6 +151,69 @@ class QProgram:
     def _active_block(self) -> Block:
         return self._block_stack[-1]
 
+    # --- Measurement handles ---
+
+    def measurement_handles(self) -> list[MeasurementHandle]:
+        """Return a fresh :class:`MeasurementHandle` for every measurement in the AST.
+
+        Recovers handles in declaration order — the order :meth:`measure`
+        / vendor measurement ops were called. Useful after
+        :func:`qprogram.loads`, where the original Python handle locals are
+        gone but the names survive in the AST.
+
+        Returns a *new* list of fresh handle objects on every call; handles
+        are structurally compared by name, so equality with previously-held
+        handles (or those reconstructed by name) still works.
+        """
+        return [MeasurementHandle(op.name) for op in _walk_measurement_ops(self._body)]
+
+    def _allocate_measurement_name(self, bus: str, requested: str | None) -> str:
+        """Choose the name for a new measurement and verify uniqueness.
+
+        - If ``requested`` is provided, it is used verbatim after checking
+          that no existing measurement already has that name. Raises
+          :class:`ValueError` on collision.
+        - Otherwise, an auto-name is generated using the convention:
+
+            - **Schema-backed bus** (``BusRef`` with ``element`` and
+              ``index``): ``{element}{flat_index}_m{counter}``. ``flat_index``
+              flattens tuple indices with ``_`` (so ``c[0,1]`` →
+              ``c0_1_m0``). ``counter`` is per-``(element, index)`` and
+              always starts at ``0`` — so the second measurement on q0 is
+              ``q0_m1`` and the first measurement on q4 is ``q4_m0``,
+              regardless of source-order interleaving.
+
+            - **Raw-string bus**: falls back to ``m{counter}`` with a
+              global counter shared across all raw-string measurements.
+
+        The counters are not stored on the program — they are derived from
+        the AST on each call. This keeps :func:`copy.deepcopy`,
+        ``with_waveforms``, and ``loads``/``dumps`` round-trips free of any
+        hidden state, at the cost of one AST walk per measurement
+        construction. Programs with thousands of measurements would feel
+        this; a memoised counter is a small future optimisation.
+        """
+        used_names = {op.name for op in _walk_measurement_ops(self._body)}
+        if requested is not None:
+            if not isinstance(requested, str) or not requested:
+                msg = f"measurement name must be a non-empty string, got {requested!r}"
+                raise ValueError(msg)
+            if requested in used_names:
+                msg = (
+                    f"measurement name {requested!r} is already used by another "
+                    f"measurement in this program"
+                )
+                raise ValueError(msg)
+            return requested
+
+        prefix = _measurement_name_prefix(bus)
+        # Per-prefix counter: walk used names, count how many already share
+        # this prefix, return the first free index.
+        n = 0
+        while f"{prefix}{n}" in used_names:
+            n += 1
+        return f"{prefix}{n}"
+
     # --- Variables ---
 
     def variable(
@@ -232,12 +296,44 @@ class QProgram:
         _validate_waveform_channel(bus, waveform)
         self._active_block.append(Play(bus=bus, waveform=waveform))
 
-    def measure(self, bus: str, waveform: IQWaveform | str, weights: IQWaveform | str, save_adc: bool = False) -> None:
+    def measure(
+        self,
+        bus: str,
+        waveform: IQWaveform | str,
+        weights: IQWaveform | str,
+        *,
+        name: str | None = None,
+        save_adc: bool = False,
+    ) -> MeasurementHandle:
+        """Play a readout pulse, acquire the result, and return a handle.
+
+        The returned :class:`~qprogram.MeasurementHandle` is the stable
+        identifier for this measurement; use it later with
+        ``result.get(handle)`` to retrieve the data, or pass it into future
+        classification / conditional operations.
+
+        Args:
+            bus: Readout bus (validated to support acquisition).
+            waveform: Readout pulse, as a concrete :class:`IQWaveform` or
+                a string alias resolved later via ``with_waveforms``.
+            weights: Integration weights, same shape as ``waveform``.
+            name: Optional explicit name. When omitted, an auto-name is
+                allocated using the per-qubit convention described on
+                :meth:`_allocate_measurement_name`.
+            save_adc: Whether to also save the raw ADC trace.
+
+        Returns:
+            The :class:`MeasurementHandle` for this measurement.
+        """
         self._validate_bus(bus)
         _validate_acquires(bus)
         _validate_waveform_channel(bus, waveform)
         _validate_waveform_channel(bus, weights)
-        self._active_block.append(Measure(bus=bus, waveform=waveform, weights=weights, save_adc=save_adc))
+        allocated = self._allocate_measurement_name(bus, requested=name)
+        self._active_block.append(
+            Measure(bus=bus, waveform=waveform, weights=weights, name=allocated, save_adc=save_adc),
+        )
+        return MeasurementHandle(allocated)
 
     def wait(self, bus: str, duration: int | Expression) -> None:
         self._validate_bus(bus)
@@ -400,6 +496,39 @@ def _validate_waveform_channel(bus: str, waveform: Waveform | IQWaveform | str) 
         raise TypeError(
             msg,
         )
+
+
+def _walk_measurement_ops(block: Block) -> list[MeasurementOperation]:
+    """Yield every :class:`MeasurementOperation` in ``block`` in declaration order.
+
+    Recursive depth-first walk. Used by :meth:`QProgram.measurement_handles`
+    and :meth:`QProgram._allocate_measurement_name` — handle enumeration and
+    name-uniqueness checks both need to see every measurement currently in
+    the AST, including those nested inside loops or other blocks.
+    """
+    out: list[MeasurementOperation] = []
+    for element in block.elements:
+        if isinstance(element, Block):
+            out.extend(_walk_measurement_ops(element))
+        elif isinstance(element, MeasurementOperation):
+            out.append(element)
+    return out
+
+
+def _measurement_name_prefix(bus: str) -> str:
+    """Compute the auto-name prefix for a measurement on ``bus``.
+
+    Schema-backed buses (``BusRef`` with element + index metadata) get a
+    per-qubit prefix — e.g. ``q0_m``, ``c0_1_m``. Raw-string buses fall
+    back to a global ``m`` prefix. The caller appends a free integer to
+    produce the final name. See :meth:`QProgram._allocate_measurement_name`.
+    """
+    if isinstance(bus, BusRef) and bus.element and bus.index is not None:
+        idx_str = (
+            "_".join(str(i) for i in bus.index) if isinstance(bus.index, tuple) else str(bus.index)
+        )
+        return f"{bus.element}{idx_str}_m"
+    return "m"
 
 
 def _collect_buses(block: Block) -> set[str]:

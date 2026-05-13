@@ -484,8 +484,7 @@ class UnaryOp(Expression):
 
 
 class Comparison(Expression):
-    """Binary comparison node: ``left op right`` where ``op`` is one of
-    ``== != < <= > >=``.
+    """Binary comparison node: ``left op right`` for ``== != < <= > >=``.
 
     Constructed by the comparison operators on :class:`Expression` (``<``,
     ``<=``, ``>``, ``>=``) and by the :func:`~qprogram.eq` /

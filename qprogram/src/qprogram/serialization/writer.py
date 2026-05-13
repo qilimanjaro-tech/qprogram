@@ -1,16 +1,25 @@
 """Serializer for the ``.qp`` file format.
 
-Implemented as a small ``_Writer`` class so per-program state — most importantly
-the variable identifier map — can be carried as instance state without threading
-it through every helper.
+The writer is intentionally thin: it walks the QProgram AST and dispatches
+each node to the appropriate spec callback from
+:mod:`qprogram.serialization.registry`. The hard-coded ``isinstance`` ladders
+that used to enumerate every core operation and block keyword are gone — the
+writer is now agnostic to the concrete set of operations, blocks, and sweep
+generators in scope.
 
-Why a variable identifier map: variables in the AST are identity-based, but the
-``.qp`` file references them by name. Two ``Variable`` instances created with
-the same label (e.g. ``program.variable("freq")`` twice) must be distinguished
-in the file or load-time identity is lost. The writer assigns each variable a
-unique identifier — derived from its label, disambiguated by suffix when
-needed — and emits the human-readable label only when it differs from the
-identifier (or contains characters not allowed in identifiers).
+State carried on the instance:
+
+- ``_var_idents`` — per-variable identifier table. Variable ids are already
+  unique within a program (the API rejects duplicates), so the map is
+  effectively an identity function today, but the indirection is kept in
+  place: future tooling that wants to rename variables on emit (e.g. to
+  shorten them) has a single hook to do so without touching the rest of
+  the writer.
+
+The instance methods called ``serialize_*`` and ``var_ident`` are the public
+interface used by registered callbacks. They form the *write context* — a
+duck-typed protocol consumed by every callback in :mod:`_specs` and by every
+vendor extension that registers a custom ``serialize`` function.
 """
 
 from __future__ import annotations
@@ -21,25 +30,17 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from qprogram.blocks.average import Average
 from qprogram.blocks.block import Block
-from qprogram.blocks.for_loop import ForLoop
-from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
 from qprogram.buses import BusNaming, BusRef, is_builtin_preset
-from qprogram.operations.get_parameter import GetParameter
-from qprogram.operations.measure import Measure
-from qprogram.operations.play import Play
-from qprogram.operations.reset_phase import ResetPhase
-from qprogram.operations.set_crosstalk import SetCrosstalk
-from qprogram.operations.set_frequency import SetFrequency
-from qprogram.operations.set_gain import SetGain
-from qprogram.operations.set_offset import SetOffset
-from qprogram.operations.set_parameter import SetParameter
-from qprogram.operations.set_phase import SetPhase
-from qprogram.operations.sync import Sync
-from qprogram.operations.wait import Wait
-from qprogram.serialization.registry import get_operation_vendor_name, get_vendor_version
+from qprogram.operations.operation import Operation
+from qprogram.serialization import _specs
+from qprogram.serialization.registry import (
+    get_block_spec_by_class,
+    get_operation_spec_by_class,
+    get_sweep_generator_spec_by_class,
+    get_vendor_version,
+)
 from qprogram.variable import BinaryOp, Constant, UnaryOp, Variable
 from qprogram.waveforms.waveform import IQWaveform, Waveform
 
@@ -71,8 +72,6 @@ class _Writer:
     def __init__(self, program: QProgram) -> None:
         self._program = program
         self._out = StringIO()
-        # Map Variable.id -> chosen identifier in the .qp file. Built lazily
-        # by allocate_var_idents() before any body emission.
         self._var_idents: dict[str, str] = {}
 
     # -- public ---------------------------------------------------------------
@@ -92,10 +91,12 @@ class _Writer:
         self._out.write(f"#!QProgram {FORMAT_VERSION}\n")
 
     def _write_requires(self) -> None:
-        # Collect required vendors and emit `require <vendor> <major.minor>` for each.
-        # The version comes from whichever extension is currently registered with
-        # register_vendor_version(); patch is truncated since compatibility
-        # semantics are defined at major.minor.
+        """Emit ``require <vendor> <major.minor>`` for each vendor referenced in the body.
+
+        The version comes from whichever extension is currently registered
+        via :func:`register_vendor_version`; patch is truncated since
+        compatibility semantics are defined at major.minor.
+        """
         vendors = self._collect_vendors(self._program.body)
         for vendor in sorted(vendors):
             version = get_vendor_version(vendor)
@@ -123,13 +124,10 @@ class _Writer:
     def _write_schema(self) -> None:
         """Emit the optional single ``schema`` block declared on the program.
 
-        Built-in presets emit a one-liner (``schema: transmon`` or with a
-        custom naming pattern). User subclasses and dynamic schemas emit a
-        full inline block with element/bus declarations so the parser can
-        rebuild the structure without knowing the user's Python class.
-
-        If the program has no schema (``program.schema is None``), this is a
-        no-op and bus references in operations fall back to quoted strings.
+        Built-in presets emit the one-liner form. User subclasses and dynamic
+        schemas emit a full inline block with element/bus declarations so the
+        parser can rebuild the structure without knowing the user's Python
+        class.
         """
         schema = self._program.schema
         if schema is None:
@@ -156,10 +154,6 @@ class _Writer:
 
     def _write_body(self) -> None:
         self._out.write("\nbody:\n")
-        # Variable ids are valid identifiers and unique within a program
-        # (validated by Variable.__init__ and QProgram.variable), so they are
-        # used verbatim as identifiers here. Optional metadata (label,
-        # units, description) is emitted as `key="value"` kwargs.
         for var in self._program.variables:
             self._out.write(f"  {self._serialize_var_decl(var)}\n")
         if self._program.variables:
@@ -176,50 +170,114 @@ class _Writer:
             parts.append(f'description="{_escape_str(var.description)}"')
         return " ".join(parts)
 
+    # -- dispatch over block tree --------------------------------------------
+
     def _write_block_contents(self, block: Block, indent: int) -> None:
+        """Walk a block's children, dispatching each to the right serializer.
+
+        Three cases, in priority order:
+
+        1. The child is an :class:`Operation` — look up its
+           :class:`OperationSpec` and call either the registered custom
+           callback or the default signature-driven serializer.
+        2. The child is a :class:`Parallel` — emit a pipe-joined sequence of
+           loop headers from its child loops, then recurse into the body.
+        3. The child is any other :class:`Block` — emit
+           ``<header>:`` (via :meth:`_serialize_block_header`) and recurse.
+
+        Parallel is special-cased rather than registered because its surface
+        syntax (``a | b | c:``) composes other blocks' headers; it isn't
+        keyword-led on its own.
+        """
         prefix = " " * indent
         for element in block.elements:
+            if isinstance(element, Operation):
+                self._out.write(f"{prefix}{self._serialize_operation(element)}\n")
+                continue
             if isinstance(element, Parallel):
                 headers = [self._serialize_loop_header(lp) for lp in element.loops]
                 self._out.write(f"{prefix}{' | '.join(headers)}:\n")
                 self._write_block_contents(element, indent + 2)
-            elif isinstance(element, (ForLoop, Loop)):
-                self._out.write(f"{prefix}{self._serialize_loop_header(element)}:\n")
+                continue
+            if isinstance(element, Block):
+                header = self._serialize_block_header(element)
+                self._out.write(f"{prefix}{header}:\n")
                 self._write_block_contents(element, indent + 2)
-            elif isinstance(element, Average):
-                self._out.write(f"{prefix}average {element.shots}:\n")
-                self._write_block_contents(element, indent + 2)
-            elif isinstance(element, Block):
-                self._out.write(f"{prefix}block:\n")
-                self._write_block_contents(element, indent + 2)
-            else:
-                self._out.write(f"{prefix}{self._serialize_operation(element)}\n")
 
-    def _serialize_loop_header(self, loop: ForLoop | Loop) -> str:
-        var_ident = self._var_idents[loop.variable.id]
-        if isinstance(loop, ForLoop):
-            return (
-                f"for {var_ident} in range("
-                f"{self._serialize_value(loop.start)}, "
-                f"{self._serialize_value(loop.stop)}, "
-                f"{self._serialize_value(loop.step)})"
-            )
-        # Loop
-        items = ", ".join(self._serialize_value(v) for v in loop.values[:50])
-        if len(loop.values) > 50:
-            items += ", ..."
-        return f"for {var_ident} in [{items}]"
+    def _serialize_block_header(self, block: Block) -> str:
+        """Render a block's header line without the trailing colon.
 
-    # -- value / waveform / operation serialization ---------------------------
-
-    def _serialize_bus(self, bus: str) -> str:
-        """Render a bus argument.
-
-        When the program has a schema attached and the bus is a BusRef with
-        element/kind metadata, emit the path form ``element[index].kind`` (no
-        quotes — the parser resolves it against ``program.schema``). Plain
-        strings, or schema-less programs, emit the bus as a quoted string.
+        Loop-shaped blocks dispatch through the sweep generator registry; all
+        other blocks dispatch through the block registry. An unregistered
+        block emits a comment so the output is still parseable as a whole
+        but the offending block is visible.
         """
+        gen_spec = get_sweep_generator_spec_by_class(type(block))
+        if gen_spec is not None:
+            return self._serialize_loop_header(block)
+        block_spec = get_block_spec_by_class(type(block))
+        if block_spec is None:
+            return f"# unknown block: {type(block).__name__}"
+        if block_spec.serialize_header is not None:
+            return block_spec.serialize_header(block, self)
+        return block_spec.name
+
+    def _serialize_loop_header(self, loop: Block) -> str:
+        """``for <var> in <generator>`` — generator text comes from the sweep registry."""
+        gen_spec = get_sweep_generator_spec_by_class(type(loop))
+        if gen_spec is None or gen_spec.write is None:
+            return f"# unknown sweep block: {type(loop).__name__}"
+        # Every registered loop block has a ``variable`` attribute; this is
+        # the contract for participating in the ``for var in ...`` grammar.
+        var = loop.variable  # type: ignore[attr-defined]
+        var_ident = self._var_idents[var.id]
+        gen_text = gen_spec.write(loop, self)
+        return f"for {var_ident} in {gen_text}"
+
+    def _serialize_operation(self, op: Operation) -> str:
+        """Look up the operation in the registry and dispatch to its serializer."""
+        spec = get_operation_spec_by_class(type(op))
+        if spec is None:
+            return f"# unknown operation: {type(op).__name__}"
+        if spec.serialize is not None:
+            return spec.serialize(op, self)
+        return _specs.default_serialize_operation(op, spec, self)
+
+    # -- callbacks exposed to spec functions (the "write context") -----------
+
+    def serialize_value(self, val: object) -> str:
+        """Render any AST value as a ``.qp`` token.
+
+        Recognises the symbolic expression AST (``Variable``, ``Constant``,
+        ``BinaryOp``, ``UnaryOp``), waveform instances, bus references,
+        plain strings (quoted), booleans, numeric literals, and numpy
+        integers. Falls back to ``str(val)`` for anything else so the writer
+        never raises mid-emit.
+        """
+        if isinstance(val, BusRef):
+            return self.serialize_bus(val)
+        if isinstance(val, str):
+            return f'"{_escape_str(val)}"'
+        if isinstance(val, bool):
+            return "true" if val else "false"
+        if isinstance(val, Variable):
+            return self._var_idents[val.id]
+        if isinstance(val, Constant):
+            return self.serialize_value(val.value)
+        if isinstance(val, BinaryOp):
+            return f"({self.serialize_value(val.left)} {val.op} {self.serialize_value(val.right)})"
+        if isinstance(val, UnaryOp):
+            return f"({val.op}{self.serialize_value(val.operand)})"
+        if isinstance(val, (Waveform, IQWaveform)):
+            return self.serialize_waveform(val)
+        if isinstance(val, np.integer):
+            return str(int(val))
+        if isinstance(val, (int, float)):
+            return str(val)
+        return str(val)
+
+    def serialize_bus(self, bus: object) -> str:
+        """Render a bus argument: path form if schema-backed, quoted string otherwise."""
         if (
             self._program.schema is not None
             and isinstance(bus, BusRef)
@@ -231,107 +289,25 @@ class _Writer:
             return f"{bus.element}[{idx_str}].{bus.kind}"
         return f'"{_escape_str(str(bus))}"'
 
-    def _serialize_value(self, val: object) -> str:
-        if isinstance(val, BusRef):
-            return self._serialize_bus(val)
-        if isinstance(val, str):
-            return f'"{_escape_str(val)}"'
-        if isinstance(val, bool):
-            return "true" if val else "false"
-        if isinstance(val, Variable):
-            return self._var_idents[val.id]
-        if isinstance(val, Constant):
-            return self._serialize_value(val.value)
-        if isinstance(val, BinaryOp):
-            return f"({self._serialize_value(val.left)} {val.op} {self._serialize_value(val.right)})"
-        if isinstance(val, UnaryOp):
-            return f"({val.op}{self._serialize_value(val.operand)})"
-        if isinstance(val, (Waveform, IQWaveform)):
-            return self._serialize_waveform(val)
-        if isinstance(val, np.integer):
-            return str(int(val))
-        if isinstance(val, (int, float)):
-            return str(val)
-        return str(val)
-
-    def _serialize_waveform(self, wf: object) -> str:
+    def serialize_waveform(self, wf: object) -> str:
+        """Emit a waveform constructor call, mirroring the class name and public attrs."""
         cls_name = type(wf).__name__
         if cls_name == "Arbitrary" and hasattr(wf, "samples"):
-            samples = wf.samples
+            samples = wf.samples  # type: ignore[attr-defined]
             items = ", ".join(str(v) for v in samples[:20])
             if len(samples) > 20:
                 items += ", ..."
             return f"Arbitrary(samples=[{items}])"
-
         params: list[str] = []
         for key, val in vars(wf).items():
             if key.startswith("_"):
                 continue
-            params.append(f"{key}={self._serialize_value(val)}")
+            params.append(f"{key}={self.serialize_value(val)}")
         return f"{cls_name}({', '.join(params)})"
 
-    def _serialize_operation(self, op: object) -> str:
-        vn = get_operation_vendor_name(type(op))
-
-        if isinstance(op, Play):
-            wf = f'"{op.waveform}"' if isinstance(op.waveform, str) else self._serialize_waveform(op.waveform)
-            prefix = f"{vn[0]}." if vn else ""
-            return f"{prefix}play {self._serialize_bus(op.bus)} {wf}"
-
-        if isinstance(op, Measure):
-            wf = f'"{op.waveform}"' if isinstance(op.waveform, str) else self._serialize_waveform(op.waveform)
-            wt = f'"{op.weights}"' if isinstance(op.weights, str) else self._serialize_waveform(op.weights)
-            extras = " save_adc=true" if op.save_adc else ""
-            prefix = f"{vn[0]}." if vn else ""
-            return f"{prefix}measure {self._serialize_bus(op.bus)} {wf} {wt}{extras}"
-
-        if isinstance(op, Wait):
-            return f"wait {self._serialize_bus(op.bus)} {self._serialize_value(op.duration)}"
-
-        if isinstance(op, Sync):
-            if op.buses:
-                return "sync " + " ".join(self._serialize_bus(b) for b in op.buses)
-            return "sync"
-
-        if isinstance(op, SetFrequency):
-            return f"set_frequency {self._serialize_bus(op.bus)} {self._serialize_value(op.frequency)}"
-
-        if isinstance(op, SetPhase):
-            return f"set_phase {self._serialize_bus(op.bus)} {self._serialize_value(op.phase)}"
-
-        if isinstance(op, ResetPhase):
-            return f"reset_phase {self._serialize_bus(op.bus)}"
-
-        if isinstance(op, SetGain):
-            return f"set_gain {self._serialize_bus(op.bus)} {self._serialize_value(op.gain)}"
-
-        if isinstance(op, SetOffset):
-            parts = f"set_offset {self._serialize_bus(op.bus)} {self._serialize_value(op.offset_path0)}"
-            if op.offset_path1 is not None:
-                parts += f" {self._serialize_value(op.offset_path1)}"
-            return parts
-
-        if isinstance(op, SetParameter):
-            extras = f" channel_id={op.channel_id}" if op.channel_id is not None else ""
-            return f'set_parameter "{op.alias}" "{op.parameter}" {self._serialize_value(op.value)}{extras}'
-
-        if isinstance(op, GetParameter):
-            extras = f" channel_id={op.channel_id}" if op.channel_id is not None else ""
-            ident = self._var_idents[op.variable.id]
-            return f'get_parameter "{op.alias}" "{op.parameter}"{extras} -> {ident}'
-
-        if isinstance(op, SetCrosstalk):
-            return "set_crosstalk crosstalk"
-
-        # Generic vendor operation fallback
-        if vn:
-            parts = [f"{vn[0]}.{vn[1]}"]
-            for key, val in vars(op).items():
-                if not key.startswith("_"):
-                    parts.append(self._serialize_value(val))
-            return " ".join(parts)
-
-        return f"# unknown operation: {type(op).__name__}"
+    def var_ident(self, var: Variable) -> str:
+        """Return the identifier chosen for ``var`` in the emitted file."""
+        return self._var_idents[var.id]
 
     # -- variable identifier allocation ---------------------------------------
 
@@ -349,14 +325,15 @@ class _Writer:
 
     @staticmethod
     def _collect_vendors(block: Block) -> set[str]:
+        """Walk a block tree and gather the vendor names referenced by operations."""
         vendors: set[str] = set()
         for element in block.elements:
             if isinstance(element, Block):
                 vendors.update(_Writer._collect_vendors(element))
-            else:
-                vn = get_operation_vendor_name(type(element))
-                if vn:
-                    vendors.add(vn[0])
+                continue
+            spec = get_operation_spec_by_class(type(element))
+            if spec is not None and spec.vendor is not None:
+                vendors.add(spec.vendor)
         return vendors
 
 

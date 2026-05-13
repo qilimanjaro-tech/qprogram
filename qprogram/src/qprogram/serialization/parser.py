@@ -1,37 +1,49 @@
+"""Parser for the ``.qp`` file format.
+
+Like the writer, the parser is intentionally thin. Header/require/metadata
+parsing is fixed grammar, but everything inside ``body:`` — operations,
+control-flow blocks, sweep generators — is dispatched through the registries
+in :mod:`qprogram.serialization.registry`. New operations, blocks, or sweep
+sources can be added by registration alone; no parser change required.
+
+The parser exposes a small *parse context* API used by spec callbacks:
+
+- :meth:`parse_value` — token → typed value (string / number / bool / list /
+  inline waveform / declared variable).
+- :meth:`parse_error` — produce a :class:`ParseError` tagged with the current
+  line number, for use by callbacks that detect bad input.
+- :meth:`get_or_declare_variable` — used by callbacks (e.g. ``get_parameter``)
+  that need a target variable identifier; auto-declares one if not seen
+  already, which matches the runtime behaviour of the Python API.
+"""
+
 from __future__ import annotations
 
-import inspect
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 
-from qprogram.blocks.average import Average
-from qprogram.blocks.block import Block
 from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
 from qprogram.buses import BusNaming, BusRef, BusSchema, get_preset_class
-from qprogram.crosstalk_matrix import CrosstalkMatrix
-from qprogram.operations.get_parameter import GetParameter
-from qprogram.operations.measure import Measure
-from qprogram.operations.play import Play
-from qprogram.operations.reset_phase import ResetPhase
-from qprogram.operations.set_crosstalk import SetCrosstalk
-from qprogram.operations.set_frequency import SetFrequency
-from qprogram.operations.set_gain import SetGain
-from qprogram.operations.set_offset import SetOffset
-from qprogram.operations.set_parameter import SetParameter
-from qprogram.operations.set_phase import SetPhase
-from qprogram.operations.sync import Sync
-from qprogram.operations.wait import Wait
 from qprogram.qprogram import QProgram
-from qprogram.serialization.registry import get_operation_class, get_vendor_version, get_waveform_class
+from qprogram.serialization import _specs as _core_specs
+from qprogram.serialization.registry import (
+    get_block_spec,
+    get_operation_spec,
+    get_sweep_generator_spec,
+    get_vendor_version,
+    get_waveform_class,
+)
 from qprogram.variable import _ID_RE
 
 if TYPE_CHECKING:
-    from qprogram.variable import Expression, Variable
+    from qprogram.blocks.block import Block
+    from qprogram.operations.operation import Operation
+    from qprogram.variable import Variable
 
 FORMAT_VERSION = "1.0"
 
@@ -56,7 +68,7 @@ def load(path: str) -> QProgram:
 
 
 # ---------------------------------------------------------------------------
-# Recursive-descent parser
+# Module-level regexes
 # ---------------------------------------------------------------------------
 
 
@@ -65,6 +77,12 @@ _SCHEMA_HEADER_RE = re.compile(r"^schema\s*:\s*(.*)$")
 _SCHEMA_KIND_RE = re.compile(r'^(\w+)(?:\(\s*"(.+?)"\s*\))?$')
 _ELEMENT_HEADER_RE = re.compile(r"^element\s+(\w+)\s*:\s*$")
 _BUS_LINE_RE = re.compile(r"^(\w+)\s+info=(\S+)\s*$")
+_FOR_HEADER_RE = re.compile(r"^for\s+(\w+)\s+in\s+(.*)$")
+
+
+# ---------------------------------------------------------------------------
+# Recursive-descent parser
+# ---------------------------------------------------------------------------
 
 
 class _Parser:
@@ -98,6 +116,11 @@ class _Parser:
         return self._program
 
     # -- line helpers --------------------------------------------------------
+
+    @property
+    def line_num(self) -> int:
+        """Current 1-indexed line number, for error messages from callbacks."""
+        return self._pos + 1
 
     def _stripped(self) -> str:
         if self._pos >= len(self._lines):
@@ -151,11 +174,6 @@ class _Parser:
                 break
 
     def _check_vendor_compat(self, vendor: str, file_version: str) -> None:
-        """Validate that the installed vendor extension is compatible.
-
-        File versions use ``major.minor`` semantics: the installed extension
-        must have the same major version, and a minor version >= the file's.
-        """
         installed = get_vendor_version(vendor)
         if installed is None:
             msg = (
@@ -207,21 +225,6 @@ class _Parser:
     _INFO_FLAGS: ClassVar[frozenset[str]] = frozenset({"acquires"})
 
     def _parse_schema_decl(self) -> None:
-        """Parse the single ``schema`` declaration starting at the current line.
-
-        One-liner forms (preset):
-          ``schema: <kind>``                       — default naming
-          ``schema: <kind>("<pattern>")``          — custom naming pattern
-
-        Inline form (custom / dynamic):
-          ``schema:``                              — body follows on indented lines
-              ``naming: "<pattern>"``              (optional)
-              ``element <elem>:``
-                  ``<kind> info=<channel>[+acquires]``
-
-        At most one schema per program — a second ``schema`` declaration in
-        the same file is rejected.
-        """
         if self._program.schema is not None:
             msg = "duplicate schema declaration — a program may have at most one schema"
             raise ParseError(msg, self._pos + 1)
@@ -316,11 +319,6 @@ class _Parser:
         return buses
 
     def _parse_bus_info(self, value: str) -> tuple[str, bool]:
-        """Parse ``info=channel[+flag[+flag...]]``.
-
-        Channel must be ``single`` or ``IQ`` and appear exactly once. Currently
-        the only supported flag is ``acquires``.
-        """
         if not value:
             msg = "bus `info` must specify a channel (single|IQ), got empty value"
             raise ParseError(msg, self._pos + 1)
@@ -374,14 +372,6 @@ class _Parser:
                             value[i] = ref
 
     def _resolve_bus_path(self, token: str) -> BusRef | None:
-        """Resolve ``element[index].kind`` against the program's schema.
-
-        Returns ``None`` if the token doesn't match the path syntax (caller
-        leaves the value as a plain string — the right behaviour for
-        raw-string buses). Raises ``ParseError`` if the path looks valid but
-        the schema rejects the element or bus kind, since that indicates a
-        malformed file.
-        """
         schema = self._program.schema
         if schema is None:
             return None
@@ -408,6 +398,14 @@ class _Parser:
         self._parse_statements(self._program._body, min_indent=2)  # noqa: SLF001
 
     def _parse_statements(self, parent: Block, min_indent: int) -> None:
+        """Walk a block's children, dispatching by the first significant token.
+
+        Order matters: ``var`` declarations come first because they share no
+        prefix with block keywords. ``for`` introduces loops and parallel
+        loop compositions, dispatched via the sweep-generator registry. All
+        other ``<keyword>:`` lines hit the block registry. Anything left is
+        an operation: vendor-prefixed lookup followed by core lookup.
+        """
         while self._pos < len(self._lines):
             line = self._stripped()
             indent = self._indent()
@@ -419,35 +417,95 @@ class _Parser:
             if line.startswith("var "):
                 var_id, attrs = self._parse_var_decl(line)
                 if var_id in self._variables:
-                    msg = f"duplicate variable id '{var_id}'"
+                    msg = f"duplicate variable id {var_id!r}"
                     raise ParseError(msg, self._pos + 1)
                 var = self._program.variable(var_id, **attrs)
                 self._variables[var_id] = var
                 self._pos += 1
-            elif line.startswith("for ") or ("|" in line and "for " in line):
-                self._parse_loop_or_parallel(parent, min_indent)
-            elif line.startswith("average "):
-                self._parse_average(parent, min_indent)
-            elif line == "block:":
-                self._parse_block_scope(parent, min_indent)
-            else:
-                op = self._parse_operation(line)
-                if op is not None:
-                    self._upgrade_busrefs(op)
-                    parent.append(op)
-                self._pos += 1
+                continue
+            if self._try_parse_block_header(parent, line, min_indent):
+                continue
+            op = self._parse_operation(line)
+            if op is not None:
+                self._upgrade_busrefs(op)
+                parent.append(op)
+            self._pos += 1
+
+    def _try_parse_block_header(self, parent: Block, line: str, min_indent: int) -> bool:
+        """Return True iff ``line`` was a block header (and the block was parsed)."""
+        if not line.endswith(":"):
+            return False
+        header = line[:-1].rstrip()
+        # Loop family: ``for`` heads either a single loop or a parallel of loops.
+        if header.startswith("for ") or ("|" in header and "for " in header):
+            self._parse_loop_or_parallel(parent, header, min_indent)
+            return True
+        # Keyword-led block: leading word maps to a registered BlockSpec.
+        first_token, _, rest = header.partition(" ")
+        spec = get_block_spec(first_token)
+        if spec is None:
+            return False
+        tokens = _tokenize(rest) if rest.strip() else []
+        block: Block = (
+            spec.parse_header(tokens, self) if spec.parse_header is not None else spec.cls()
+        )
+        parent.append(block)
+        self._pos += 1
+        self._parse_statements(block, min_indent + 2)
+        return True
+
+    def _parse_loop_or_parallel(self, parent: Block, header: str, min_indent: int) -> None:
+        loop_parts = [p.strip() for p in header.split("|")]
+        loops = [self._parse_for_header(p) for p in loop_parts]
+        # Every built-in sweep generator produces a ForLoop or Loop, but the
+        # registry is open — defensively narrow before constructing Parallel,
+        # which is the only block whose AST shape requires that constraint.
+        for lp in loops:
+            if not isinstance(lp, (ForLoop, Loop)):
+                msg = (
+                    f"sweep generator produced a {type(lp).__name__}; only "
+                    f"ForLoop and Loop can compose under `|` (parallel)"
+                )
+                raise ParseError(msg, self._pos + 1)
+        block: Block = loops[0] if len(loops) == 1 else Parallel(loops=loops)  # type: ignore[arg-type]
+        parent.append(block)
+        self._pos += 1
+        self._parse_statements(block, min_indent + 2)
+
+    def _parse_for_header(self, header: str) -> Block:
+        """Parse a single ``for <var> in <generator>`` header into a loop block."""
+        m = _FOR_HEADER_RE.match(header.strip())
+        if not m:
+            msg = f"invalid for loop header: {header!r}"
+            raise ParseError(msg, self._pos + 1)
+        var_name = m.group(1)
+        var = self.get_or_declare_variable(var_name)
+        rest = m.group(2).strip()
+        # List literal -> the registered ``values`` generator.
+        if rest.startswith("["):
+            spec = get_sweep_generator_spec("values")
+            if spec is None:
+                msg = "sweep generator 'values' is not registered"
+                raise ParseError(msg, self._pos + 1)
+            return spec.parse(var, rest, self)
+        # Otherwise: ``name(...)`` — look up the name in the registry.
+        if "(" not in rest:
+            msg = f"unknown sweep source {rest!r}; expected `name(args)` or `[values]`"
+            raise ParseError(msg, self._pos + 1)
+        paren = rest.index("(")
+        gen_name = rest[:paren].strip()
+        args_text = rest[paren + 1 : rest.rindex(")")]
+        spec = get_sweep_generator_spec(gen_name)
+        if spec is None:
+            msg = f"unknown sweep generator {gen_name!r}"
+            raise ParseError(msg, self._pos + 1)
+        return spec.parse(var, args_text, self)
 
     # -- variable declarations ----------------------------------------------
 
     _VAR_ATTRS: ClassVar[frozenset[str]] = frozenset({"label", "units", "description"})
 
     def _parse_var_decl(self, line: str) -> tuple[str, dict[str, str]]:
-        """Parse a ``var <id> [key="value"]...`` line.
-
-        The id must be a Python-style identifier. Optional ``label``,
-        ``units``, and ``description`` may appear in any order as quoted
-        ``key="value"`` pairs. Returns ``(id, attrs)``.
-        """
         tokens = _tokenize(line)
         if len(tokens) < 2 or tokens[0] != "var":
             msg = (
@@ -485,149 +543,122 @@ class _Parser:
             attrs[key] = _unescape_str(value[1:-1])
         return var_id, attrs
 
-    # -- loops ---------------------------------------------------------------
-
-    def _parse_loop_or_parallel(self, parent: Block, min_indent: int) -> None:
-        line = self._stripped()
-        line = line.removesuffix(":")
-        loop_parts = [p.strip() for p in line.split("|")]
-        loops = [self._parse_for_header(p) for p in loop_parts]
-        self._pos += 1
-        block: Block = loops[0] if len(loops) == 1 else Parallel(loops=loops)
-        parent.append(block)
-        self._parse_statements(block, min_indent + 2)
-
-    def _parse_for_header(self, header: str) -> ForLoop | Loop:
-        m = re.match(r"for\s+(\w+)\s+in\s+(.*)", header.strip())
-        if not m:
-            msg = f"Invalid for loop: {header}"
-            raise ParseError(msg, self._pos + 1)
-        var_name = m.group(1)
-        if var_name not in self._variables:
-            var = self._program.variable(var_name)
-            self._variables[var_name] = var
-        var = self._variables[var_name]
-        rest = m.group(2).strip()
-        if rest.startswith("range("):
-            args = [_parse_number(a.strip()) for a in rest[6:].rstrip(")").split(",")]
-            if len(args) == 2:
-                return ForLoop(var, args[0], args[1], 1)
-            if len(args) == 3:
-                return ForLoop(var, args[0], args[1], args[2])
-            msg = "range() expects 2 or 3 arguments"
-            raise ParseError(msg, self._pos + 1)
-        if rest.startswith("["):
-            values = np.array([_parse_number(v.strip()) for v in rest.strip("[]").split(",")])
-            return Loop(var, values)
-        if rest.startswith("file("):
-            path = rest[5:].rstrip(")").strip().strip('"')
-            values = np.load(path)
-            return Loop(var, values)
-        msg = f"Unknown loop source: {rest}"
-        raise ParseError(msg, self._pos + 1)
-
-    def _parse_average(self, parent: Block, min_indent: int) -> None:
-        line = self._stripped()
-        m = re.match(r"average\s+(\d+)\s*:", line)
-        if not m:
-            msg = f"Invalid average: {line}"
-            raise ParseError(msg, self._pos + 1)
-        block = Average(shots=int(m.group(1)))
-        parent.append(block)
-        self._pos += 1
-        self._parse_statements(block, min_indent + 2)
-
-    def _parse_block_scope(self, parent: Block, min_indent: int) -> None:
-        block = Block()
-        parent.append(block)
-        self._pos += 1
-        self._parse_statements(block, min_indent + 2)
-
     # -- operations ----------------------------------------------------------
 
-    def _parse_operation(self, line: str) -> object | None:
+    def _parse_operation(self, line: str) -> Operation | None:
+        """Dispatch an operation line to its registered spec.
+
+        Returns ``None`` for unknown operations (the caller silently skips
+        the line). Vendor operations carry a dotted prefix; core operations
+        do not.
+        """
         tokens = _tokenize(line)
         if not tokens:
             return None
         op_name = tokens[0]
-        vendor = None
+        vendor: str | None = None
         if "." in op_name:
             vendor, op_name = op_name.split(".", 1)
+        spec = get_operation_spec(vendor, op_name)
+        if spec is None:
+            return None
+        if spec.parse is not None:
+            return spec.parse(tokens[1:], self)
+        return _core_specs.default_parse_operation(spec, tokens[1:], self)
 
-        # Vendor operation
-        if vendor:
-            op_cls = get_operation_class(vendor, op_name)
-            if op_cls is None:
-                return None
-            return _construct_generic(op_cls, tokens[1:], self._variables)
+    # -- callbacks exposed to spec functions (the "parse context") -----------
 
-        args = tokens[1:]
+    def parse_value(self, token: str) -> object:
+        """Decode a single ``.qp`` token into a typed value.
 
-        if op_name == "play":
-            return Play(bus=_uq(args[0]), waveform=self._resolve_wf(args[1]))
-        if op_name == "measure":
-            kw = _parse_kwargs(args[3:])
-            return Measure(
-                bus=_uq(args[0]),
-                waveform=self._resolve_wf(args[1]),
-                weights=self._resolve_wf(args[2]),
-                save_adc=kw.get("save_adc", False),
-            )
-        if op_name == "wait":
-            return Wait(bus=_uq(args[0]), duration=self._var_or_num(args[1]))
-        if op_name == "sync":
-            return Sync(buses=[_uq(a) for a in args] if args else None)
-        if op_name == "set_frequency":
-            return SetFrequency(bus=_uq(args[0]), frequency=self._var_or_num(args[1]))
-        if op_name == "set_phase":
-            return SetPhase(bus=_uq(args[0]), phase=self._var_or_num(args[1]))
-        if op_name == "reset_phase":
-            return ResetPhase(bus=_uq(args[0]))
-        if op_name == "set_gain":
-            return SetGain(bus=_uq(args[0]), gain=self._var_or_num(args[1]))
-        if op_name == "set_offset":
-            p1 = self._var_or_num(args[2]) if len(args) > 2 and "=" not in args[2] else None
-            return SetOffset(bus=_uq(args[0]), offset_path0=self._var_or_num(args[1]), offset_path1=p1)
-        if op_name == "set_parameter":
-            kw = _parse_kwargs(args[3:])
-            return SetParameter(
-                alias=_uq(args[0]),
-                parameter=_uq(args[1]),
-                value=self._var_or_num(args[2]),
-                channel_id=kw.get("channel_id"),
-            )
-        if op_name == "get_parameter":
-            arrow = next((i for i, a in enumerate(args) if a == "->"), None)
-            kw = _parse_kwargs(args[2:arrow] if arrow else args[2:])
-            var_name = args[arrow + 1] if arrow is not None and arrow + 1 < len(args) else "result"
-            if var_name not in self._variables:
-                v = self._program.variable(var_name)
-                self._variables[var_name] = v
-            return GetParameter(
-                variable=self._variables[var_name],
-                alias=_uq(args[0]),
-                parameter=_uq(args[1]),
-                channel_id=kw.get("channel_id"),
-            )
-        if op_name == "set_crosstalk":
-            return SetCrosstalk(crosstalk=CrosstalkMatrix())
-        return None
+        Recognises quoted strings, booleans, list literals, inline waveform
+        constructors, numeric literals, and references to previously
+        declared variables. Anything that doesn't match any of those is
+        returned as a plain string — this is how bus-path tokens
+        (``q[0].drive``) flow through unchanged until ``_upgrade_busrefs``
+        promotes them to typed :class:`BusRef` instances.
+        """
+        tok = token.strip()
+        if not tok:
+            msg = "empty argument token"
+            raise ParseError(msg, self._pos + 1)
+        if tok.startswith('"') and tok.endswith('"'):
+            return _unescape_str(tok[1:-1])
+        if tok == "true":
+            return True
+        if tok == "false":
+            return False
+        if tok.startswith("[") and tok.endswith("]"):
+            inner = tok[1:-1]
+            return np.array([_parse_number(v.strip()) for v in inner.split(",") if v.strip()])
+        # Parenthesised symbolic expression — emitted by the writer for any
+        # BinaryOp or UnaryOp (e.g. ``(freq + 1000000.0)``). The writer always
+        # parenthesises and never leaves nested operations unwrapped, so this
+        # recursive form is sufficient.
+        if tok.startswith("(") and tok.endswith(")"):
+            return self._parse_paren_expression(tok)
+        # Waveform constructor (e.g. ``Gaussian(...)``). The name must start
+        # with a letter — leading digits/sign are numeric literals, not
+        # function calls.
+        if "(" in tok and not tok[0].isdigit() and not tok.startswith("-"):
+            return _parse_waveform_expr(tok)
+        if tok in self._variables:
+            return self._variables[tok]
+        try:
+            return _parse_number(tok)
+        except ValueError:
+            return tok
 
-    # -- resolution helpers --------------------------------------------------
+    def parse_error(self, message: str) -> ParseError:
+        """Build a :class:`ParseError` tagged with the current line number."""
+        return ParseError(message, self._pos + 1)
 
-    def _resolve_wf(self, token: str) -> object:
-        token = token.strip()
-        if token.startswith('"') and token.endswith('"'):
-            return token[1:-1]
-        if "(" in token:
-            return _parse_waveform_expr(token)
-        return token
+    def _parse_paren_expression(self, tok: str) -> object:
+        """Parse a parenthesised symbolic expression token.
 
-    def _var_or_num(self, token: str) -> Expression | int | float:
-        token = token.strip()
-        if token in self._variables:
-            return self._variables[token]
-        return _parse_number(token)
+        Round-trips the forms emitted by the writer for :class:`BinaryOp`
+        and :class:`UnaryOp`:
+
+        - Binary: ``(<left> <op> <right>)`` — spaces around the operator.
+        - Unary:  ``(<op><operand>)`` — no space between op and operand.
+
+        Nested parens are respected when locating the top-level operator,
+        so deeper expressions like ``((a + b) * c)`` parse correctly.
+        """
+        from qprogram.variable import BinaryOp, UnaryOp  # noqa: PLC0415
+
+        inner = tok[1:-1].strip()
+        if not inner:
+            msg = f"empty expression: {tok!r}"
+            raise ParseError(msg, self._pos + 1)
+        binary_op_index = _find_top_level_binary_op(inner)
+        if binary_op_index is None and inner[0] in {"+", "-"}:
+            op_char = inner[0]
+            operand_tok = inner[1:].strip()
+            operand = _to_expression(self.parse_value(operand_tok))
+            return UnaryOp(op_char, operand)  # type: ignore[arg-type]
+        if binary_op_index is None:
+            msg = f"could not parse expression: {tok!r}"
+            raise ParseError(msg, self._pos + 1)
+        op_char = inner[binary_op_index]
+        if op_char not in {"+", "-", "*", "/"}:  # pragma: no cover — defensive
+            msg = f"unknown operator {op_char!r} in expression {tok!r}"
+            raise ParseError(msg, self._pos + 1)
+        left = _to_expression(self.parse_value(inner[:binary_op_index].strip()))
+        right = _to_expression(self.parse_value(inner[binary_op_index + 1 :].strip()))
+        return BinaryOp(op_char, left, right)  # type: ignore[arg-type]
+
+    def get_or_declare_variable(self, name: str) -> Variable:
+        """Return the declared :class:`Variable` named ``name``, declaring it on demand."""
+        if name in self._variables:
+            return self._variables[name]
+        var = self._program.variable(name)
+        self._variables[name] = var
+        return var
+
+    def declared_variable(self, name: str) -> Variable | None:
+        """Return the declared :class:`Variable` named ``name``, or ``None``."""
+        return self._variables.get(name)
 
 
 # ---------------------------------------------------------------------------
@@ -643,13 +674,6 @@ def _find_comment(line: str) -> int:
         elif c == "#" and not in_str and line[:2] != "#!":
             return i
     return -1
-
-
-def _uq(s: str) -> str:
-    s = s.strip()
-    if s.startswith('"') and s.endswith('"'):
-        return _unescape_str(s[1:-1])
-    return s
 
 
 def _unescape_str(s: str) -> str:
@@ -674,11 +698,6 @@ def _unescape_str(s: str) -> str:
 
 
 def _parse_major_minor(version: str) -> tuple[int, int]:
-    """Parse the leading ``major.minor`` of a version string.
-
-    Accepts ``"0.1"``, ``"1.0.3"``, etc. Raises ``ValueError`` if the format
-    is not recognised. Patch and trailing components are ignored.
-    """
     parts = version.split(".")
     if len(parts) < 2:
         msg = f"version {version!r} must have at least major.minor"
@@ -698,7 +717,69 @@ def _parse_number(s: str) -> int | float:
     return val
 
 
+def _find_top_level_binary_op(s: str) -> int | None:
+    """Locate the index of a top-level binary operator in ``s``.
+
+    A binary operator is one of ``+ - * /`` that has a space on at least one
+    side and is not inside any nested parens. Returns ``None`` if no such
+    operator exists, in which case the caller treats ``s`` as a unary form
+    (leading sign) or atom.
+    """
+    depth = 0
+    in_q = False
+    n = len(s)
+    for i, c in enumerate(s):
+        if c == '"':
+            in_q = not in_q
+            continue
+        if in_q:
+            continue
+        if c == "(":
+            depth += 1
+            continue
+        if c == ")":
+            depth -= 1
+            continue
+        if depth != 0:
+            continue
+        if c not in {"+", "-", "*", "/"}:
+            continue
+        # Writer emits binary ops surrounded by spaces; the leading ``+``/``-``
+        # of a unary expression sits flush against its operand. Require a
+        # preceding space to disambiguate.
+        if i == 0 or s[i - 1] != " ":
+            continue
+        if i + 1 >= n or s[i + 1] != " ":
+            continue
+        return i
+    return None
+
+
+def _to_expression(value: object) -> object:
+    """Promote a parsed value into an :class:`Expression`-compatible operand.
+
+    Numbers become :class:`Constant`; variables and expression nodes pass
+    through. Anything else (a bus string, say) reaches here only as a result
+    of malformed input — pass it through and let the AST constructor
+    complain.
+    """
+    from qprogram.variable import Constant, Expression  # noqa: PLC0415
+
+    if isinstance(value, Expression):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return Constant(value)
+    return value
+
+
 def _tokenize(line: str) -> list[str]:
+    """Whitespace-split, respecting double quotes and parentheses.
+
+    Tokens inside ``"..."`` or ``(...)`` are kept whole. ``[...]`` is NOT a
+    nesting context — list literals must appear within a parenthesised group
+    (typically a waveform constructor) or be the entire ``for ... in``
+    right-hand side (which is handled before tokenization).
+    """
     tokens: list[str] = []
     current = ""
     in_q = False
@@ -778,15 +859,24 @@ def _split_args(s: str) -> list[str]:
 
 
 def _parse_arg(val: str) -> object:
+    """Parse a single waveform-constructor argument.
+
+    This is the parse_value equivalent for the *waveform expression* sub-grammar.
+    It deliberately does NOT resolve variable names — variable handling on the
+    operation level lives on the parse context (see :meth:`_Parser.parse_value`).
+    Mixing variable resolution in here is on the road map; doing it now would
+    silently flip a current behaviour (waveform args holding string fallbacks
+    for unknown identifiers) and is out of scope for this refactor.
+    """
     val = val.strip()
     if val.startswith('"') and val.endswith('"'):
-        return val[1:-1]
+        return _unescape_str(val[1:-1])
     if val == "true":
         return True
     if val == "false":
         return False
     if val.startswith("[") and val.endswith("]"):
-        return np.array([_parse_number(v.strip()) for v in val[1:-1].split(",")])
+        return np.array([_parse_number(v.strip()) for v in val[1:-1].split(",") if v.strip()])
     if "(" in val:
         return _parse_waveform_expr(val)
     try:
@@ -795,34 +885,3 @@ def _parse_arg(val: str) -> object:
         return val
 
 
-def _parse_kwargs(tokens: list[str]) -> dict:
-    result: dict = {}
-    for t in tokens:
-        if "=" in t:
-            k, _, v = t.partition("=")
-            result[k.strip()] = _parse_arg(v.strip())
-    return result
-
-
-def _construct_generic(cls: type, tokens: list[str], variables: dict[str, Variable]) -> object:
-    sig = inspect.signature(cls.__init__)
-    params = list(sig.parameters.values())[1:]  # skip self
-    positional: list = []
-    kw: dict = {}
-    for token in tokens:
-        token_stripped: str = token.strip()
-        if "=" in token_stripped and not token_stripped.startswith('"'):
-            k, _, v = token_stripped.partition("=")
-            kw[k.strip()] = _parse_arg(v.strip())
-        elif token_stripped in variables:
-            # Bare identifier that names a declared variable.
-            positional.append(variables[token_stripped])
-        else:
-            # Anything else (string literal, number, true/false, waveform expr).
-            positional.append(_parse_arg(token_stripped))
-    final: dict = {}
-    for i, arg in enumerate(positional):
-        if i < len(params):
-            final[params[i].name] = arg
-    final.update(kw)
-    return cls(**final)

@@ -41,7 +41,17 @@ from qprogram.serialization.registry import (
     get_sweep_generator_spec_by_class,
     get_vendor_version,
 )
-from qprogram.variable import BinaryOp, Constant, UnaryOp, Variable
+from qprogram.variable import (
+    BinaryOp,
+    Comparison,
+    Constant,
+    LogicalBinaryOp,
+    LogicalNot,
+    MathFunc,
+    UnaryOp,
+    Variable,
+    Where,
+)
 from qprogram.waveforms.waveform import IQWaveform, Waveform
 
 if TYPE_CHECKING:
@@ -248,11 +258,16 @@ class _Writer:
     def serialize_value(self, val: object) -> str:
         """Render any AST value as a ``.qp`` token.
 
-        Recognises the symbolic expression AST (``Variable``, ``Constant``,
-        ``BinaryOp``, ``UnaryOp``), waveform instances, bus references,
-        plain strings (quoted), booleans, numeric literals, and numpy
-        integers. Falls back to ``str(val)`` for anything else so the writer
-        never raises mid-emit.
+        Recognises the full :class:`~qprogram.Expression` AST (variables,
+        constants, arithmetic, comparison, logical, math functions,
+        conditional ``where``), waveform instances, bus references, plain
+        strings (quoted), booleans, numeric literals, and numpy integers.
+        Falls back to ``str(val)`` so the writer never raises mid-emit.
+
+        Symbolic operators (arithmetic, comparison, binary logical) all
+        emit the canonical parenthesised ``(<left> <op> <right>)`` shape;
+        the parser recovers them through the same form. Math and ``where``
+        use the function-call shape ``name(arg, ...)``.
         """
         if isinstance(val, BusRef):
             return self.serialize_bus(val)
@@ -268,6 +283,20 @@ class _Writer:
             return f"({self.serialize_value(val.left)} {val.op} {self.serialize_value(val.right)})"
         if isinstance(val, UnaryOp):
             return f"({val.op}{self.serialize_value(val.operand)})"
+        if isinstance(val, Comparison):
+            return f"({self.serialize_value(val.left)} {val.op} {self.serialize_value(val.right)})"
+        if isinstance(val, LogicalBinaryOp):
+            return f"({self.serialize_value(val.left)} {val.op} {self.serialize_value(val.right)})"
+        if isinstance(val, LogicalNot):
+            return f"(not {self.serialize_value(val.operand)})"
+        if isinstance(val, MathFunc):
+            args = ", ".join(self.serialize_value(op) for op in val.operands)
+            return f"{val.name}({args})"
+        if isinstance(val, Where):
+            cond = self.serialize_value(val.condition)
+            then = self.serialize_value(val.then)
+            else_ = self.serialize_value(val.else_)
+            return f"where({cond}, {then}, {else_})"
         if isinstance(val, (Waveform, IQWaveform)):
             return self.serialize_waveform(val)
         if isinstance(val, np.integer):

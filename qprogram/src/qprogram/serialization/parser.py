@@ -597,11 +597,11 @@ class _Parser:
         # recursive form is sufficient.
         if tok.startswith("(") and tok.endswith(")"):
             return self._parse_paren_expression(tok)
-        # Waveform constructor (e.g. ``Gaussian(...)``). The name must start
-        # with a letter — leading digits/sign are numeric literals, not
-        # function calls.
+        # Function-call shape: ``name(args)``. Dispatched by name —
+        # math functions and ``where`` are checked first because they
+        # share the function-call form with waveform constructors.
         if "(" in tok and not tok[0].isdigit() and not tok.startswith("-"):
-            return _parse_waveform_expr(tok)
+            return self._parse_function_call(tok)
         if tok in self._variables:
             return self._variables[tok]
         try:
@@ -616,37 +616,97 @@ class _Parser:
     def _parse_paren_expression(self, tok: str) -> object:
         """Parse a parenthesised symbolic expression token.
 
-        Round-trips the forms emitted by the writer for :class:`BinaryOp`
-        and :class:`UnaryOp`:
+        Round-trips the parenthesised forms emitted by the writer:
 
-        - Binary: ``(<left> <op> <right>)`` — spaces around the operator.
-        - Unary:  ``(<op><operand>)`` — no space between op and operand.
+        - Arithmetic binary:  ``(<left> + <right>)``, ``-``, ``*``, ``/``.
+        - Arithmetic unary:   ``(-<operand>)`` or ``(+<operand>)`` — no
+          space between the sign and the operand.
+        - Comparison:         ``(<left> == <right>)`` and ``!=``, ``<``,
+          ``<=``, ``>``, ``>=``.
+        - Binary logical:     ``(<left> and <right>)``, ``(<left> or <right>)``.
+        - Unary logical:      ``(not <operand>)``.
 
-        Nested parens are respected when locating the top-level operator,
-        so deeper expressions like ``((a + b) * c)`` parse correctly.
+        The strategy: tokenize the inner with parenthesis-aware whitespace
+        splitting and dispatch on the count and shape.
+
+        - 1 token starting with ``+``/``-`` → arithmetic unary.
+        - 2 tokens, first is ``not`` → logical unary.
+        - 3 tokens, middle is a known operator → the appropriate binary node.
+
+        Math functions and ``where`` use the function-call shape and are
+        handled by :meth:`_parse_function_call`, not here.
         """
-        from qprogram.variable import BinaryOp, UnaryOp  # noqa: PLC0415
+        from qprogram.variable import (  # noqa: PLC0415
+            BinaryOp,
+            Comparison,
+            LogicalBinaryOp,
+            LogicalNot,
+            UnaryOp,
+        )
 
         inner = tok[1:-1].strip()
         if not inner:
             msg = f"empty expression: {tok!r}"
             raise ParseError(msg, self._pos + 1)
-        binary_op_index = _find_top_level_binary_op(inner)
-        if binary_op_index is None and inner[0] in {"+", "-"}:
-            op_char = inner[0]
-            operand_tok = inner[1:].strip()
+
+        # Logical unary (``not <operand>``) — recognised by the leading
+        # keyword followed by whitespace.
+        if inner.startswith("not "):
+            operand_tok = inner[4:].strip()
             operand = _to_expression(self.parse_value(operand_tok))
-            return UnaryOp(op_char, operand)  # type: ignore[arg-type]
-        if binary_op_index is None:
+            return LogicalNot(operand)  # type: ignore[arg-type]
+
+        tokens = _tokenize(inner)
+
+        # Arithmetic unary — writer emits ``(-x)`` / ``(+x)`` with no space.
+        if len(tokens) == 1:
+            single = tokens[0]
+            if single.startswith(("+", "-")) and len(single) > 1:
+                op_char = single[0]
+                operand = _to_expression(self.parse_value(single[1:].strip()))
+                return UnaryOp(op_char, operand)  # type: ignore[arg-type]
             msg = f"could not parse expression: {tok!r}"
             raise ParseError(msg, self._pos + 1)
-        op_char = inner[binary_op_index]
-        if op_char not in {"+", "-", "*", "/"}:  # pragma: no cover — defensive
-            msg = f"unknown operator {op_char!r} in expression {tok!r}"
+
+        if len(tokens) == 3:
+            left_tok, op_tok, right_tok = tokens
+            left = _to_expression(self.parse_value(left_tok))
+            right = _to_expression(self.parse_value(right_tok))
+            if op_tok in {"+", "-", "*", "/"}:
+                return BinaryOp(op_tok, left, right)  # type: ignore[arg-type]
+            if op_tok in {"==", "!=", "<", "<=", ">", ">="}:
+                return Comparison(op_tok, left, right)  # type: ignore[arg-type]
+            if op_tok in {"and", "or"}:
+                return LogicalBinaryOp(op_tok, left, right)  # type: ignore[arg-type]
+            msg = f"unknown operator {op_tok!r} in expression {tok!r}"
             raise ParseError(msg, self._pos + 1)
-        left = _to_expression(self.parse_value(inner[:binary_op_index].strip()))
-        right = _to_expression(self.parse_value(inner[binary_op_index + 1 :].strip()))
-        return BinaryOp(op_char, left, right)  # type: ignore[arg-type]
+
+        msg = f"could not parse expression: {tok!r}"
+        raise ParseError(msg, self._pos + 1)
+
+    def _parse_function_call(self, tok: str) -> object:
+        """Dispatch a ``name(args)`` token to math, ``where``, or waveform.
+
+        Resolution order: math-function names (``sin``, ``cos``, ``minimum``,
+        …) → ``where`` → waveform registry. Math and ``where`` are
+        first-class :class:`~qprogram.Expression` nodes; anything else is
+        treated as a waveform constructor invocation.
+        """
+        from qprogram.variable import _MATH_FUNCTIONS, MathFunc, Where  # noqa: PLC0415
+
+        paren_idx = tok.index("(")
+        name = tok[:paren_idx]
+        args_text = tok[paren_idx + 1 : tok.rindex(")")]
+        if name in _MATH_FUNCTIONS:
+            args = [_to_expression(self.parse_value(part.strip())) for part in _split_args(args_text)]
+            return MathFunc(name, tuple(args))  # type: ignore[arg-type]
+        if name == "where":
+            parts = [_to_expression(self.parse_value(part.strip())) for part in _split_args(args_text)]
+            if len(parts) != 3:
+                msg = f"where(...) requires 3 arguments (condition, then, else); got {len(parts)}"
+                raise ParseError(msg, self._pos + 1)
+            return Where(parts[0], parts[1], parts[2])  # type: ignore[arg-type]
+        return _parse_waveform_expr(tok)
 
     def get_or_declare_variable(self, name: str) -> Variable:
         """Return the declared :class:`Variable` named ``name``, declaring it on demand."""
@@ -715,44 +775,6 @@ def _parse_number(s: str) -> int | float:
     if val == int(val) and "." not in s and "e" not in s.lower():
         return int(val)
     return val
-
-
-def _find_top_level_binary_op(s: str) -> int | None:
-    """Locate the index of a top-level binary operator in ``s``.
-
-    A binary operator is one of ``+ - * /`` that has a space on at least one
-    side and is not inside any nested parens. Returns ``None`` if no such
-    operator exists, in which case the caller treats ``s`` as a unary form
-    (leading sign) or atom.
-    """
-    depth = 0
-    in_q = False
-    n = len(s)
-    for i, c in enumerate(s):
-        if c == '"':
-            in_q = not in_q
-            continue
-        if in_q:
-            continue
-        if c == "(":
-            depth += 1
-            continue
-        if c == ")":
-            depth -= 1
-            continue
-        if depth != 0:
-            continue
-        if c not in {"+", "-", "*", "/"}:
-            continue
-        # Writer emits binary ops surrounded by spaces; the leading ``+``/``-``
-        # of a unary expression sits flush against its operand. Require a
-        # preceding space to disambiguate.
-        if i == 0 or s[i - 1] != " ":
-            continue
-        if i + 1 >= n or s[i + 1] != " ":
-            continue
-        return i
-    return None
 
 
 def _to_expression(value: object) -> object:

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from qprogram.operations.operation import Operation
-from qprogram.variable import Expression, Variable
+
+if TYPE_CHECKING:
+    from qprogram.variable import Expression
 
 
 class SetFrequency(Operation):
@@ -10,8 +14,3 @@ class SetFrequency(Operation):
     def __init__(self, bus: str, frequency: float | Expression) -> None:
         self.bus = bus
         self.frequency = frequency
-
-    def get_variables(self) -> set[Variable]:
-        if isinstance(self.frequency, Expression):
-            return self.frequency.variables()
-        return set()

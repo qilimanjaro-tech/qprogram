@@ -136,12 +136,11 @@ class QProgram:
     def buses(self) -> set[str]:
         """Set of bus names referenced anywhere in the program tree.
 
-        Computed by walking the AST on each access — there is no separate
-        tracking field, so this stays consistent across deserialization,
-        ``with_bus_mapping``, and any other path that appends operations
-        directly to a block.
+        Delegates to :meth:`Block.buses`, which is recursive — so this
+        stays consistent across deserialization, ``with_bus_mapping``, and
+        any other path that appends operations directly to a block.
         """
-        return _collect_buses(self._body)
+        return self._body.buses()
 
     @property
     def variables(self) -> list[Variable]:
@@ -340,10 +339,12 @@ class QProgram:
         self._active_block.append(Wait(bus=bus, duration=duration))
 
     def sync(self, buses: list[str] | None = None) -> None:
+        # User-facing kw arg stays ``buses`` for readability; internally the
+        # AST field is named ``targets`` (see :class:`Sync`).
         if buses:
             for b in buses:
                 self._validate_bus(b)
-        self._active_block.append(Sync(buses=buses))
+        self._active_block.append(Sync(targets=buses))
 
     def set_frequency(self, bus: str, frequency: float | Expression) -> None:
         self._validate_bus(bus)
@@ -446,27 +447,38 @@ class QProgram:
 
 
 def _remap_waveforms(block: Block, mapping: dict[str, Waveform | IQWaveform]) -> None:
-    """Recursively replace string waveform aliases with concrete waveforms."""
-    for element in block.elements:
-        if isinstance(element, Block):
-            _remap_waveforms(element, mapping)
-        elif isinstance(element, Operation):
-            if hasattr(element, "waveform") and isinstance(element.waveform, str) and element.waveform in mapping:
-                element.waveform = mapping[element.waveform]
-            if hasattr(element, "weights") and isinstance(element.weights, str) and element.weights in mapping:
-                element.weights = mapping[element.weights]
+    """Replace string waveform aliases with concrete waveforms across a block tree.
+
+    Walks via :meth:`Block.walk` and uses each op's ``WAVEFORM_ATTRS`` to
+    locate waveform-bearing attributes — no hard-coded ``"waveform"`` /
+    ``"weights"`` names, so vendor ops with non-standard attribute names
+    Just Work as long as they declare their ``WAVEFORM_ATTRS``.
+    """
+    for op in block.walk():
+        if not isinstance(op, Operation):
+            continue
+        for attr_name in op.WAVEFORM_ATTRS:
+            value = getattr(op, attr_name, None)
+            if isinstance(value, str) and value in mapping:
+                setattr(op, attr_name, mapping[value])
 
 
 def _remap_buses(block: Block, mapping: dict[str, str]) -> None:
-    """Recursively remap bus names in a block tree."""
-    for element in block.elements:
-        if isinstance(element, Block):
-            _remap_buses(element, mapping)
-        elif isinstance(element, Operation):
-            if hasattr(element, "bus"):
-                element.bus = mapping.get(element.bus, element.bus)
-            if hasattr(element, "buses") and element.buses is not None:
-                element.buses = [mapping.get(b, b) for b in element.buses]
+    """Remap bus names across a block tree.
+
+    Walks via :meth:`Block.walk` and uses each op's ``BUS_ATTRS``. Handles
+    both scalar bus attributes (``op.bus``) and list-shaped ones
+    (``Sync.targets``) uniformly via type dispatch on the attribute value.
+    """
+    for op in block.walk():
+        if not isinstance(op, Operation):
+            continue
+        for attr_name in op.BUS_ATTRS:
+            value = getattr(op, attr_name, None)
+            if isinstance(value, str):
+                setattr(op, attr_name, mapping.get(value, value))
+            elif isinstance(value, list):
+                setattr(op, attr_name, [mapping.get(b, b) for b in value])
 
 
 def _validate_waveform_channel(bus: str, waveform: Waveform | IQWaveform | str) -> None:
@@ -499,20 +511,13 @@ def _validate_waveform_channel(bus: str, waveform: Waveform | IQWaveform | str) 
 
 
 def _walk_measurement_ops(block: Block) -> list[MeasurementOperation]:
-    """Yield every :class:`MeasurementOperation` in ``block`` in declaration order.
+    """Return every :class:`MeasurementOperation` in ``block`` in declaration order.
 
-    Recursive depth-first walk. Used by :meth:`QProgram.measurement_handles`
-    and :meth:`QProgram._allocate_measurement_name` — handle enumeration and
-    name-uniqueness checks both need to see every measurement currently in
-    the AST, including those nested inside loops or other blocks.
+    Uses :meth:`Block.walk` so the traversal stays consistent with the rest
+    of the introspection API; the local filter just selects measurement
+    ops out of the broader Operation/Block stream.
     """
-    out: list[MeasurementOperation] = []
-    for element in block.elements:
-        if isinstance(element, Block):
-            out.extend(_walk_measurement_ops(element))
-        elif isinstance(element, MeasurementOperation):
-            out.append(element)
-    return out
+    return [node for node in block.walk() if isinstance(node, MeasurementOperation)]
 
 
 def _measurement_name_prefix(bus: str) -> str:
@@ -529,30 +534,6 @@ def _measurement_name_prefix(bus: str) -> str:
         )
         return f"{bus.element}{idx_str}_m"
     return "m"
-
-
-def _collect_buses(block: Block) -> set[str]:
-    """Walk a block tree and return the set of bus names it references.
-
-    Looks for the ``bus`` and ``control_bus`` string attributes (covers all
-    core operations plus most vendor ops) and the ``buses`` list attribute
-    (``Sync``). Vendor operations that use a different attribute name for a
-    bus will not be picked up here — vendor authors should follow the
-    ``bus`` / ``control_bus`` convention.
-    """
-    result: set[str] = set()
-    for el in block.elements:
-        if isinstance(el, Block):
-            result |= _collect_buses(el)
-            continue
-        for attr in ("bus", "control_bus"):
-            value = getattr(el, attr, None)
-            if isinstance(value, str):
-                result.add(value)
-        buses_list = getattr(el, "buses", None)
-        if isinstance(buses_list, list):
-            result.update(b for b in buses_list if isinstance(b, str))
-    return result
 
 
 def _sanitize_id(s: str) -> str:

@@ -706,7 +706,9 @@ class _Parser:
                 msg = f"where(...) requires 3 arguments (condition, then, else); got {len(parts)}"
                 raise ParseError(msg, self._pos + 1)
             return Where(parts[0], parts[1], parts[2])  # type: ignore[arg-type]
-        return _parse_waveform_expr(tok)
+        # Threading the variable table makes ``Gaussian(amplitude=amp, ...)``
+        # parse back into a Variable rather than the bare string ``"amp"``.
+        return _parse_waveform_expr(tok, self._variables)
 
     def get_or_declare_variable(self, name: str) -> Variable:
         """Return the declared :class:`Variable` named ``name``, declaring it on demand."""
@@ -827,7 +829,17 @@ def _tokenize(line: str) -> list[str]:
     return tokens
 
 
-def _parse_waveform_expr(expr: str) -> object:
+def _parse_waveform_expr(expr: str, variables: dict[str, Variable] | None = None) -> object:
+    """Parse a ``Name(arg, ...)`` waveform constructor call.
+
+    When ``variables`` is provided (always the case when called from a live
+    parser, via :meth:`_Parser._parse_function_call`), bare identifiers in
+    the argument list are resolved against the variable table — so
+    ``Gaussian(amplitude=amp, ...)`` round-trips with ``amp`` as a
+    :class:`Variable` rather than the string ``"amp"``. Without ``variables``
+    (defensive default), identifiers fall through to the legacy string-fallback
+    behaviour.
+    """
     expr = expr.strip()
     pi = expr.index("(")
     cls_name = expr[:pi]
@@ -836,11 +848,13 @@ def _parse_waveform_expr(expr: str) -> object:
         msg = f"Unknown waveform type: {cls_name}"
         raise ParseError(msg)
     args_str = expr[pi + 1 : expr.rindex(")")]
-    pos, kw = _parse_constructor_args(args_str)
+    pos, kw = _parse_constructor_args(args_str, variables)
     return cls(**kw) if kw else cls(*pos)
 
 
-def _parse_constructor_args(args_str: str) -> tuple[list, dict]:
+def _parse_constructor_args(
+    args_str: str, variables: dict[str, Variable] | None = None,
+) -> tuple[list, dict]:
     pos: list = []
     kw: dict = {}
     for arg in _split_args(args_str):
@@ -849,9 +863,9 @@ def _parse_constructor_args(args_str: str) -> tuple[list, dict]:
             continue
         if "=" in arg_stripped and not arg_stripped.startswith('"') and "(" not in arg_stripped.split("=")[0]:
             k, _, v = arg_stripped.partition("=")
-            kw[k.strip()] = _parse_arg(v.strip())
+            kw[k.strip()] = _parse_arg(v.strip(), variables)
         else:
-            pos.append(_parse_arg(arg_stripped))
+            pos.append(_parse_arg(arg_stripped, variables))
     return pos, kw
 
 
@@ -880,15 +894,16 @@ def _split_args(s: str) -> list[str]:
     return parts
 
 
-def _parse_arg(val: str) -> object:
+def _parse_arg(val: str, variables: dict[str, Variable] | None = None) -> object:
     """Parse a single waveform-constructor argument.
 
-    This is the parse_value equivalent for the *waveform expression* sub-grammar.
-    It deliberately does NOT resolve variable names — variable handling on the
-    operation level lives on the parse context (see :meth:`_Parser.parse_value`).
-    Mixing variable resolution in here is on the road map; doing it now would
-    silently flip a current behaviour (waveform args holding string fallbacks
-    for unknown identifiers) and is out of scope for this refactor.
+    The :class:`~qprogram.Variable` resolution mirrors
+    :meth:`_Parser.parse_value`: when the parser threads its variable table
+    in (always, in live parsing), an identifier that matches a declared
+    variable returns the :class:`Variable` instance, so waveforms with
+    symbolic parameters (``Gaussian(amplitude=amp, ...)``) round-trip with
+    their variable references intact. Without a table (legacy callers), the
+    function falls back to returning the identifier as a string.
     """
     val = val.strip()
     if val.startswith('"') and val.endswith('"'):
@@ -900,7 +915,9 @@ def _parse_arg(val: str) -> object:
     if val.startswith("[") and val.endswith("]"):
         return np.array([_parse_number(v.strip()) for v in val[1:-1].split(",") if v.strip()])
     if "(" in val:
-        return _parse_waveform_expr(val)
+        return _parse_waveform_expr(val, variables)
+    if variables is not None and val in variables:
+        return variables[val]
     try:
         return _parse_number(val)
     except ValueError:

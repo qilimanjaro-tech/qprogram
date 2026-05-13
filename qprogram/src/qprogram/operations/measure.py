@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from qprogram.operations.operation import MeasurementOperation
 
@@ -16,6 +16,8 @@ class Measure(MeasurementOperation):
     of the AST node so that round-tripping through ``.qp`` preserves
     handle identity.
     """
+
+    WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ("waveform", "weights")
 
     def __init__(
         self,

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from qprogram.operations.operation import Operation
-from qprogram.variable import Expression, Variable
+
+if TYPE_CHECKING:
+    from qprogram.variable import Expression
 
 
 class Wait(Operation):
@@ -10,8 +14,3 @@ class Wait(Operation):
     def __init__(self, bus: str, duration: int | Expression) -> None:
         self.bus = bus
         self.duration = duration
-
-    def get_variables(self) -> set[Variable]:
-        if isinstance(self.duration, Expression):
-            return self.duration.variables()
-        return set()

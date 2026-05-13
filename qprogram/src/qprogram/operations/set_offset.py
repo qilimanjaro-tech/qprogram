@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from qprogram.operations.operation import Operation
-from qprogram.variable import Expression, Variable
+
+if TYPE_CHECKING:
+    from qprogram.variable import Expression
 
 
 class SetOffset(Operation):
+    """Set DC offset on one or both signal paths."""
+
     def __init__(
         self,
         bus: str,
@@ -14,11 +20,3 @@ class SetOffset(Operation):
         self.bus = bus
         self.offset_path0 = offset_path0
         self.offset_path1 = offset_path1
-
-    def get_variables(self) -> set[Variable]:
-        variables: set[Variable] = set()
-        if isinstance(self.offset_path0, Expression):
-            variables |= self.offset_path0.variables()
-        if isinstance(self.offset_path1, Expression):
-            variables |= self.offset_path1.variables()
-        return variables

@@ -153,16 +153,16 @@ def _looks_like_kwarg(tok: str) -> bool:
 
 def sync_serialize(op: Sync, ctx: Any) -> str:
     """``sync`` (no buses) or ``sync <bus> [<bus> ...]`` (variadic positional)."""
-    if op.buses:
-        return "sync " + " ".join(ctx.serialize_bus(b) for b in op.buses)
+    if op.targets:
+        return "sync " + " ".join(ctx.serialize_bus(b) for b in op.targets)
     return "sync"
 
 
 def sync_parse(tokens: list[str], ctx: Any) -> Sync:
     """All remaining tokens are bus references; empty list means sync-all."""
     if not tokens:
-        return Sync(buses=None)
-    return Sync(buses=[ctx.parse_value(tok) for tok in tokens])
+        return Sync(targets=None)
+    return Sync(targets=[ctx.parse_value(tok) for tok in tokens])
 
 
 def get_parameter_serialize(op: GetParameter, ctx: Any) -> str:

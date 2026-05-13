@@ -2,12 +2,20 @@
 
 Each class is a concrete Operation subclass that lives in the QProgram AST.
 These are the data nodes — they hold typed attributes and get serialized to `.qp` files.
+
+Each class declares its ``BUS_ATTRS`` and ``WAVEFORM_ATTRS`` class attributes
+where its data shape differs from the core ``Operation`` defaults. The base
+``Operation``'s introspection methods (``variables``, ``buses``,
+``waveforms``, ``attributes``, ``walk``) then work automatically without
+per-class overrides.
 """
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from qprogram.operations.operation import MeasurementOperation, Operation
-from qprogram.variable import Expression, Variable
+from qprogram.variable import Expression
 from qprogram.waveforms.waveform import IQWaveform
 
 
@@ -22,16 +30,13 @@ class Acquire(MeasurementOperation):
     same qubit picks up the next free name on that qubit).
     """
 
+    WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ("weights",)
+
     def __init__(self, bus: str, weights: IQWaveform | str, name: str, save_adc: bool = False) -> None:
         self.bus = bus
         self.weights = weights
         self.name = name
         self.save_adc = save_adc
-
-    def get_variables(self) -> set[Variable]:
-        if isinstance(self.weights, Variable):
-            return {self.weights}
-        return set()
 
 
 class SetMarkers(Operation):
@@ -77,7 +82,14 @@ class ActiveReset(Operation):
     instruction. The qblox compiler expands it into the underlying choreography
     (readout pulse + integration + conditional reset pulse driven by the
     trigger network), but the user expresses intent at the experiment level.
+
+    Has two bus references (``bus`` for the readout, ``control_bus`` for the
+    reset pulse) and three waveforms (the readout ``waveform``, integration
+    ``weights``, and the conditional ``reset_pulse``).
     """
+
+    BUS_ATTRS: ClassVar[tuple[str, ...]] = ("bus", "control_bus")
+    WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ("waveform", "weights", "reset_pulse")
 
     def __init__(
         self,
@@ -87,7 +99,7 @@ class ActiveReset(Operation):
         control_bus: str,
         reset_pulse: IQWaveform | str,
         trigger_address: int = 1,
-        save_adc: bool = False,
+        save_adc: bool = False,  # noqa: ARG002  # legacy param kept for back-compat
     ) -> None:
         self.bus = bus
         self.waveform = waveform
@@ -112,8 +124,3 @@ class SetAcquisitionThreshold(Operation):
     def __init__(self, bus: str, value: float | Expression) -> None:
         self.bus = bus
         self.value = value
-
-    def get_variables(self) -> set[Variable]:
-        if isinstance(self.value, Expression):
-            return self.value.variables()
-        return set()

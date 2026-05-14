@@ -56,6 +56,7 @@ from typing import ClassVar, Final, Literal, Self
 # exception hierarchy in :mod:`qprogram.errors`. They are re-exported here
 # so existing ``from qprogram.variable import InvalidVariableIdError``
 # imports keep working.
+from qprogram._reserved import RESERVED_KEYWORDS
 from qprogram.errors import InvalidVariableIdError, UnassignedVariableError
 
 # Valid variable ids: Python-style identifiers — letter/underscore start,
@@ -306,6 +307,8 @@ class Variable(Expression):
     ) -> None:
         if not _ID_RE.match(id):
             raise InvalidVariableIdError(id)
+        if id in RESERVED_KEYWORDS:
+            raise InvalidVariableIdError(id, reserved=True)
         self._id: str = id
         self._label: str | None = label
         self._units: str | None = units

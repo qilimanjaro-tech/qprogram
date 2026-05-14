@@ -72,20 +72,38 @@ class ValidationError(QProgramError):
 
 
 class InvalidVariableIdError(ValidationError, ValueError):
-    """Variable id failed the identifier-pattern check.
+    """Variable id failed validation.
 
-    Raised when a :class:`~qprogram.Variable` id does not match
-    ``[A-Za-z_][A-Za-z0-9_]*``. Subclasses :class:`ValueError` for
-    back-compat with code that predates the QProgram exception hierarchy.
+    Two failure modes share this exception class:
+
+    - **Pattern**: ``id`` doesn't match ``[A-Za-z_][A-Za-z0-9_]*``.
+    - **Reserved**: ``id`` matches the pattern but is one of the
+      :data:`~qprogram.RESERVED_KEYWORDS` reserved for future syntax
+      (``if``, ``while``, ``repeat``, …). Use :attr:`reserved` to
+      distinguish at catch time.
+
+    Subclasses :class:`ValueError` for back-compat with code that
+    predates the QProgram exception hierarchy.
     """
 
-    def __init__(self, id: str) -> None:  # noqa: A002
-        super().__init__(
-            f"Variable id {id!r} is invalid: must match [A-Za-z_][A-Za-z0-9_]* "
-            f"(letters, digits, underscores only; cannot start with a digit, no spaces "
-            f"or special characters). Use the optional `label` for human-readable names.",
-        )
+    def __init__(self, id: str, *, reserved: bool = False) -> None:  # noqa: A002
+        if reserved:
+            message = (
+                f"Variable id {id!r} is reserved for future QProgram syntax "
+                f"(see qprogram.RESERVED_KEYWORDS). Pick a non-reserved id "
+                f"such as {id + '_var'!r}, or carry the original name in the "
+                f"optional `label` argument."
+            )
+        else:
+            message = (
+                f"Variable id {id!r} is invalid: must match "
+                f"[A-Za-z_][A-Za-z0-9_]* (letters, digits, underscores only; "
+                f"cannot start with a digit, no spaces or special characters). "
+                f"Use the optional `label` for human-readable names."
+            )
+        super().__init__(message)
         self.id = id
+        self.reserved = reserved
 
 
 class UnassignedVariableError(ValidationError, ValueError):

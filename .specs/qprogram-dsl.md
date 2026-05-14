@@ -415,8 +415,9 @@ freq = program.variable(
 **`id` rules.** Because the id is also the identifier in `.qp` files, it is restricted to a Python-style identifier:
 
 - Must match `[A-Za-z_][A-Za-z0-9_]*` — letters, digits, underscores only; cannot start with a digit; no spaces or punctuation.
-- Must be unique within a single `QProgram`. `program.variable("freq")` raises `ValueError` if `"freq"` is already declared.
-- An invalid id raises `InvalidVariableIdError` (a `ValueError` subclass) at construction time.
+- Must be unique within a single `QProgram`. `program.variable("freq")` raises `ValidationError` if `"freq"` is already declared.
+- Must not be one of the **reserved keywords** listed in `qprogram.RESERVED_KEYWORDS` — names that future minor versions are likely to introduce as block keywords, control-flow modifiers, or literals (e.g. `if`, `while`, `repeat`, `where`, `true`, `false`). Pre-emptively reserving them keeps an existing program from breaking the day a new keyword lands.
+- An invalid id raises `InvalidVariableIdError` (which is both a `ValidationError` and a `ValueError` subclass). `InvalidVariableIdError.reserved` distinguishes "id matched a reserved keyword" from "id failed the identifier pattern".
 
 For anything richer than a short identifier — spaces, units, full sentences — use `label` and `description`. Examples:
 
@@ -427,6 +428,43 @@ program.variable("phi",  label="Phase", units="rad", description="NCO phase offs
 ```
 
 The runtime executor still uses `id` for identity-bearing operations; `label`/`units`/`description` are pure metadata and never affect program semantics.
+
+### Reserved keywords
+
+QProgram reserves the following identifier-shaped names for future syntax. They cannot be used as `Variable` ids, and they cannot be used as the `vendor` namespace passed to `register_vendor_operation`:
+
+```
+# Control flow
+if, else, elif, while, until, break, continue, return
+
+# Definitions and reusable fragments
+fragment, def, gate
+
+# Pattern matching
+case, match
+
+# Timing / scheduling
+repeat, barrier, align, align_left, align_right, parallel
+
+# Conditional expression
+where
+
+# Bindings
+let, const
+
+# Imports / aliases (future module system)
+import, from, as
+
+# Literals
+true, false, null
+```
+
+Vendor extensions also cannot register under the name `"core"`, which is reserved as the sentinel for "no vendor" (i.e., a core operation with `vendor=None`). The complete vendor-reservation set is `qprogram.RESERVED_KEYWORDS ∪ {"core"}`.
+
+Reservations apply to **identifiers** (variable ids) and **vendor namespaces**. They do **not** apply to operation names, block keyword names, or sweep-generator names — those are the registration sites that future syntax will use. For example, future versions can `register_block("if", IfBlock)` to add an `if` block without breaking any existing `.qp` file, because no Variable can be named `if` to collide with the block keyword.
+
+Reservations are case-sensitive: `If` is fine; only `if` is reserved.
+
 ## 3.3 Building expressions
 All arithmetic operators are supported on any `Expression`. Literals are auto-wrapped:
 ```python

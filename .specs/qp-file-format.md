@@ -183,6 +183,7 @@ var <id> [label="..."] [units="..."] [description="..."]
 
 - `<id>` must match `[A-Za-z_][A-Za-z0-9_]*` (Python identifier rules — letters, digits, underscores only; cannot start with a digit; no spaces or punctuation). Ids are used **verbatim** as the identifier in references such as `for <id> in range(...)`, so no transformation or quoting happens at write time.
 - `<id>` must be unique among `var` declarations in a single file.
+- `<id>` must not be one of the reserved keywords listed in the DSL spec's "Reserved keywords" section (`if`, `while`, `where`, `repeat`, `true`, `false`, …). The full set is exposed at runtime as `qprogram.RESERVED_KEYWORDS`; reservations apply to identifier-shaped names that future minor versions are likely to introduce as block keywords or literals.
 - Optional attributes (`label`, `units`, `description`) carry human-readable metadata for plotting, results coordinates, and documentation. They appear as quoted `key="value"` pairs in any order, separated by whitespace, on the same line as the `var` keyword. Each attribute may appear at most once.
 - Backslashes and double quotes inside attribute values are escaped (`\\`, `\"`).
 
@@ -201,6 +202,7 @@ The parser rejects:
 
 - ids that contain spaces or non-identifier characters (`var Wait Duration (ns)`),
 - ids that start with a digit (`var 1freq`),
+- ids that match a reserved keyword (`var if`, `var while`, `var where`, …),
 - duplicate ids in the same file,
 - unquoted attribute values (`label=foo`),
 - unknown attributes (`foo="bar"`),
@@ -210,7 +212,7 @@ Each line ends after the last `key="value"` pair; tokens past those (without `=`
 
 **Why ids must be identifiers.** Ids are referenced unquoted inside loops, expressions, and `get_parameter -> <id>`. Restricting them to identifier syntax keeps the grammar regular and the parser simple. The optional `label` covers the cases that need a free-form string (axis names, plot titles, anything with spaces).
 
-**Identity-based variables in the Python API.** Variables in Python use identity-based equality, but `program.variable(id, ...)` enforces id uniqueness within a program, so a saved `.qp` file always has unique `<id>`s and no disambiguation suffixes are emitted.
+**Variables in the Python API.** Variables compare equal by id (structural). `program.variable(id, ...)` enforces id uniqueness within a single program, so a saved `.qp` file always has unique `<id>`s and no disambiguation suffixes are emitted. Two programs loaded independently from the same file produce structurally-equal ASTs even though their Python `Variable` instances are distinct objects.
 
 ## 4.2 Operations
 

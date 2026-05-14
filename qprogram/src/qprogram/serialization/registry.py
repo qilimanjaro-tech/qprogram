@@ -37,6 +37,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from qprogram._reserved import RESERVED_VENDOR_NAMES
+
 if TYPE_CHECKING:
     from qprogram.blocks.block import Block
     from qprogram.operations.operation import Operation
@@ -172,7 +174,22 @@ def register_operation(
     The same class can only be registered once — registering a second time
     overwrites the previous entry, which is what you want for hot-reload but
     note that the *old* (vendor, name) key remains in the by-qualified map.
+
+    ``vendor`` cannot be ``"core"`` or any of
+    :data:`~qprogram.RESERVED_KEYWORDS`. Core operations register with
+    ``vendor=None`` (the default) and emit unprefixed on the wire; the
+    ``"core"`` string is reserved as a sentinel and the keyword set is
+    reserved against namespace collisions with future syntax. Operation
+    *names* themselves are unrestricted — future block keywords like
+    ``if`` register on the block registry, not here.
     """
+    if vendor is not None and vendor in RESERVED_VENDOR_NAMES:
+        msg = (
+            f"vendor name {vendor!r} is reserved (see qprogram.RESERVED_KEYWORDS "
+            f"plus the 'core' sentinel); pick a different namespace for this "
+            f"vendor extension"
+        )
+        raise ValueError(msg)
     spec = OperationSpec(name=name, vendor=vendor, cls=cls, serialize=serialize, parse=parse)
     _operation_specs_by_qualified[(vendor, name)] = spec
     _operation_specs_by_class[cls] = spec

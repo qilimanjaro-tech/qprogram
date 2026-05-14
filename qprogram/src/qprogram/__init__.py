@@ -1,5 +1,6 @@
 """QProgram: A Domain-Specific Language for Pulse-Level Quantum Programming."""
 
+from qprogram._reserved import RESERVED_KEYWORDS
 from qprogram.buses import BusNaming, BusRef, BusSchema
 from qprogram.crosstalk_matrix import CrosstalkMatrix
 from qprogram.errors import (
@@ -47,6 +48,7 @@ from qprogram.variable import (
 from qprogram.vendor import VendorNamespace
 
 __all__ = [
+    "RESERVED_KEYWORDS",
     "UNASSIGNED",
     "BinaryOp",
     "BusNaming",

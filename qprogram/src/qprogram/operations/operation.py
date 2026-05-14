@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
 
+from qprogram._structural import ast_eq, ast_hash
 from qprogram.variable import Expression, Variable
 from qprogram.waveforms.waveform import IQWaveform, Waveform
 
@@ -120,6 +121,34 @@ class Operation:
         and traverse the whole tree without writing recursion.
         """
         yield self
+
+    # -- structural equality and hash ---------------------------------------
+    #
+    # Two operations are equal iff they are of the same concrete class and
+    # carry equivalent attribute data. Hash is consistent with equality:
+    # if ``a == b`` then ``hash(a) == hash(b)``. Both walk ``vars(self)``
+    # via the shared :mod:`qprogram._structural` helpers, so anything that
+    # shows up as instance state (Variables, Expressions, BusRefs,
+    # MeasurementHandles, Waveforms, ndarrays, lists, nested ops, …)
+    # participates the way that value's own ``__eq__`` / ``__hash__``
+    # defines.
+    #
+    # Mutation contract: once an :class:`Operation` has been used as a
+    # ``set`` / ``dict`` key, or its hash has been cached anywhere
+    # (compiler caches, diff snapshots, etc.), do not mutate its
+    # attributes. The hash invariant is the user's responsibility — the
+    # class doesn't freeze itself. Existing callers like
+    # :meth:`QProgram.with_bus_mapping` that rewrite operations always do
+    # so on a fresh ``deepcopy``, which sidesteps the issue.
+
+    def __eq__(self, other: object) -> bool:
+        if type(self) is not type(other):
+            return False
+        return ast_eq(vars(self), vars(other))
+
+    def __hash__(self) -> int:
+        items = tuple(sorted((k, ast_hash(v)) for k, v in vars(self).items()))
+        return hash((type(self).__name__, items))
 
 
 class MeasurementOperation(Operation):

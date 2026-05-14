@@ -2,9 +2,18 @@ from __future__ import annotations
 
 import numpy as np
 
+from qprogram._structural import ast_eq, ast_hash
+
 
 class CrosstalkMatrix:
-    """Models flux crosstalk between buses."""
+    """Models flux crosstalk between buses.
+
+    Structural equality and hashing are inherited from the shared
+    :mod:`qprogram._structural` helpers, so two matrices with identical
+    bus mappings / offsets / resistances compare equal and hash equal —
+    the contract :class:`~qprogram.operations.SetCrosstalk` relies on for
+    its own structural equality.
+    """
 
     def __init__(self) -> None:
         self.matrix: dict[str, dict[str, float]] = {}
@@ -19,6 +28,15 @@ class CrosstalkMatrix:
 
     def __repr__(self) -> str:
         return f"CrosstalkMatrix(buses={list(self.matrix.keys())})"
+
+    def __eq__(self, other: object) -> bool:
+        if type(self) is not type(other):
+            return False
+        return ast_eq(vars(self), vars(other))
+
+    def __hash__(self) -> int:
+        items = tuple(sorted((k, ast_hash(v)) for k, v in vars(self).items()))
+        return hash((type(self).__name__, items))
 
     def to_array(self) -> np.ndarray:
         buses = sorted(self.matrix.keys())

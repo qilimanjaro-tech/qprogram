@@ -35,8 +35,14 @@ then be evaluated naturally without threading bindings through every call.
 Use the ``resolve()`` helper to coerce ``int | float | Expression`` to a
 concrete numeric value (or raise if any variable is unassigned).
 
-Variables use **identity-based** equality (each ``Variable("freq")`` is distinct).
-Other nodes use **structural** equality (two ``Constant(5)`` are equal; two
+Equality across the AST is **structural**. For :class:`Variable`, "structural"
+means *by id*: two Variables compare equal iff their ``id`` matches, so a
+program survives ``copy.deepcopy`` / ``qp.loads(qp.dumps(...))`` /
+``with_bus_mapping`` and still compares equal to the original under whole-AST
+equality. Within a single :class:`QProgram`, ``QProgram.variable`` enforces
+unique ids, so identity and id-equality coincide in practice — the
+distinction matters only when comparing across programs. Other nodes use
+the obvious structural equality (two ``Constant(5)`` are equal; two
 structurally identical ``BinaryOp`` are equal).
 """
 
@@ -139,12 +145,12 @@ class Expression(ABC):
     All operators that map cleanly onto Python syntax are defined here so they
     work uniformly across every subclass: arithmetic (``+ - * /``), comparison
     (``< <= > >=`` only — equality uses :func:`~qprogram.eq` / :func:`~qprogram.ne`
-    instead, so that :class:`Variable`'s identity-based equality keeps working
-    in sets and dict keys), logical (``& | ~`` following the
-    NumPy/SymPy convention; ``and``/``or``/``not`` are Python keywords and
-    cannot be overloaded), and :func:`abs`. Math functions like
-    :func:`~qprogram.sin` and the conditional :func:`~qprogram.where` are
-    module-level helpers.
+    instead, so that ``Variable``'s own ``__eq__`` keeps returning a plain bool
+    for use in sets, dict keys, and ``expression.variables()`` membership tests),
+    logical (``& | ~`` following the NumPy/SymPy convention;
+    ``and``/``or``/``not`` are Python keywords and cannot be overloaded), and
+    :func:`abs`. Math functions like :func:`~qprogram.sin` and the conditional
+    :func:`~qprogram.where` are module-level helpers.
 
     ``__bool__`` deliberately raises: an :class:`Expression` is symbolic
     data, not a runtime predicate. ``if freq < 5e9:`` would otherwise silently
@@ -230,11 +236,12 @@ class Expression(ABC):
 
     # --- comparison operators (build Comparison nodes) ---
     #
-    # ``==`` and ``!=`` are deliberately NOT overloaded: ``Variable`` uses
-    # identity-based equality so it can participate in sets (notably the
-    # result of ``expression.variables()``) and dict keys. Building a
-    # ``Comparison`` for ``var == 5`` would conflict. Users build equality
-    # comparisons with the :func:`qprogram.eq` / :func:`qprogram.ne` helpers.
+    # ``==`` and ``!=`` are deliberately NOT overloaded: ``Variable``'s
+    # ``__eq__`` must return a plain bool so Variables can be used in sets
+    # (notably the result of ``expression.variables()``) and as dict keys.
+    # Building a ``Comparison`` for ``var == 5`` would conflict. Users
+    # build equality comparisons with the :func:`qprogram.eq` /
+    # :func:`qprogram.ne` helpers.
 
     def __lt__(self, other: Expression | float) -> Comparison:
         return Comparison("<", self, _wrap(other))
@@ -362,11 +369,19 @@ class Variable(Expression):
         return {self}
 
     def __hash__(self) -> int:
-        return hash(self._id)
+        return hash(("Variable", self._id))
 
     def __eq__(self, other: object) -> bool:
-        # Identity-based: two Variables are equal iff they are the same instance.
-        return self is other
+        # Structural by ``id``. Within a single :class:`QProgram`, ids are
+        # unique (``QProgram.variable`` rejects duplicates), so two
+        # Variables compare equal iff they refer to the same logical
+        # binding. Across programs (deepcopy, .qp load, with_bus_mapping),
+        # two Variables with the same id are also equal — which lets
+        # whole-program structural comparison work after ``copy.deepcopy``
+        # and ``qp.loads(qp.dumps(...))``. The runtime executor reads
+        # ``self._value`` on the instance directly, so equality semantics
+        # never interfere with per-iteration value assignment.
+        return isinstance(other, Variable) and self._id == other._id
 
     def __repr__(self) -> str:
         return f"Variable('{self._id}')"

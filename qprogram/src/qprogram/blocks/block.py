@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from qprogram._structural import ast_eq, ast_hash
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -72,3 +74,29 @@ class Block:
         yield self
         for el in self._elements:
             yield from el.walk()
+
+    # -- structural equality and hash ---------------------------------------
+    #
+    # Two blocks are equal iff they are of the same concrete class and
+    # carry equivalent attribute data — *including* their children, which
+    # live on the private ``_elements`` list. ``vars(self)`` picks that up
+    # automatically; the shared :mod:`qprogram._structural` helpers then
+    # walk the list element-wise and recurse into each child (which is
+    # itself an :class:`Operation` or :class:`Block` with its own
+    # structural ``__eq__`` / ``__hash__``).
+    #
+    # Hash is consistent with equality. Mutation contract: once a block
+    # has been used as a ``set`` / ``dict`` key or its hash has been
+    # cached, do not :meth:`append` to it or otherwise mutate. Programs
+    # under construction (operations still being appended) should be
+    # treated as not-yet-hashable; freezing happens implicitly when the
+    # caller stops mutating.
+
+    def __eq__(self, other: object) -> bool:
+        if type(self) is not type(other):
+            return False
+        return ast_eq(vars(self), vars(other))
+
+    def __hash__(self) -> int:
+        items = tuple(sorted((k, ast_hash(v)) for k, v in vars(self).items()))
+        return hash((type(self).__name__, items))

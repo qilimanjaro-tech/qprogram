@@ -32,6 +32,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 
 from qprogram._structural import ast_eq, ast_hash
+from qprogram.errors import ValidationError
 from qprogram.variable import Expression, Variable
 from qprogram.waveforms.waveform import IQWaveform, Waveform
 
@@ -180,10 +181,10 @@ def normalize_returns(value: str | Iterable[str]) -> tuple[str, ...]:
     - a single string token — ``"iq"`` (degenerates to a one-element tuple).
 
     Empty entries (from doubled commas or whitespace tokens) are dropped;
-    a fully-empty input raises :class:`ValueError` so the field never ends
-    up as an empty tuple silently. The canonical tuple form is used for
-    storage, equality, and the ``.qp`` serializer's comma-joined output
-    (see the writer's ``serialize_value``).
+    a fully-empty input raises :class:`~qprogram.ValidationError` so the
+    field never ends up as an empty tuple silently. The canonical tuple
+    form is used for storage, equality, and the ``.qp`` serializer's
+    comma-joined output (see the writer's ``serialize_value``).
 
     No restriction on string contents at this layer — platforms decide
     which return-type strings they recognise (``"iq"``, ``"raw"``,
@@ -197,7 +198,7 @@ def normalize_returns(value: str | Iterable[str]) -> tuple[str, ...]:
     cleaned = [p for p in parts if p]
     if not cleaned:
         msg = "`returns` must specify at least one return type"
-        raise ValueError(msg)
+        raise ValidationError(msg)
     return tuple(cleaned)
 
 

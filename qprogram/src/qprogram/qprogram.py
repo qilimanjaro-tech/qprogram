@@ -12,6 +12,7 @@ from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
 from qprogram.buses import BusRef
+from qprogram.errors import ValidationError
 from qprogram.operations.get_parameter import GetParameter
 from qprogram.operations.measure import Measure
 from qprogram.operations.operation import MeasurementOperation, Operation
@@ -198,13 +199,13 @@ class QProgram:
         if requested is not None:
             if not isinstance(requested, str) or not requested:
                 msg = f"measurement name must be a non-empty string, got {requested!r}"
-                raise ValueError(msg)
+                raise ValidationError(msg)
             if requested in used_names:
                 msg = (
                     f"measurement name {requested!r} is already used by another "
                     f"measurement in this program"
                 )
-                raise ValueError(msg)
+                raise ValidationError(msg)
             return requested
 
         prefix = _measurement_name_prefix(bus)
@@ -234,7 +235,7 @@ class QProgram:
         """
         if any(v.id == id for v in self._variables):
             msg = f"Variable {id!r} is already declared on this QProgram"
-            raise ValueError(msg)
+            raise ValidationError(msg)
         var = Variable(id, label=label, units=units, description=description)
         self._variables.append(var)
         return var
@@ -264,7 +265,7 @@ class QProgram:
         Plain strings and BusRefs without metadata pass through. Schema-bound
         BusRefs are checked against ``self._schema``: if the BusRef came from
         a different schema, or the program has no schema attached, raise
-        ``ValueError`` with a pointer to the right call site.
+        :class:`ValidationError` with a pointer to the right call site.
 
         This catches the case where a user holds onto a ``schema2.q[0].drive``
         BusRef and uses it on a program built with ``schema=schema1``. Such a
@@ -288,7 +289,7 @@ class QProgram:
             f"A program may use only one schema; use a plain string bus name if you "
             f"need to reference a bus that lives outside the schema."
         )
-        raise ValueError(msg)
+        raise ValidationError(msg)
 
     # --- Core operations ---
 
@@ -491,8 +492,8 @@ def _remap_buses(block: Block, mapping: dict[str, str]) -> None:
 def _validate_waveform_channel(bus: str, waveform: Waveform | IQWaveform | str) -> None:
     """Validate waveform type against bus channel type if the bus is a BusRef.
 
-    - IQ bus + Waveform (single-channel) -> TypeError
-    - Single bus + IQWaveform -> TypeError
+    - IQ bus + Waveform (single-channel) -> :class:`ValidationError`
+    - Single bus + IQWaveform -> :class:`ValidationError`
     - Raw string bus or string alias waveform -> no validation (no metadata available)
     """
     if not isinstance(bus, BusRef) or isinstance(waveform, str):
@@ -504,17 +505,13 @@ def _validate_waveform_channel(bus: str, waveform: Waveform | IQWaveform | str) 
             f"Bus '{bus}' is an IQ channel but received a single-channel Waveform "
             f"({type(waveform).__name__}). Use an IQWaveform (e.g. IQPair, IQDrag) instead."
         )
-        raise TypeError(
-            msg,
-        )
+        raise ValidationError(msg)
     if channel == "single" and isinstance(waveform, IQWaveform):
         msg = (
             f"Bus '{bus}' is a single channel but received an IQWaveform "
             f"({type(waveform).__name__}). Use a single-channel Waveform (e.g. Square, FlatTop) instead."
         )
-        raise TypeError(
-            msg,
-        )
+        raise ValidationError(msg)
 
 
 def _walk_measurement_ops(block: Block) -> list[MeasurementOperation]:
@@ -559,7 +556,10 @@ def _sanitize_id(s: str) -> str:
 
 
 def _validate_acquires(bus: str) -> None:
-    """Validate that the bus supports acquisition (has ADC) if it's a BusRef."""
+    """Validate that the bus supports acquisition (has ADC) if it's a BusRef.
+
+    Raises :class:`ValidationError` on the structural mismatch.
+    """
     if not isinstance(bus, BusRef):
         return
     if not bus.acquires:
@@ -567,6 +567,4 @@ def _validate_acquires(bus: str) -> None:
             f"Bus '{bus}' does not support acquisition (acquires=False). "
             f"measure() can only be called on buses with an ADC (e.g. readout buses)."
         )
-        raise TypeError(
-            msg,
-        )
+        raise ValidationError(msg)

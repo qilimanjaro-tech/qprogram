@@ -2,6 +2,17 @@
 
 from qprogram.buses import BusNaming, BusRef, BusSchema
 from qprogram.crosstalk_matrix import CrosstalkMatrix
+from qprogram.errors import (
+    BusNotAvailableError,
+    CompilationError,
+    HardwareError,
+    InvalidVariableIdError,
+    QProgramError,
+    UnassignedVariableError,
+    UnsupportedOperationError,
+    ValidationError,
+    WaveformResolutionError,
+)
 from qprogram.platform import PlatformProtocol
 from qprogram.qprogram import QProgram
 from qprogram.result import MeasurementHandle, MeasurementResult, QProgramResult
@@ -12,12 +23,10 @@ from qprogram.variable import (
     Comparison,
     Constant,
     Expression,
-    InvalidVariableIdError,
     LogicalBinaryOp,
     LogicalNot,
     MathFunc,
     UnaryOp,
-    UnassignedVariableError,
     Variable,
     Where,
     and_,
@@ -41,12 +50,15 @@ __all__ = [
     "UNASSIGNED",
     "BinaryOp",
     "BusNaming",
+    "BusNotAvailableError",
     "BusRef",
     "BusSchema",
     "Comparison",
+    "CompilationError",
     "Constant",
     "CrosstalkMatrix",
     "Expression",
+    "HardwareError",
     "InvalidVariableIdError",
     "LogicalBinaryOp",
     "LogicalNot",
@@ -56,11 +68,15 @@ __all__ = [
     "ParseError",
     "PlatformProtocol",
     "QProgram",
+    "QProgramError",
     "QProgramResult",
     "UnaryOp",
     "UnassignedVariableError",
+    "UnsupportedOperationError",
+    "ValidationError",
     "Variable",
     "VendorNamespace",
+    "WaveformResolutionError",
     "Where",
     "and_",
     "cos",

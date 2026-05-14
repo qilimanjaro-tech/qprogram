@@ -52,22 +52,16 @@ import re
 from abc import ABC, abstractmethod
 from typing import ClassVar, Final, Literal, Self
 
+# InvalidVariableIdError and UnassignedVariableError live on the QProgram
+# exception hierarchy in :mod:`qprogram.errors`. They are re-exported here
+# so existing ``from qprogram.variable import InvalidVariableIdError``
+# imports keep working.
+from qprogram.errors import InvalidVariableIdError, UnassignedVariableError
+
 # Valid variable ids: Python-style identifiers — letter/underscore start,
 # then letters/digits/underscores. Ids are used verbatim as identifiers in
 # the .qp file format, so they must be safe to embed without quoting.
 _ID_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
-class InvalidVariableIdError(ValueError):
-    """Raised when a Variable id does not match ``[A-Za-z_][A-Za-z0-9_]*``."""
-
-    def __init__(self, id: str) -> None:  # noqa: A002
-        super().__init__(
-            f"Variable id {id!r} is invalid: must match [A-Za-z_][A-Za-z0-9_]* "
-            f"(letters, digits, underscores only; cannot start with a digit, no spaces "
-            f"or special characters). Use the optional `label` for human-readable names."
-        )
-        self.id = id
 
 # Operators supported by BinaryOp and UnaryOp.
 type BinaryOperator = Literal["+", "-", "*", "/"]
@@ -107,21 +101,6 @@ class _UnassignedType:
 
 UNASSIGNED: Final[_UnassignedType] = _UnassignedType()
 """Sentinel returned by ``evaluate()`` when a variable in the expression has no value."""
-
-
-class UnassignedVariableError(ValueError):
-    """Raised by ``evaluate_or_raise()`` when an expression contains an unassigned variable.
-
-    Subclasses ``ValueError`` for compatibility with existing exception-handling code.
-    """
-
-    def __init__(self, expression: Expression) -> None:
-        free = expression.variables()
-        super().__init__(
-            f"Cannot evaluate expression {expression!r}: unassigned variable(s) {free!r}",
-        )
-        self.expression = expression
-        self.free_variables = free
 
 
 # ----------------------------------------------------------------------------

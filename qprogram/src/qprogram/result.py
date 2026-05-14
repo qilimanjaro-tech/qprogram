@@ -22,6 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from qprogram.errors import ValidationError
+
 if TYPE_CHECKING:
     import xarray as xr
 
@@ -52,7 +54,7 @@ class MeasurementHandle:
     def __init__(self, name: str) -> None:
         if not isinstance(name, str) or not name:
             msg = f"MeasurementHandle name must be a non-empty string, got {name!r}"
-            raise ValueError(msg)
+            raise ValidationError(msg)
         self.name = name
 
     def __repr__(self) -> str:

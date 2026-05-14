@@ -29,6 +29,7 @@ from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
 from qprogram.buses import BusNaming, BusRef, BusSchema
+from qprogram.errors import QProgramError
 from qprogram.qprogram import QProgram
 from qprogram.serialization import _specs as _core_specs
 from qprogram.serialization.registry import (
@@ -48,8 +49,15 @@ if TYPE_CHECKING:
 FORMAT_VERSION = "1.0"
 
 
-class ParseError(Exception):
-    """Error during .qp file parsing."""
+class ParseError(QProgramError):
+    """Error during ``.qp`` file parsing.
+
+    A direct child of :class:`~qprogram.QProgramError`, separate from
+    :class:`~qprogram.ValidationError`. Validation runs on in-memory
+    programs; parsing fails on malformed input text. Both are user-facing
+    errors but the failure surfaces are distinct enough that they live on
+    different branches of the hierarchy.
+    """
 
     def __init__(self, message: str, line_num: int = 0) -> None:
         self.line_num = line_num

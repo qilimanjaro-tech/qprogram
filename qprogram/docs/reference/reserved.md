@@ -15,7 +15,7 @@ of this writing it contains:
 | Conditionals and iteration           | `if`, `else`, `elif`, `while`, `until`, `break`, `continue`, `return` |
 | Definitions and reusable fragments   | `fragment`, `def`, `gate`                                              |
 | Pattern matching                     | `case`, `match`                                                        |
-| Timing and scheduling                | `repeat`, `barrier`, `align`, `align_left`, `align_right`, `parallel` |
+| Timing and scheduling                | `repeat`                                                               |
 | Conditional expression               | `where`                                                                |
 | Bindings                             | `let`, `const`                                                         |
 | Module system (future)               | `import`, `from`, `as`                                                 |
@@ -23,6 +23,13 @@ of this writing it contains:
 
 `where` is reserved even though `qprogram.where(cond, a, b)` already exists
 as a helper. The bare keyword is reserved for when it grows into syntax.
+
+`barrier`, `align`, `align_left`, `align_right`, and `parallel` are **not**
+reserved. They appeared on earlier drafts of this list by analogy to other
+pulse-level DSLs. In QProgram's model, [`sync`](../guide/operations.md) plus
+[`wait`](../guide/operations.md) cover every alignment case, and parallel
+loops are spelled with the `|` operator rather than a `parallel` block. So
+those five names are free to use as variable ids or vendor namespaces.
 
 ## Vendor namespaces
 

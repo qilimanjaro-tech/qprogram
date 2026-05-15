@@ -28,7 +28,7 @@ def test_reserved_keywords_nonempty():
         "break", "continue", "return",
         "fragment", "def", "gate",
         "case", "match",
-        "repeat", "barrier", "align", "align_left", "align_right", "parallel",
+        "repeat",
         "where",
         "let", "const",
         "import", "from", "as",
@@ -45,6 +45,9 @@ def test_every_proposed_keyword_is_reserved(keyword):
     [
         "freq", "amp", "duration", "qubit_freq", "if_active", "returns_value",
         "true_value", "_private", "_", "x", "X", "If", "WHILE",
+        # Previously reserved alignment / scheduling keywords that were
+        # dropped because `sync` covers them in the QProgram model:
+        "barrier", "align", "align_left", "align_right", "parallel",
     ],
 )
 def test_non_reserved_names(name):

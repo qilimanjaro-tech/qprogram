@@ -44,7 +44,7 @@ RESERVED_KEYWORDS: Final[frozenset[str]] = frozenset(
         # Pattern matching
         "case", "match",
         # Timing / scheduling
-        "repeat", "barrier", "align", "align_left", "align_right", "parallel",
+        "repeat",
         # Conditional expression (already exists as a helper; reserve the bare keyword too)
         "where",
         # Bindings

@@ -444,7 +444,7 @@ fragment, def, gate
 case, match
 
 # Timing / scheduling
-repeat, barrier, align, align_left, align_right, parallel
+repeat
 
 # Conditional expression
 where

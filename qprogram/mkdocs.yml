@@ -1,0 +1,144 @@
+site_name: QProgram
+site_description: A domain-specific language for pulse-level quantum programming.
+site_url: https://qilimanjaro.github.io/qprogram/
+repo_url: https://github.com/qilimanjaro-tech/qprogram
+repo_name: qilimanjaro-tech/qprogram
+edit_uri: ""
+copyright: Copyright © 2026 Qilimanjaro Quantum Tech
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+  features:
+    - announce.dismiss
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - content.tooltips
+    - navigation.indexes
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.path
+    - navigation.tracking
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - search.share
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+extra:
+  generator: false
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.caret
+  - pymdownx.tilde
+  - pymdownx.smartsymbols
+
+plugins:
+  - search
+  - include-markdown
+  - section-index
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths:
+            - src
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_signature: true
+            show_signature_annotations: true
+            separate_signature: true
+            merge_init_into_class: true
+            docstring_section_style: list
+            members_order: source
+            filters:
+              - "!^_"
+              - "^__init__$"
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - User guide:
+      - guide/index.md
+      - Core ideas: guide/concepts.md
+      - Buses and schemas: guide/buses.md
+      - Variables and expressions: guide/variables.md
+      - Waveforms: guide/waveforms.md
+      - Operations: guide/operations.md
+      - Control flow: guide/control-flow.md
+      - Measurements and results: guide/measurements.md
+      - Saving and loading: guide/serialization.md
+  - Examples:
+      - examples/index.md
+      - Rabi oscillation: examples/rabi.md
+      - CZ chevron: examples/cz-chevron.md
+  - Reference:
+      - reference/index.md
+      - .qp file format: reference/qp-format.md
+      - Reserved keywords: reference/reserved.md
+      - Errors: reference/errors.md
+      - API reference: reference/api-qprogram.md
+  - Developer guide:
+      - developer/index.md
+      - Architecture: developer/architecture.md
+      - Adding operations: developer/adding-operations.md
+      - Adding waveforms: developer/adding-waveforms.md
+      - Building a vendor extension: developer/vendor-extensions.md
+      - Serialization internals: developer/serialization-internals.md
+      - Testing: developer/testing.md
+      - Contributing: developer/contributing.md

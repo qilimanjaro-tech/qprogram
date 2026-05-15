@@ -29,6 +29,7 @@ dev = [
     "ty>=0.0.34",
     "jupyter>=1.1.1",
     "nbconvert>=7.17.1",
+    "pytest-mock>=3.15.1",
 ]
 
 [build-system]
@@ -55,3 +56,44 @@ convention = "google"
 [tool.ruff.format]
 docstring-code-format = true
 docstring-code-line-length = "dynamic"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "ANN",
+    "D",
+    "S101",
+    "PLR0915",
+    "SLF001",
+    "INP001",
+    "PT011",
+    "B011",
+    "PTH118",
+    "FIX002",
+    "BLE001",
+    "ERA001",
+    "T201",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+testpaths = ["tests"]
+filterwarnings = ["error"]
+xfail_strict = true
+
+[tool.coverage.run]
+source = ["qprogram"]
+branch = true
+omit = ["src/qprogram/platform.py"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "@(abc\\.)?abstractmethod",
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
+show_missing = true
+skip_covered = false
+precision = 1

@@ -1,0 +1,288 @@
+"""Integration tests: end-to-end .qp round-trip across feature combinations."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from qprogram import (
+    BusSchema,
+    QProgram,
+    cos,
+    dumps,
+    eq,
+    loads,
+    minimum,
+    sin,
+    sqrt,
+    where,
+)
+from qprogram.buses import BusNaming
+from qprogram.waveforms import Gaussian, IQDrag, IQPair, Square
+
+
+def _assert_byte_stable(program: QProgram) -> None:
+    """Assert that dumps→loads→dumps yields identical text."""
+    text = dumps(program)
+    reloaded = loads(text)
+    text2 = dumps(reloaded)
+    assert text == text2, f"\n--- FIRST ---\n{text}\n--- SECOND ---\n{text2}"
+
+
+# ---------------------------------------------------------------------------
+# Round-trip stability across feature surfaces
+# ---------------------------------------------------------------------------
+
+
+def test_round_trip_empty_program():
+    _assert_byte_stable(QProgram())
+
+
+def test_round_trip_with_metadata():
+    _assert_byte_stable(QProgram(label="foo", description="bar"))
+
+
+def test_round_trip_with_variables():
+    p = QProgram()
+    p.variable("freq", label="L", units="Hz")
+    p.variable("gain")
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_inline_schema(transmon_schema):
+    _assert_byte_stable(QProgram(schema=transmon_schema))
+
+
+def test_round_trip_with_custom_naming(custom_naming_schema):
+    _assert_byte_stable(QProgram(schema=custom_naming_schema))
+
+
+def test_round_trip_with_dynamic_schema(dynamic_schema):
+    _assert_byte_stable(QProgram(schema=dynamic_schema))
+
+
+def test_round_trip_with_coupled_schema(coupled_schema):
+    p = QProgram(schema=coupled_schema)
+    p.set_offset(coupled_schema.c[0, 1].flux, 0.5)  # type: ignore[union-attr]
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_fluxonium_schema(fluxonium_schema):
+    p = QProgram(schema=fluxonium_schema)
+    p.set_offset(fluxonium_schema.q[0].flux_x, 0.1)  # type: ignore[union-attr]
+    p.set_offset(fluxonium_schema.q[0].flux_z, 0.2)  # type: ignore[union-attr]
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_plain_string_buses():
+    p = QProgram()
+    p.play("drive_q0", "pi_pulse")
+    p.measure("readout_q0", "wf", "weights")
+    _assert_byte_stable(p)
+
+
+def test_round_trip_mixed_schema_and_plain_buses(transmon_schema):
+    p = QProgram(schema=transmon_schema)
+    p.play(transmon_schema.q[0].drive, "wf")
+    p.play("raw_bus", "wf")
+    _assert_byte_stable(p)
+
+
+def test_round_trip_all_core_operations(transmon_schema):
+    from qprogram import CrosstalkMatrix
+    p = QProgram(schema=transmon_schema)
+    p.set_frequency(transmon_schema.q[0].drive, 5e9)
+    p.set_phase(transmon_schema.q[0].drive, 1.5708)
+    p.reset_phase(transmon_schema.q[0].drive)
+    p.set_gain(transmon_schema.q[0].drive, 0.5)
+    p.set_offset("flux", 0.1, 0.2)
+    p.play(transmon_schema.q[0].drive, "wf")
+    p.measure(transmon_schema.q[0].readout, "wf", "w")
+    p.wait(transmon_schema.q[0].drive, 100)
+    p.sync()
+    p.set_parameter("alias", "param", 5e9, channel_id=3)
+    p.get_parameter("alias", "param")
+    p.set_crosstalk(CrosstalkMatrix())
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_inline_waveforms():
+    p = QProgram()
+    p.play("drive", Gaussian(amplitude=0.5, duration=40, num_sigmas=2.5))
+    p.play("drive", IQDrag(0.5, 40, 2.5, 0.1))
+    p.measure(
+        "readout",
+        IQPair(Square(1.0, 100), Square(0.0, 100)),
+        IQPair(Square(1.0, 100), Square(1.0, 100)),
+    )
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_variable_in_waveform():
+    p = QProgram()
+    v = p.variable("amp")
+    p.play("drive", Gaussian(amplitude=v, duration=40, num_sigmas=2.5))
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_expressions():
+    p = QProgram()
+    v = p.variable("freq")
+    w = p.variable("gain")
+    p.set_frequency("drive", v + 1e6)
+    p.set_phase("drive", v - w)
+    p.set_gain("drive", w * 2)
+    p.set_offset("flux", -v)
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_comparisons_and_logical():
+    p = QProgram()
+    v = p.variable("freq")
+    w = p.variable("gain")
+    # set_offset is one of the easiest ops to receive an arbitrary expression.
+    p.set_offset("flux", where(v < 5e9, v, 0.0))
+    p.set_offset("flux", where(eq(v, 5e9), w, 0.0))
+    p.set_offset("flux", where(v > 0, w, w * 2))
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_math_functions():
+    p = QProgram()
+    v = p.variable("x")
+    p.set_frequency("drive", sin(v))
+    p.set_phase("drive", cos(v))
+    p.set_gain("drive", sqrt(v))
+    p.set_offset("flux", minimum(v, 0.5))
+    p.wait("drive", abs(v - 5))
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_average():
+    p = QProgram()
+    with p.average(1000):
+        p.play("drive", "wf")
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_for_loop():
+    p = QProgram()
+    v = p.variable("freq")
+    with p.for_loop(v, 4e9, 6e9, 1e6):
+        p.set_frequency("drive", v)
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_loop_values():
+    p = QProgram()
+    v = p.variable("amp")
+    with p.loop(v, np.array([0.1, 0.3, 0.5])):
+        p.set_gain("drive", v)
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_block():
+    p = QProgram()
+    with p.block():
+        p.wait("bus", 100)
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_parallel_loops():
+    p = QProgram()
+    v = p.variable("freq")
+    w = p.variable("gain")
+    with p.for_loop(v, 4e9, 6e9, 1e6) | p.for_loop(w, 0.0, 1.0, 0.01):
+        p.set_frequency("drive", v)
+        p.set_gain("drive", w)
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_deeply_nested_blocks():
+    p = QProgram()
+    v = p.variable("x")
+    with p.average(100):
+        with p.for_loop(v, 0.0, 1.0, 0.1):
+            with p.block():
+                p.wait("bus", v)
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_measurement_handles(transmon_schema):
+    p = QProgram(schema=transmon_schema)
+    p.measure(transmon_schema.q[0].readout, "r", "w")
+    p.measure(transmon_schema.q[0].readout, "r", "w")
+    p.measure(transmon_schema.q[0].readout, "r", "w", name="custom")
+    _assert_byte_stable(p)
+
+
+def test_round_trip_with_returns_field(transmon_schema):
+    p = QProgram(schema=transmon_schema)
+    p.measure(transmon_schema.q[0].readout, "r", "w")
+    p.measure(transmon_schema.q[0].readout, "r", "w", returns="iq,raw")
+    _assert_byte_stable(p)
+
+
+def test_round_trip_full_features(transmon_schema):
+    """The big one: every feature surface in a single program."""
+    p = QProgram(
+        label="big",
+        description="Cross-feature integration",
+        schema=transmon_schema,
+    )
+    gain = p.variable("gain", label="Drive amp", units="V")
+    freq = p.variable("freq")
+    t = p.variable("t", units="ns")
+
+    with p.average(shots=1000):
+        with p.for_loop(gain, 0.0, 1.0, 0.01) | p.loop(t, np.array([10, 20, 30, 40])):
+            with p.for_loop(freq, 4e9, 6e9, 1e6):
+                p.set_gain(transmon_schema.q[0].drive, minimum(gain, 0.5))
+                p.set_frequency(transmon_schema.q[0].drive, freq + sin(freq) * 1e6)
+                p.set_phase(transmon_schema.q[0].drive, where(gain > 0.5, gain, 0.0))
+                p.set_offset("flux", abs(gain - 0.5))
+                p.play(transmon_schema.q[0].drive, IQDrag(amplitude=gain, duration=40, num_sigmas=2.5, drag_coefficient=0.1))
+                p.sync([transmon_schema.q[0].drive, transmon_schema.q[0].readout])
+                p.wait(transmon_schema.q[0].drive, t)
+                p.measure(transmon_schema.q[0].readout, "r", "w", returns=("iq", "raw"))
+
+    _assert_byte_stable(p)
+
+
+def test_round_trip_loaded_equals_original(transmon_schema):
+    """The §11 structural-equality guarantee across .qp round-trip."""
+    p = QProgram(schema=transmon_schema)
+    v = p.variable("x")
+    with p.for_loop(v, 0.0, 1.0, 0.1):
+        p.play(transmon_schema.q[0].drive, "wf")
+    text = dumps(p)
+    reloaded = loads(text)
+    assert reloaded.body == p.body
+    assert hash(reloaded.body) == hash(p.body)
+
+
+def test_round_trip_with_with_bus_mapping():
+    p = QProgram()
+    p.play("a", "wf")
+    p.sync(["a", "b"])
+    remapped = p.with_bus_mapping({"a": "x"})
+    _assert_byte_stable(remapped)
+
+
+def test_round_trip_with_with_waveforms():
+    p = QProgram()
+    p.play("bus", "pi_pulse")
+    resolved = p.with_waveforms({"pi_pulse": Gaussian(0.5, 40, 2.5)})
+    _assert_byte_stable(resolved)
+
+
+def test_round_trip_with_qblox_vendor(transmon_schema):
+    import qprogram_qblox  # noqa: F401
+    from qprogram_qblox import QProgram as QbloxQProgram
+
+    p = QbloxQProgram(schema=transmon_schema)
+    p.qblox.set_markers(transmon_schema.q[0].drive, "0001")
+    p.qblox.set_trigger(transmon_schema.q[0].drive, duration=100, position="end")
+    p.qblox.wait_trigger(transmon_schema.q[0].drive, duration=1000, port=1)
+    p.qblox.acquire(transmon_schema.q[0].readout, "w", returns="iq,raw")
+    _assert_byte_stable(p)

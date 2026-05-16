@@ -2,6 +2,7 @@
 
 > **Source:** https://www.notion.so/qilimanjaro/qp-File-Format-Specification-Draft-3307eec14c5381948e39e397b2062803
 > **Fetched:** 2026-05-07
+> **Reconciled:** 2026-05-15
 > **Status:** Draft (specification — code may not yet match)
 
 ---
@@ -520,7 +521,7 @@ body:
   # Vendor-specific operations
   qblox.acquire "readout_q0" "default"
   qblox.set_markers "drive_q0" "0001"
-  qblox.measure_reset "readout_q0" "readout" "default" "drive_q0" "reset" trigger_address=1
+  qblox.active_reset "readout_q0" "readout" "default" "drive_q0" "reset" trigger_address=1
   quantum_machines.measure "readout_q0" "readout" "default" rotation=0.5 demodulation=true
   qdac.play "flux_q0" flux_pulse dwell=100 repetitions=5
 ```

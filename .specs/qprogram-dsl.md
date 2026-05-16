@@ -2,6 +2,7 @@
 
 > **Source:** https://www.notion.so/qilimanjaro/QProgram-DSL-Specification-Draft-32f7eec14c53815a8290d85478cdcaec
 > **Fetched:** 2026-05-07
+> **Reconciled:** 2026-05-15
 > **Status:** Draft (specification — code may not yet match)
 
 ---
@@ -356,32 +357,19 @@ All three produce the same thing at the AST level: a string. **Zero changes to Q
 # 3. Variables and Expressions
 QProgram has a small AST for **symbolic expressions** — anywhere an operation accepts a numeric value, it also accepts a variable, an expression, or any composition of them. The expression system is the standard tree-of-nodes pattern used in compilers.
 ## 3.1 The expression hierarchy
-<table header-row="true">
-<tr>
-<td>**Class**</td>
-<td>**Role**</td>
-<td>**Equality**</td>
-<td>`Expression`</td>
-<td>Abstract base. Anything usable where a number is expected.</td>
-<td>—</td>
-</tr>
-<tr>
-<td>`Variable`</td>
-<td>Leaf. Symbolic placeholder identified by label. **Holds a value** — initially `UNASSIGNED`, set via `set_value()`.</td>
-<td>**Identity-based** — each `Variable("freq")` is distinct.</td>
-<td>`Constant`</td>
-<td>Leaf. A concrete numeric value.</td>
-<td>**Structural** — `Constant(5) == Constant(5)`.</td>
-</tr>
-<tr>
-<td>`BinaryOp`</td>
-<td>Internal node. Operator (`+`, `-`, `*`, `/`) over two expressions.</td>
-<td>**Structural** — same op, same operands.</td>
-<td>`UnaryOp`</td>
-<td>Internal node. Unary operator (`-`, `+`) over one expression.</td>
-<td>**Structural**.</td>
-</tr>
-</table>
+
+| Class | Role | Equality |
+|-------|------|----------|
+| `Expression` | Abstract base. Anything usable where a number is expected. | — |
+| `Variable` | Leaf. Symbolic placeholder identified by `id`. Holds a value — initially `UNASSIGNED`, set via `set_value()`. | **Structural by id** — two `Variable` instances with the same `id` compare equal. |
+| `Constant` | Leaf. A concrete numeric value. | **Structural** — `Constant(5) == Constant(5)`. |
+| `BinaryOp` | Internal node. Arithmetic operator (`+`, `-`, `*`, `/`) over two expressions. | **Structural** — same op, same operands. |
+| `UnaryOp` | Internal node. Unary operator (`-`, `+`) over one expression. | **Structural**. |
+| `Comparison` | Internal node. Comparison operator (`==`, `!=`, `<`, `<=`, `>`, `>=`) over two expressions. | **Structural**. |
+| `LogicalBinaryOp` | Internal node. Logical operator (`and`, `or`) over two expressions. | **Structural**. |
+| `LogicalNot` | Internal node. Logical `not` over one expression. | **Structural**. |
+| `MathFunc` | Internal node. Math function call (`sin`, `cos`, `tan`, `exp`, `log`, `sqrt`, `abs`, `minimum`, `maximum`). | **Structural**. |
+| `Where` | Internal node. Ternary `where(cond, a, b)`. | **Structural**. |
 Variables and Constants are **leaves**; BinaryOp and UnaryOp are **internal nodes**. Together they form an expression tree. Literal `int`/`float` values used in arithmetic with an `Expression` are auto-wrapped to `Constant` by the operators.
 Variables carry no type or domain information — the compiler validates that the runtime values from loops are compatible with the operations using them (e.g. a variable used in `set_frequency(bus, freq)` should receive Hz values).
 ## 3.2 Declaring variables
@@ -554,11 +542,11 @@ No external helper function is required — every `Expression` instance carries 
 Constant(5).variables()                           # -> set()
 ```
 ## 3.8 Identity
-Variables use **identity-based** equality: each `Variable` instance is distinct from every other, regardless of label. Each gets an auto-assigned integer ID for hashing (not UUID, for performance).
+Variables compare equal **by id**: two `Variable` instances are equal iff their `id` strings match. This is structural equality, just with `id` as the structural key — it makes a full program survive `copy.deepcopy`, `qp.loads(qp.dumps(...))`, and `with_bus_mapping` while still comparing equal to the original.
 
-Within a `QProgram`, labels must be unique — `program.variable("freq")` raises `ValueError` if `"freq"` was already declared, so two distinct variables on the same program never share a label. (At the bare `Variable` constructor level, you can still create two `Variable("freq")` instances; identity-based equality keeps them distinct.)
+Within a `QProgram`, ids must be unique. `program.variable("freq")` raises `ValidationError` if `"freq"` was already declared, so two distinct variables on the same program never share an id. (At the bare `Variable` constructor level, you can still create two `Variable("freq")` instances; they will compare equal under structural-by-id semantics.)
 
-All other expression nodes (Constant, BinaryOp, UnaryOp) use **structural** equality — two structurally identical expressions compare as equal.
+All other expression nodes (`Constant`, `BinaryOp`, `UnaryOp`, `Comparison`, `LogicalBinaryOp`, `LogicalNot`, `MathFunc`, `Where`) use **structural** equality. Two structurally identical expressions compare as equal.
 ---
 # 4. Waveforms
 Waveforms define pulse shapes. They are pure data objects — they describe an envelope, not a hardware command.
@@ -584,27 +572,27 @@ All numeric parameters in waveform constructors also accept `Variable`.
 ### Single-channel
 **Square** — constant amplitude
 ```python
-Square(amplitude: float | Variable, duration: int | Variable)
+Square(amplitude: float | Expression, duration: int | Expression)
 ```
 **Gaussian** — Gaussian-shaped pulse
 ```python
-Gaussian(amplitude: float | Variable, duration: int | Variable, num_sigmas: float | Variable)
+Gaussian(amplitude: float | Expression, duration: int | Expression, num_sigmas: float | Expression)
 ```
 **GaussianDragCorrection** — derivative of Gaussian (DRAG Q component)
 ```python
-GaussianDragCorrection(amplitude: float | Variable, duration: int | Variable, num_sigmas: float | Variable, drag_coefficient: float | Variable)
+GaussianDragCorrection(amplitude: float | Expression, duration: int | Expression, num_sigmas: float | Expression, drag_coefficient: float | Expression)
 ```
 **Ramp** — linear interpolation between two amplitudes
 ```python
-Ramp(from_amplitude: float | Variable, to_amplitude: float | Variable, duration: int | Variable)
+Ramp(from_amplitude: float | Expression, to_amplitude: float | Expression, duration: int | Expression)
 ```
 **FlatTop** — square pulse with smoothed (erf) edges
 ```python
-FlatTop(amplitude: float | Variable, duration: int | Variable, smooth_duration: int | Variable, buffer: int = 0)
+FlatTop(amplitude: float | Expression, duration: int | Expression, smooth_duration: int | Expression, buffer: int = 0)
 ```
 **SuddenNetZero** — SNZ pulse shape for two-qubit gates
 ```python
-SuddenNetZero(amplitude: float | Variable, duration: int | Variable, b: float | Variable, t_phi: int | Variable)
+SuddenNetZero(amplitude: float | Expression, duration: int | Expression, b: float | Expression, t_phi: int | Expression)
 ```
 **Arbitrary** — user-provided sample array
 ```python
@@ -621,7 +609,7 @@ IQPair(I: Waveform, Q: Waveform)   # I and Q must have same duration
 ```
 **IQDrag** — DRAG pulse (Gaussian I + GaussianDragCorrection Q)
 ```python
-IQDrag(amplitude: float | Variable, duration: int | Variable, num_sigmas: float | Variable, drag_coefficient: float | Variable)
+IQDrag(amplitude: float | Expression, duration: int | Expression, num_sigmas: float | Expression, drag_coefficient: float | Expression)
 ```
 ## 4.4 Extensibility
 Users can define custom waveforms by subclassing `Waveform` or `IQWaveform` and implementing the required abstract methods.
@@ -650,7 +638,7 @@ program.measure(
 `returns` controls what the platform produces for this measurement. The default `("iq",)` requests in-phase/quadrature data (the historical behaviour). Adding `"raw"` requests the raw ADC trace alongside. A future `"state"` token will request a classified outcome once the platform-side classifier lands. Accepts a comma-separated string (`"iq,raw"`) or any iterable of strings; values are normalised to a canonical `tuple[str, ...]` for storage and `.qp` serialization. Platforms decide which tokens they recognise.
 **`wait(bus, duration)`** — idle for a given duration (ns)
 ```python
-program.wait(bus: str, duration: int | Variable)
+program.wait(bus: str, duration: int | Expression)
 ```
 **`sync(buses=None)`** — synchronize buses (all buses if None)
 ```python
@@ -660,11 +648,11 @@ program.sync(buses: list[str] | None = None)
 These modify real-time parameters on a bus.
 **`set_frequency(bus, frequency)`** — set NCO/oscillator frequency (Hz)
 ```python
-program.set_frequency(bus: str, frequency: float | Variable)
+program.set_frequency(bus: str, frequency: float | Expression)
 ```
 **`set_phase(bus, phase)`** — set NCO phase (radians)
 ```python
-program.set_phase(bus: str, phase: float | Variable)
+program.set_phase(bus: str, phase: float | Expression)
 ```
 **`reset_phase(bus)`** — reset NCO phase to zero
 ```python
@@ -672,11 +660,11 @@ program.reset_phase(bus: str)
 ```
 **`set_gain(bus, gain)`** — set output gain
 ```python
-program.set_gain(bus: str, gain: float | Variable)
+program.set_gain(bus: str, gain: float | Expression)
 ```
 **`set_offset(bus, offset_path0, offset_path1=None)`** — set DC offset
 ```python
-program.set_offset(bus: str, offset_path0: float | Variable, offset_path1: float | Variable | None = None)
+program.set_offset(bus: str, offset_path0: float | Expression, offset_path1: float | Expression | None = None)
 ```
 ## 5.3 Platform Parameter Operations
 These interact with the platform's configuration. They are not hardware-realtime — the compiler may execute them in software.

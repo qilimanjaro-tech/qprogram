@@ -16,22 +16,25 @@ qprogram-fakeinst/
 │   ├── __init__.py        # registration + pre-combined QProgram
 │   ├── operations.py      # Operation subclasses (AST nodes)
 │   ├── namespace.py       # FakeInstNamespace (typed methods)
-│   └── mixin.py           # FakeInstMixin (typed @property)
+│   ├── mixin.py           # FakeInstMixin (typed @property)
+│   └── profiles.py        # capability tokens + Profile bundles
 └── tests/
     ├── conftest.py
     ├── test_operations.py
     ├── test_namespace.py
     ├── test_mixin.py
     ├── test_registration.py
-    └── test_serialization.py
+    ├── test_serialization.py
+    └── test_profile.py
 ```
 
-Four source files, in increasing order of glue:
+Five source files, in increasing order of glue:
 
 1. `operations.py` defines the AST node classes.
 2. `namespace.py` defines the typed methods.
 3. `mixin.py` defines the typed `@property`.
-4. `__init__.py` registers everything and ships a pre-combined `QProgram`.
+4. `profiles.py` declares the vendor's capability tokens and ships one or more `Profile` bundles.
+5. `__init__.py` registers everything and ships a pre-combined `QProgram`.
 
 ## Step 1: Define the operation classes
 
@@ -54,6 +57,11 @@ class Beep(Operation):
         self.bus = bus
         self.duration = duration
 
+    def required_capabilities(self) -> set[str]:
+        from qprogram.protocol import expression_tokens
+
+        return {"vendor.fake_inst.beep"} | expression_tokens(self.duration)
+
 
 class SetThreshold(Operation):
     """Software-only threshold setter (no sequencer footprint)."""
@@ -63,6 +71,11 @@ class SetThreshold(Operation):
     def __init__(self, bus: str, value: float | Expression) -> None:
         self.bus = bus
         self.value = value
+
+    def required_capabilities(self) -> set[str]:
+        from qprogram.protocol import expression_tokens
+
+        return {"vendor.fake_inst.set_threshold"} | expression_tokens(self.value)
 ```
 
 Rules of thumb.
@@ -132,7 +145,124 @@ The mixin exists purely for IDE autocomplete; the runtime `__getattr__` on
 the base `QProgram` would do the same lookup anyway. Cache the namespace on
 the instance the first time it is accessed.
 
-## Step 4: The `__init__.py` glue
+## Step 4: Declare vendor capabilities and ship a profile
+
+A vendor extension ships a capability **profile**: a named bundle listing
+which DSL features the backend supports, any numeric limits the hardware
+imposes, and any predicates that check for context-sensitive constraints.
+Users (and the validator) consume the profile to ask "will this program
+run on this platform?".
+
+```python
+# profiles.py
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from qprogram.operations.wait import Wait
+from qprogram.protocol import (
+    Diagnostic,
+    Profile,
+    ValidationContext,
+    register_capability_tokens,
+    register_profile,
+)
+from qprogram.variable import Variable
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from qprogram.blocks.block import Block
+    from qprogram.operations.operation import Operation
+
+
+# Register the vendor's capability tokens *before* the Profile is
+# constructed — `Profile.__post_init__` rejects unknown tokens.
+register_capability_tokens(
+    "vendor.fake_inst.beep",
+    "vendor.fake_inst.set_threshold",
+)
+
+
+def _reject_zero_duration_beep(
+    node: "Operation | Block",
+    ctx: ValidationContext,  # noqa: ARG001
+) -> "Iterable[Diagnostic]":
+    """Demo predicate: fake_inst.beep with duration=0 is meaningless."""
+    if isinstance(node, Beep) and isinstance(node.duration, int) and node.duration == 0:
+        yield Diagnostic(
+            severity="error",
+            code="fake_inst.zero-beep",
+            message="Beep duration must be > 0 ns",
+            node=node,
+        )
+
+
+FAKE_INST_DEFAULT_V1 = Profile(
+    name="fake_inst-default-v1",
+    version=(0, 1, 0),
+    extends=None,
+    capabilities=frozenset(
+        {
+            # core ops the backend supports — name everything it can run
+            "op.play", "op.measure", "op.wait", "op.sync",
+            "op.set_frequency", "op.set_phase",
+            "block.block", "block.average", "block.for_loop", "block.loop",
+            "waveform.single", "waveform.iq", "waveform.alias",
+            "waveform.square", "waveform.gaussian", "waveform.iq_drag", "waveform.iq_pair",
+            "sweep.linear", "sweep.arbitrary",
+            "expr.constant", "expr.variable", "expr.binary_op", "expr.unary_op",
+            "measure.returns.iq",
+            # vendor ops
+            "vendor.fake_inst.beep",
+            "vendor.fake_inst.set_threshold",
+        }
+    ),
+    limits={
+        "max_loop_nesting": 4,
+        "min_wait_duration_ns": 4,
+    },
+    predicates=(_reject_zero_duration_beep,),
+    vendor_versions={"fake_inst": (0, 1, 0)},
+)
+
+
+def _register() -> None:
+    """Idempotently register the profile on the global registry."""
+    register_profile(FAKE_INST_DEFAULT_V1)
+```
+
+A few notes:
+
+- **List every capability the backend supports**, including core ones. The
+  profile is what defines "what this platform will accept" — leaving out a
+  core token means programs using it will fail validation against this
+  profile. The validator catches typos at profile-construction time, so
+  you can't accidentally claim support for a non-existent token.
+- **Per-class waveform tokens** (`waveform.square`, `waveform.iq_drag`,
+  ...) refine the channel-kind tokens. Include the per-class tokens for
+  every waveform your compiler knows how to lower. Programs using a
+  waveform whose token is missing from the profile produce one
+  `missing-capability` diagnostic per use site.
+- **Limits** are numeric thresholds. The validator understands
+  `max_loop_nesting`, `max_parallel_loops`, `max_measurements`, and
+  `min_wait_duration_ns` out of the box; vendors may declare additional
+  keys for forward compatibility, which the current validator silently
+  ignores.
+- **Predicates** are callables `(node, ctx) -> Iterable[Diagnostic]`. Use
+  them for context-sensitive checks that depend on more than one node —
+  the canonical example is "this op's variable argument must be bound by
+  a linear loop". See [Capability protocol internals](capability-protocol.md)
+  for the full predicate / `ValidationContext` reference.
+
+If you want a tiered family of profiles (`-base-v1`, `-adaptive-v1`,
+...), use `extends="<parent-name>"`. Capabilities and predicates
+accumulate; limits inherit and may be overridden. Recommended: start with
+a single `<vendor>-default-v1` and split only when a real device demands
+it. Premature profile proliferation is the most-cited mistake in QIR's
+post-mortems.
+
+## Step 5: The `__init__.py` glue
 
 ```python
 # __init__.py
@@ -146,6 +276,10 @@ from qprogram.serialization.registry import (
 from qprogram_fakeinst.mixin import FakeInstMixin
 from qprogram_fakeinst.namespace import FakeInstNamespace
 from qprogram_fakeinst.operations import Beep, SetThreshold
+from qprogram_fakeinst.profiles import (
+    FAKE_INST_DEFAULT_V1,
+    _register as _register_fake_inst_profile,
+)
 
 try:
     __version__ = version("qprogram-fakeinst")
@@ -162,14 +296,18 @@ register_vendor_version("fake_inst", __version__)
 register_vendor_operation("fake_inst", "beep", Beep)
 register_vendor_operation("fake_inst", "set_threshold", SetThreshold)
 
+# 4. Capability profile. (Tokens were registered by `profiles.py` at import.)
+_register_fake_inst_profile()
 
-# 4. Pre-combined typed QProgram.
+
+# 5. Pre-combined typed QProgram.
 class QProgram(FakeInstMixin, _BaseQProgram):
     pass
 
 
 __all__ = [
     "Beep",
+    "FAKE_INST_DEFAULT_V1",
     "FakeInstMixin",
     "FakeInstNamespace",
     "QProgram",
@@ -177,8 +315,10 @@ __all__ = [
 ]
 ```
 
-Four registration calls happen on import. The order matters only loosely:
-all four are independent.
+Five registration steps happen on import. Capability-token registration is
+a side effect of importing `profiles.py`, which happens at the top of
+`__init__.py`; profile registration is a separate call so the order is
+explicit.
 
 The vendor name (`"fake_inst"`) must not be one of the [reserved
 keywords](../reference/reserved.md) or the sentinel `"core"`.
@@ -187,7 +327,7 @@ The protocol version is the version of the operation set this extension
 exposes. Reading it from `importlib.metadata` keeps a single source of truth
 in `pyproject.toml`.
 
-## Step 5: `pyproject.toml`
+## Step 6: `pyproject.toml`
 
 ```toml
 [project]
@@ -227,24 +367,28 @@ branch = true
 The path source assumes a sibling checkout; replace it with a pinned PyPI
 version once published.
 
-## Step 6: Tests
+## Step 7: Tests
 
 The `qprogram-qblox/tests/` folder is the canonical template. Mirror its
 layout:
 
 - `test_operations.py` covers each Operation class: construction,
-  introspection (`buses()`, `waveforms()`, `variables()`), and structural
-  equality.
+  introspection (`buses()`, `waveforms()`, `variables()`), structural
+  equality, and `required_capabilities()` (instance-aware).
 - `test_namespace.py` covers each method on the namespace: it appends the
   right op, validates buses, and uses the right naming scheme for
   measurement ops.
 - `test_mixin.py` covers the mixin: returns a `FakeInstNamespace`, caches
   per instance, composes with multiple vendors.
-- `test_registration.py` confirms the three registration calls succeed.
+- `test_registration.py` confirms the registration calls succeed.
 - `test_serialization.py` exercises every operation through dumps and
   loads, including the `require` line.
+- `test_profile.py` confirms the profile is registered, that
+  representative programs validate clean, and that each predicate fires on
+  the cases it should.
 
-`qprogram-qblox` reaches 100% coverage with 80 tests; copy the spirit.
+`qprogram-qblox` reaches 100% coverage with 89 tests across these
+modules; copy the spirit.
 
 ## How serialization works for vendor ops
 

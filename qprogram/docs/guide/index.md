@@ -12,6 +12,7 @@ is self-contained and ends with cross-references.
 | [Operations](operations.md)                            | Every core operation, in one place.                                                          |
 | [Control flow](control-flow.md)                        | `for_loop`, `loop`, `average`, parallel loops, generic blocks, nesting.                       |
 | [Measurements and results](measurements.md)            | `measure`, `MeasurementHandle`, `QProgramResult`, name allocation rules.                     |
+| [Capabilities, diagnostics, and profiles](capabilities.md) | What a platform supports, how to ask, what diagnostics look like.                          |
 | [Saving and loading](serialization.md)                 | `dumps`, `loads`, `save`, `load`, round-trip guarantees.                                      |
 
 If you are looking for the exact wire format, the `.qp` grammar lives in

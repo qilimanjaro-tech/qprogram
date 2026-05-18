@@ -15,9 +15,23 @@ from qprogram.errors import (
     WaveformResolutionError,
 )
 from qprogram.platform import PlatformProtocol
+from qprogram.protocol import (
+    CompilerCapabilities,
+    Diagnostic,
+    Predicate,
+    PredicateFn,
+    Profile,
+    SweepKind,
+    ValidationContext,
+    register_capability_tokens,
+    register_profile,
+    register_waveform_token,
+    resolve_profile,
+)
 from qprogram.qprogram import QProgram
 from qprogram.result import MeasurementHandle, MeasurementResult, QProgramResult
 from qprogram.serialization import dumps, register_vendor_operation, register_vendor_version, register_waveform, save
+from qprogram.validation import validate
 from qprogram.variable import (
     UNASSIGNED,
     BinaryOp,
@@ -57,8 +71,10 @@ __all__ = [
     "BusSchema",
     "Comparison",
     "CompilationError",
+    "CompilerCapabilities",
     "Constant",
     "CrosstalkMatrix",
+    "Diagnostic",
     "Expression",
     "HardwareError",
     "InvalidVariableIdError",
@@ -69,12 +85,17 @@ __all__ = [
     "MeasurementResult",
     "ParseError",
     "PlatformProtocol",
+    "Predicate",
+    "PredicateFn",
+    "Profile",
     "QProgram",
     "QProgramError",
     "QProgramResult",
+    "SweepKind",
     "UnaryOp",
     "UnassignedVariableError",
     "UnsupportedOperationError",
+    "ValidationContext",
     "ValidationError",
     "Variable",
     "VendorNamespace",
@@ -93,13 +114,18 @@ __all__ = [
     "ne",
     "not_",
     "or_",
+    "register_capability_tokens",
+    "register_profile",
     "register_vendor_operation",
     "register_vendor_version",
     "register_waveform",
+    "register_waveform_token",
+    "resolve_profile",
     "save",
     "sin",
     "sqrt",
     "tan",
+    "validate",
     "where",
 ]
 

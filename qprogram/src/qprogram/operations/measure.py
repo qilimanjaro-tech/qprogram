@@ -41,3 +41,16 @@ class Measure(MeasurementOperation):
         self.weights = weights
         self.name = name
         self.returns: tuple[str, ...] = normalize_returns(returns)
+
+    def required_capabilities(self) -> set[str]:
+        from qprogram.protocol import waveform_token  # noqa: PLC0415
+
+        caps = super().required_capabilities() | {"op.measure", "waveform.iq"}
+        for attr in (self.waveform, self.weights):
+            if isinstance(attr, str):
+                caps.add("waveform.alias")
+            else:
+                tok = waveform_token(attr)
+                if tok is not None:
+                    caps.add(tok)
+        return caps

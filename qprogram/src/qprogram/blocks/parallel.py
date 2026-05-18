@@ -43,3 +43,6 @@ class Parallel(Block):
             yield from lp.walk()
         for el in self._elements:
             yield from el.walk()
+
+    def required_capabilities(self) -> set[str]:
+        return {"block.parallel"}

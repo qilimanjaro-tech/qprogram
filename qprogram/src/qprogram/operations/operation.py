@@ -123,6 +123,19 @@ class Operation:
         """
         yield self
 
+    def required_capabilities(self) -> set[str]:
+        """Return the capability tokens *this* op needs, in isolation.
+
+        Each concrete subclass overrides to add its identity token
+        (``op.<name>``) plus any refinement tokens that depend on
+        instance state (the kind of waveform being played, the
+        return-tokens of a measurement, the expression shape of a
+        parametric argument, ...). The validator walks the AST and
+        unions per-node sets; node-level methods MUST NOT recurse into
+        children (the walk handles that), or counts will double.
+        """
+        return set()
+
     # -- structural equality and hash ---------------------------------------
     #
     # Two operations are equal iff they are of the same concrete class and
@@ -169,6 +182,14 @@ class MeasurementOperation(Operation):
     """
 
     name: str  # subclasses must set this
+    returns: tuple[str, ...]  # subclasses must set this
+
+    def required_capabilities(self) -> set[str]:
+        """Add one ``measure.returns.<token>`` per token in :attr:`returns`.
+
+        Concrete subclasses union this with their own identity-token set.
+        """
+        return {f"measure.returns.{t}" for t in self.returns}
 
 
 def normalize_returns(value: str | Iterable[str]) -> tuple[str, ...]:
@@ -190,11 +211,7 @@ def normalize_returns(value: str | Iterable[str]) -> tuple[str, ...]:
     which return-type strings they recognise (``"iq"``, ``"raw"``,
     ``"state"``, …) and raise their own error for unsupported ones.
     """
-    parts = (
-        [p.strip() for p in value.split(",")]
-        if isinstance(value, str)
-        else [str(p).strip() for p in value]
-    )
+    parts = [p.strip() for p in value.split(",")] if isinstance(value, str) else [str(p).strip() for p in value]
     cleaned = [p for p in parts if p]
     if not cleaned:
         msg = "`returns` must specify at least one return type"

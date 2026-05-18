@@ -14,3 +14,8 @@ class SetFrequency(Operation):
     def __init__(self, bus: str, frequency: float | Expression) -> None:
         self.bus = bus
         self.frequency = frequency
+
+    def required_capabilities(self) -> set[str]:
+        from qprogram.protocol import expression_tokens  # noqa: PLC0415
+
+        return {"op.set_frequency"} | expression_tokens(self.frequency)

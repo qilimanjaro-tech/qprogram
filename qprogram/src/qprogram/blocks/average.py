@@ -9,3 +9,6 @@ class Average(Block):
     def __init__(self, shots: int) -> None:
         super().__init__()
         self.shots = shots
+
+    def required_capabilities(self) -> set[str]:
+        return {"block.average"}

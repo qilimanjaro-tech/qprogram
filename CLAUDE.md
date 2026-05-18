@@ -64,6 +64,22 @@ Anywhere a numeric parameter is accepted, an `Expression` is also accepted (`var
 
 `qprogram_qblox/__init__.py` does all three at import time. Importing the package is the activation step — `import qprogram_qblox` registers the namespace, version, and operations as side effects.
 
+### Capability protocol (`protocol.py`, `validation.py`)
+
+Platforms declare which DSL features they support and validate programs against that declaration. The descriptor (`CompilerCapabilities`) has three orthogonal axes (Vulkan-style split, because flags/numbers/AST-shape-checks have different shapes of check):
+
+1. **Capabilities** — flat set of dotted string tokens. Every `Operation`/`Block` subclass implements an *instance-aware* `required_capabilities() -> set[str]` that returns its identity token plus refinement tokens computed from instance state. A `Play(IQDrag(...))` returns `{op.play, waveform.iq, waveform.iq_drag}`; a `Play(Square(...))` returns `{op.play, waveform.single, waveform.square}`. **Per-node methods are non-recursive** — the validator walks the AST via `body.walk()` and unions per-node sets; recursing inside `required_capabilities()` would double-count. Token namespace: `op.*`, `block.*`, `waveform.*`, `sweep.*`, `expr.*`, `expr.math.*`, `measure.returns.*`, `vendor.<name>.*`.
+
+2. **Limits** — numeric thresholds (`max_loop_nesting`, `max_parallel_loops`, `max_measurements`, `min_wait_duration_ns`). Each `Profile` declares defaults; a live device tightens via `CompilerCapabilities.from_profile(name, limit_overrides={...})`. Unknown keys are silently ignored — profiles can declare future limits the validator doesn't yet enforce.
+
+3. **Predicates** — callables `(node, ValidationContext) -> Iterable[Diagnostic]`. The escape hatch for data-flow checks ("Wait.duration supports linear sweeps but not arbitrary ones"). `ValidationContext` is built once per `validate()` call by a pre-walk and exposes cross-op queries (`sweep_kind_of(var)`, `binding_loop_of(var)`, `max_loop_nesting`, ...). Predicates run on every visited node and may emit zero or more `Diagnostic` objects.
+
+Vendors register **profile bundles** via `register_profile(Profile(name=..., capabilities=..., limits=..., predicates=..., extends=...))` as a side effect of importing the vendor package — same activation pattern as the existing three-step registration. Profiles can extend others by name; capabilities and predicates accumulate, limits inherit then override. Token registry validation runs at `Profile` construction time, so a typo in a vendor package's token list is an error at import, not at validate-time.
+
+`PlatformProtocol` exposes `.capabilities: CompilerCapabilities` and `.validate(qp) -> list[Diagnostic]`. The validator is the single source of truth (same object users introspect, validator consumes). It does not raise — callers (typically `execute()`) decide how to react to non-empty diagnostic lists; the convention is to raise `UnsupportedOperationError`.
+
+Design lineage: MLIR's SPIR-V dialect (distributed declaration + centralized check + per-op interface methods), MLIR's `addDynamicallyLegalOp` (operand-sensitive predicates), QIR profiles (named, hierarchical bundles), Vulkan (features/limits/extensions split).
+
 ### `.qp` text format (custom serializer)
 
 `serialization/writer.py` (`dumps`/`save`) and `serialization/parser.py` (`loads`/`load`) implement a custom plain-text format — not JSON/YAML. Format:
@@ -97,7 +113,8 @@ Key behaviors:
 
 ### What lives where (when adding things)
 
-- New core operation: `qprogram/src/qprogram/operations/<name>.py` (subclass `Operation`), export from `operations/__init__.py`, add a method on `QProgram`, add a serializer branch in `_serialize_operation` (writer.py) and parser branch in `_parse_operation` (parser.py).
-- New waveform: subclass `Waveform`/`IQWaveform`, add to `_register_builtins()` in `serialization/registry.py`, export from `waveforms/__init__.py`. Serializer auto-emits constructor args by walking `vars(wf)`; parser uses the registry by class name.
-- New vendor operation: subclass `Operation` in the vendor package, add a typed method to its `VendorNamespace` subclass, call `register_vendor_operation(vendor, name, cls)` in the vendor package's `__init__.py`. No core changes needed.
-- New vendor (whole namespace): create a separate package depending on `qprogram`, follow `qprogram-qblox` as the template (mirror its `__init__.py` three-step registration, mixin, namespace, operations).
+- New core operation: `qprogram/src/qprogram/operations/<name>.py` (subclass `Operation`), export from `operations/__init__.py`, add a method on `QProgram`, add a serializer branch in `_serialize_operation` (writer.py) and parser branch in `_parse_operation` (parser.py), implement `required_capabilities()` returning the op's identity token (`op.<name>`) plus any refinement tokens, register the token in `protocol.py:_BASE_TOKENS`, add it to vendor profiles that support it.
+- New waveform: subclass `Waveform`/`IQWaveform`, add to `_register_builtins()` in `serialization/registry.py`, export from `waveforms/__init__.py`, register a class→token mapping in `protocol.py:_register_builtin_waveform_tokens()` (or via `register_waveform_token()` from a vendor package). Serializer auto-emits constructor args by walking `vars(wf)`; parser uses the registry by class name.
+- New vendor operation: subclass `Operation` in the vendor package, add a typed method to its `VendorNamespace` subclass, call `register_vendor_operation(vendor, name, cls)` in the vendor package's `__init__.py`, implement `required_capabilities()` returning `{vendor.<name>.<op>}` plus refinement tokens, register the token via `register_capability_tokens(...)` in the vendor's `profiles.py`, include it in the vendor profile's capability set. No core changes needed.
+- New vendor (whole namespace): create a separate package depending on `qprogram`, follow `qprogram-qblox` as the template (mirror its `__init__.py` four-step registration: vendor namespace, vendor version, operations, profile).
+- New profile bundle: create a `Profile` in the vendor package's `profiles.py`, register via `register_profile()` from `qprogram-<vendor>/__init__.py`. Use `extends=` to inherit from a parent profile.

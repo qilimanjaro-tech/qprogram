@@ -69,6 +69,7 @@ from qprogram_qblox.operations import (
     SetTrigger,
     WaitTrigger,
 )
+from qprogram_qblox.profiles import QBLOX_DEFAULT_V1, _register as _register_qblox_profile
 
 # Resolve our own package version once. This is the single source of truth
 # for the qblox vendor protocol version: parsers will check that the file's
@@ -100,6 +101,11 @@ register_vendor_operation("qblox", "wait_trigger", WaitTrigger)
 register_vendor_operation("qblox", "active_reset", ActiveReset)
 register_vendor_operation("qblox", "set_acquisition_threshold", SetAcquisitionThreshold)
 
+# --- Step 4: Register the qblox capability profile bundle ---
+# Vendor capability tokens are registered as a side effect of importing
+# qprogram_qblox.profiles (above), so the profile's tokens validate.
+_register_qblox_profile()
+
 
 # --- Step 3: Pre-combined typed QProgram ---
 class QProgram(QbloxMixin, _BaseQProgram):
@@ -113,6 +119,7 @@ class QProgram(QbloxMixin, _BaseQProgram):
 
 
 __all__ = [
+    "QBLOX_DEFAULT_V1",
     "Acquire",
     "ActiveReset",
     "QProgram",

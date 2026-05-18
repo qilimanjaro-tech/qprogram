@@ -143,6 +143,30 @@ A program can carry waveforms inline or by string alias. Inline is concrete;
 the alias gets resolved later via `with_waveforms`, usually from calibration
 data the platform owns.
 
+## Platforms declare what they support
+
+QProgram describes *what* you want to happen. The platform decides *how* to
+run it — and different platforms support different subsets of the language.
+QProgram captures the difference through a small **capability protocol**.
+
+Each `Operation` and `Block` knows the *capability tokens* it needs
+(instance-aware: a `Play(IQDrag(...))` needs different tokens than a
+`Play(Square(...))`). A platform exposes a `CompilerCapabilities` descriptor
+listing the tokens it accepts, the numeric limits it imposes, and any
+predicates that check for context-sensitive cases. `qp.validate(program,
+caps)` walks the AST once and returns a list of `Diagnostic` objects —
+empty when the program is supported.
+
+```python
+caps = platform.capabilities
+diagnostics = qp.validate(program, caps)
+for d in diagnostics:
+    print(d)
+```
+
+See [Capabilities, diagnostics, and profiles](capabilities.md) for the
+full story.
+
 ## Measurements return handles
 
 `program.measure(...)` returns a `MeasurementHandle`. The handle has a name

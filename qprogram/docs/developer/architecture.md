@@ -18,7 +18,9 @@ qprogram/
 │   ├── errors.py               # exception hierarchy
 │   ├── _structural.py          # ast_eq / ast_hash helpers
 │   ├── vendor.py               # VendorNamespace base
-│   ├── platform.py             # PlatformProtocol
+│   ├── platform.py             # PlatformProtocol + .capabilities + .validate
+│   ├── protocol.py             # CompilerCapabilities, Diagnostic, Profile, token registry
+│   ├── validation.py           # the validator
 │   ├── result.py               # MeasurementHandle, QProgramResult
 │   ├── crosstalk_matrix.py
 │   ├── operations/
@@ -172,6 +174,19 @@ Vendor packages call `register_vendor_operation(vendor, name, cls)` and
 serialises each operation through `(vendor, name)` lookup; the parser
 reverses the same lookup to find the class.
 
+### 4. Capability protocol
+
+`qprogram.protocol` defines `CompilerCapabilities`, `Diagnostic`,
+`Profile`, `ValidationContext`, and registries for capability tokens and
+profiles. Every `Operation` and `Block` subclass implements
+`required_capabilities()` returning the dotted-string tokens it needs
+(instance-aware: refines based on the op's data). A vendor package
+registers tokens, a waveform-class dispatch table, and one or more
+`Profile` bundles at import time, alongside the existing three registration
+steps. `qprogram.validation.validate(qp, caps)` walks the AST once and
+emits diagnostics for missing tokens, exceeded limits, and predicate
+failures. Full details in [Capability protocol internals](capability-protocol.md).
+
 ## The `.qp` writer
 
 `qprogram/src/qprogram/serialization/writer.py` walks the AST and emits
@@ -215,10 +230,12 @@ A summary that maps the moving parts to file locations.
 
 | Adding ...                              | Where it goes                                                                  |
 |------------------------------------------|--------------------------------------------------------------------------------|
-| A new core operation                     | `operations/<name>.py` (subclass `Operation`), export in `operations/__init__.py`, add a `QProgram.<verb>` method. The serializer auto-handles it; see [Adding operations](adding-operations.md). |
-| A new waveform                           | `waveforms/<name>.py` (subclass `Waveform` or `IQWaveform`), register in `serialization/registry._register_builtins`. See [Adding waveforms](adding-waveforms.md). |
-| A new vendor operation                   | Inside the vendor package: new `Operation` subclass, a typed method on the `VendorNamespace`, one `register_vendor_operation` call. No core changes. |
-| A new vendor (whole namespace)            | A new package depending on `qprogram`. Copy `qprogram-qblox` as the template. |
+| A new core operation                     | `operations/<name>.py` (subclass `Operation`), export in `operations/__init__.py`, add a `QProgram.<verb>` method, implement `required_capabilities()`. The serializer auto-handles it; see [Adding operations](adding-operations.md). |
+| A new waveform                           | `waveforms/<name>.py` (subclass `Waveform` or `IQWaveform`), register in `serialization/registry._register_builtins`, register a class→token mapping in `protocol._register_builtin_waveform_tokens`. See [Adding waveforms](adding-waveforms.md). |
+| A new vendor operation                   | Inside the vendor package: new `Operation` subclass with `required_capabilities()`, a typed method on the `VendorNamespace`, one `register_vendor_operation` call, the vendor token in the profile's capability set. No core changes. |
+| A new vendor (whole namespace)            | A new package depending on `qprogram`. Copy `qprogram-qblox` as the template. Ships a profile bundle. |
+| A new capability token                    | Edit `protocol._BASE_TOKENS` (core) or call `register_capability_tokens` from a vendor package. See [Capability protocol internals](capability-protocol.md). |
+| A new profile bundle                      | Create a `Profile` in the vendor package's `profiles.py`. Register via `register_profile(profile)` from the vendor `__init__.py`. |
 | A new block kind                         | `blocks/<name>.py`. Will need a parser entry and a writer header callback; pre-1.0 these are not yet pluggable. |
 
 ## Why decouple at the package boundary

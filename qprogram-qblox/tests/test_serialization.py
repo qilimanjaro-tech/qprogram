@@ -199,23 +199,13 @@ def test_loads_with_matching_qblox_require_ok():
 
 def test_loads_with_future_minor_rejected():
     """A .qp file requiring a higher minor of qblox should be rejected."""
-    text = (
-        "#!QProgram 1.0\n"
-        "require qblox 99.0\n"
-        "body:\n"
-        '  qblox.set_markers "drive" "0001"\n'
-    )
+    text = '#!QProgram 1.0\nrequire qblox 99.0\nbody:\n  qblox.set_markers "drive" "0001"\n'
     with pytest.raises(Exception, match=r"(?i)qblox"):
         loads(text)
 
 
 def test_loads_with_wrong_major_rejected():
-    text = (
-        "#!QProgram 1.0\n"
-        "require qblox 999.0\n"
-        "body:\n"
-        '  qblox.set_markers "drive" "0001"\n'
-    )
+    text = '#!QProgram 1.0\nrequire qblox 999.0\nbody:\n  qblox.set_markers "drive" "0001"\n'
     with pytest.raises(Exception):
         loads(text)
 

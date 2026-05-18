@@ -14,3 +14,8 @@ class SetGain(Operation):
     def __init__(self, bus: str, gain: float | Expression) -> None:
         self.bus = bus
         self.gain = gain
+
+    def required_capabilities(self) -> set[str]:
+        from qprogram.protocol import expression_tokens  # noqa: PLC0415
+
+        return {"op.set_gain"} | expression_tokens(self.gain)

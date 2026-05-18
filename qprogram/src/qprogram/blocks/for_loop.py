@@ -21,3 +21,6 @@ class ForLoop(Block):
     def variables(self) -> set[Variable]:
         """Include the loop-counter variable on top of the children's vars."""
         return super().variables() | {self.variable}
+
+    def required_capabilities(self) -> set[str]:
+        return {"block.for_loop", "sweep.linear"}

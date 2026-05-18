@@ -28,3 +28,8 @@ class SetParameter(Operation):
         self.parameter = parameter
         self.value = value
         self.channel_id = channel_id
+
+    def required_capabilities(self) -> set[str]:
+        from qprogram.protocol import expression_tokens  # noqa: PLC0415
+
+        return {"op.set_parameter"} | expression_tokens(self.value)

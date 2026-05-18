@@ -19,3 +19,6 @@ class SetCrosstalk(Operation):
 
     def __init__(self, crosstalk: CrosstalkMatrix) -> None:
         self.crosstalk = crosstalk
+
+    def required_capabilities(self) -> set[str]:
+        return {"op.set_crosstalk"}

@@ -200,6 +200,58 @@ the narrative guides where helpful.
     options:
       show_root_full_path: false
 
+## Capability protocol
+
+The data types and helpers that platforms use to declare which DSL features
+they support. See [Capabilities, diagnostics, and profiles](../guide/capabilities.md)
+for the narrative tour.
+
+### Descriptor and bundles
+
+::: qprogram.CompilerCapabilities
+    options:
+      show_root_full_path: false
+
+::: qprogram.Profile
+    options:
+      show_root_full_path: false
+
+::: qprogram.Diagnostic
+    options:
+      show_root_full_path: false
+
+::: qprogram.ValidationContext
+    options:
+      show_root_full_path: false
+
+::: qprogram.SweepKind
+
+::: qprogram.Predicate
+    options:
+      show_root_full_path: false
+
+::: qprogram.PredicateFn
+
+### Validator
+
+::: qprogram.validate
+
+### Registries and helpers
+
+::: qprogram.register_profile
+
+::: qprogram.resolve_profile
+
+::: qprogram.register_capability_tokens
+
+::: qprogram.register_waveform_token
+
+::: qprogram.protocol.validate_tokens
+
+::: qprogram.protocol.waveform_token
+
+::: qprogram.protocol.expression_tokens
+
 ## Reserved keywords
 
 ::: qprogram.RESERVED_KEYWORDS

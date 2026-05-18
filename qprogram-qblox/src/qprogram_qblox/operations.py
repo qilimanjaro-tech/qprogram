@@ -48,6 +48,18 @@ class Acquire(MeasurementOperation):
         self.name = name
         self.returns: tuple[str, ...] = normalize_returns(returns)
 
+    def required_capabilities(self) -> set[str]:
+        from qprogram.protocol import waveform_token  # noqa: PLC0415
+
+        caps = super().required_capabilities() | {"vendor.qblox.acquire", "waveform.iq"}
+        if isinstance(self.weights, str):
+            caps.add("waveform.alias")
+        else:
+            tok = waveform_token(self.weights)
+            if tok is not None:
+                caps.add(tok)
+        return caps
+
 
 class SetMarkers(Operation):
     """Set the 4-bit marker output mask on a Qblox sequencer.
@@ -58,6 +70,9 @@ class SetMarkers(Operation):
     def __init__(self, bus: str, mask: str) -> None:
         self.bus = bus
         self.mask = mask
+
+    def required_capabilities(self) -> set[str]:
+        return {"vendor.qblox.set_markers"}
 
 
 class SetTrigger(Operation):
@@ -75,6 +90,9 @@ class SetTrigger(Operation):
         self.outputs = outputs
         self.position = position
 
+    def required_capabilities(self) -> set[str]:
+        return {"vendor.qblox.set_trigger"}
+
 
 class WaitTrigger(Operation):
     """Wait for an external trigger on a Qblox sequencer."""
@@ -83,6 +101,9 @@ class WaitTrigger(Operation):
         self.bus = bus
         self.duration = duration
         self.port = port
+
+    def required_capabilities(self) -> set[str]:
+        return {"vendor.qblox.wait_trigger"}
 
 
 class ActiveReset(Operation):
@@ -121,6 +142,19 @@ class ActiveReset(Operation):
         self.reset_pulse = reset_pulse
         self.trigger_address = trigger_address
 
+    def required_capabilities(self) -> set[str]:
+        from qprogram.protocol import waveform_token  # noqa: PLC0415
+
+        caps = {"vendor.qblox.active_reset", "waveform.iq"}
+        for attr in (self.waveform, self.weights, self.reset_pulse):
+            if isinstance(attr, str):
+                caps.add("waveform.alias")
+            else:
+                tok = waveform_token(attr)
+                if tok is not None:
+                    caps.add(tok)
+        return caps
+
 
 class SetAcquisitionThreshold(Operation):
     """Set the qubit-state discrimination threshold on a readout bus.
@@ -137,3 +171,8 @@ class SetAcquisitionThreshold(Operation):
     def __init__(self, bus: str, value: float | Expression) -> None:
         self.bus = bus
         self.value = value
+
+    def required_capabilities(self) -> set[str]:
+        from qprogram.protocol import expression_tokens  # noqa: PLC0415
+
+        return {"vendor.qblox.set_acquisition_threshold"} | expression_tokens(self.value)

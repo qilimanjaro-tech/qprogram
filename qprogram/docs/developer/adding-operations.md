@@ -8,6 +8,20 @@ If you are adding a vendor-specific operation, follow
 [Building a vendor extension](vendor-extensions.md) instead. Vendor operations
 have a much smaller surface to touch (no core changes at all).
 
+## Recipe at a glance
+
+A new core op touches six places. In order:
+
+1. Op class file under `operations/<name>.py`, with a
+   `required_capabilities()` method.
+2. Export from `operations/__init__.py`.
+3. Method on `QProgram` in `qprogram.py` that appends an instance.
+4. Registration line in `serialization/registry._register_builtins`.
+5. New capability token in `protocol._BASE_TOKENS`; added to any vendor
+   profile that supports the op.
+6. Tests in `test_operations.py`, `test_qprogram.py`,
+   `test_required_capabilities.py`, and `test_round_trip.py`.
+
 ## Step 1: Create the operation class
 
 New file: `qprogram/src/qprogram/operations/set_power.py`.
@@ -29,6 +43,11 @@ class SetPower(Operation):
     def __init__(self, bus: str, power: float | Expression) -> None:
         self.bus = bus
         self.power = power
+
+    def required_capabilities(self) -> set[str]:
+        from qprogram.protocol import expression_tokens
+
+        return {"op.set_power"} | expression_tokens(self.power)
 ```
 
 A few rules.
@@ -43,6 +62,15 @@ A few rules.
 - The base `Operation` class provides `variables()`, `buses()`,
   `waveforms()`, and `walk()` via these class attributes. You almost never
   override them.
+- `required_capabilities()` declares the capability tokens *this op
+  instance* needs. The base class returns an empty set; concrete ops add
+  their identity token (`op.<name>`) plus any refinement tokens computed
+  from instance state — expression tokens for numeric arguments, waveform
+  channel-kind and per-class tokens for waveform arguments, return-tokens
+  for measurement ops, and so on. The method is **non-recursive**: each op
+  returns only its own tokens, and the validator walks via `body.walk()`
+  to gather children. See [Capability protocol internals](capability-protocol.md)
+  for the full story.
 
 ## Step 2: Export from `operations/__init__.py`
 
@@ -106,7 +134,38 @@ args; `GetParameter` uses the arrow `-> var` syntax). For those, supply
 serialize/parse callbacks via `register_core_operation` with explicit
 arguments. The existing special cases in `_specs.py` are the template.
 
-## Step 5: Write tests
+## Step 5: Register the capability token
+
+If your operation introduces a new top-level token, add it to
+`_BASE_TOKENS` in `qprogram/src/qprogram/protocol.py`:
+
+```python
+_BASE_TOKENS: frozenset[str] = frozenset({
+    ...
+    "op.set_power",       # newly added
+    ...
+})
+```
+
+If a vendor profile should support this operation, add the token to that
+profile's `capabilities` frozenset. For example,
+`qprogram-qblox/src/qprogram_qblox/profiles.py`:
+
+```python
+_CORE_OPS = frozenset({
+    ...,
+    "op.set_power",
+})
+```
+
+The validator rejects a program with an unsupported op via a
+`missing-capability` diagnostic; the token registry also rejects typos at
+profile-construction time, so a forgotten registration shows up as an
+import error rather than a silent miss at validate-time. See
+[Capability protocol internals](capability-protocol.md) for the full
+mechanics.
+
+## Step 6: Write tests
 
 The convention is to add tests next to the relevant existing module.
 
@@ -126,6 +185,22 @@ def test_set_power_with_variable():
     op = SetPower("drive_q0", v)
     assert op.power is v
     assert list(op.variables()) == [v]
+```
+
+For `required_capabilities()`, add to
+`qprogram/tests/test_required_capabilities.py`:
+
+```python
+def test_set_power_token():
+    assert SetPower("drive_q0", 5.0).required_capabilities() == {"op.set_power"}
+
+
+def test_set_power_with_variable_adds_expr_variable():
+    v = Variable("p")
+    assert SetPower("drive_q0", v).required_capabilities() == {
+        "op.set_power",
+        "expr.variable",
+    }
 ```
 
 For the `QProgram` method, add to `qprogram/tests/test_qprogram.py`:

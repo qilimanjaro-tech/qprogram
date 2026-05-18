@@ -21,3 +21,6 @@ class Sync(Operation):
 
     def __init__(self, targets: list[str] | None = None) -> None:
         self.targets = targets
+
+    def required_capabilities(self) -> set[str]:
+        return {"op.sync"}

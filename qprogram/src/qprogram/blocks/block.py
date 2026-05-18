@@ -75,6 +75,21 @@ class Block:
         for el in self._elements:
             yield from el.walk()
 
+    def required_capabilities(self) -> set[str]:
+        """Return the capability tokens *this* block needs, in isolation.
+
+        Mirrors :meth:`~qprogram.operations.operation.Operation.required_capabilities`:
+        each subclass returns its identity token plus any refinement
+        tokens. The validator walks via :meth:`walk` and unions per-node
+        sets — children's tokens are picked up when the walk visits them,
+        not by recursing here.
+
+        The base implementation returns ``{"block.block"}``; subclasses
+        like :class:`~qprogram.blocks.ForLoop` override to add their own
+        identity and sweep-shape tokens.
+        """
+        return {"block.block"}
+
     # -- structural equality and hash ---------------------------------------
     #
     # Two blocks are equal iff they are of the same concrete class and

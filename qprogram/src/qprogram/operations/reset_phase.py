@@ -8,3 +8,6 @@ class ResetPhase(Operation):
 
     def __init__(self, bus: str) -> None:
         self.bus = bus
+
+    def required_capabilities(self) -> set[str]:
+        return {"op.reset_phase"}

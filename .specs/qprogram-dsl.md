@@ -1077,19 +1077,141 @@ result.get(bus="readout_q0", measurement=0)     # first measurement on readout_q
 ```
 ---
 # 9. Platform Protocol
-The QProgram library defines a `PlatformProtocol` — a common interface that any execution backend must implement. This covers both **discovery** (what the platform supports) and **execution** (running a QProgram and returning results).
-## 9.1 Discovery
-Users can query the platform to inspect available resources before writing a program. Parameters are strings — each platform defines its own (replacing the old `Parameter` enum).
-## 9.2 Execution
-The platform compiles and executes a QProgram, returning a `QProgramResult`. Internally it is responsible for analyzing the block tree, deciding hardware vs software execution, allocating hardware resources, resolving calibrated references, and reporting errors for unsupported operations.
+The QProgram library defines a `PlatformProtocol` — a common interface that any execution backend must implement. It has three duties:
+
+- **Resource discovery** — what buses and parameters this hardware exposes.
+- **Capability declaration** — which features of the QProgram DSL this backend supports.
+- **Execution** — compile + run a QProgram, return a `QProgramResult`.
+
 ```python
 class PlatformProtocol(ABC):
+    # Resource discovery
     def get_bus_schema(self) -> BusSchema: ...
     def get_buses(self) -> list[str]: ...
     def get_parameters(self, bus: str) -> list[str]: ...
     def get_global_parameters(self) -> list[str]: ...
+
+    # Capability declaration + validation
+    @property
+    def capabilities(self) -> CompilerCapabilities: ...
+    def validate(self, qprogram: QProgram) -> list[Diagnostic]: ...
+
+    # Execution
     def execute(self, qprogram: QProgram, **kwargs) -> QProgramResult: ...
 ```
+
+## 9.1 Discovery
+Users can query the platform to inspect available resources before writing a program. Parameters are strings — each platform defines its own (replacing the old `Parameter` enum).
+
+## 9.2 Execution
+The platform compiles and executes a QProgram, returning a `QProgramResult`. Internally it is responsible for analyzing the block tree, deciding hardware vs software execution, allocating hardware resources, resolving calibrated references, and reporting errors for unsupported operations.
+
+## 9.3 Capability descriptor
+A platform declares the DSL features it supports through a structured `CompilerCapabilities` descriptor with **three orthogonal axes** (the same separation Vulkan uses for features, limits, and extensions — flags, numbers, and AST-shape checks have different shapes of check):
+
+```python
+@dataclass(frozen=True)
+class CompilerCapabilities:
+    profile: str                                    # name of the resolved profile bundle
+    version: tuple[int, int, int]
+    capabilities: frozenset[str]                    # axis 1: presence flags
+    limits: Mapping[str, float]                     # axis 2: numeric thresholds
+    predicates: tuple[Predicate, ...]               # axis 3: AST-shape checks
+    vendor_versions: Mapping[str, tuple[int, int, int]]
+```
+
+**Capability tokens** are dotted strings naming a feature. The canonical namespace:
+
+- `op.<name>` — operation presence (`op.play`, `op.measure`, `op.set_frequency`, …).
+- `block.<name>` — control flow (`block.for_loop`, `block.loop`, `block.average`, `block.parallel`, `block.block`).
+- `waveform.<kind>` — channel kind (`waveform.single`, `waveform.iq`, `waveform.alias`) or per-class (`waveform.square`, `waveform.iq_drag`, …).
+- `sweep.<shape>` — loop sweep shape (`sweep.linear` for a `for_loop`, `sweep.arbitrary` for a numpy-driven `loop`).
+- `expr.<kind>` — expression node presence at parameter sites (`expr.constant`, `expr.variable`, `expr.binary_op`, `expr.math.sin`, …).
+- `measure.returns.<token>` — accepted measurement return-tokens (`measure.returns.iq`, `measure.returns.raw`, …).
+- `vendor.<name>.<op>` — vendor-namespace operations (`vendor.qblox.acquire`, …). Vendors extend the core token registry via `register_capability_tokens`.
+
+**Limits** are numeric thresholds the validator checks against whole-program measurements: `max_loop_nesting`, `max_parallel_loops`, `max_measurements`, `min_wait_duration_ns`, etc. Each `Profile` declares defaults; a live device can pass `limit_overrides` to `CompilerCapabilities.from_profile()` to tighten any value for its specific hardware.
+
+**Predicates** are the escape hatch for data-flow / context-sensitive checks that flat tokens can't express ("supports X but only when Y"). See §9.5.
+
+## 9.4 Distributed declaration: `required_capabilities`
+Every `Operation` and `Block` subclass declares the capability tokens it needs, **instance-aware**, via a `required_capabilities()` method:
+
+```python
+class Play(Operation):
+    def required_capabilities(self) -> set[str]:
+        caps = {"op.play"}
+        if isinstance(self.waveform, str):
+            caps.add("waveform.alias")
+        else:
+            caps.add("waveform.iq" if isinstance(self.waveform, IQWaveform) else "waveform.single")
+            caps.add(waveform_token(self.waveform))           # e.g. "waveform.iq_drag"
+        return caps
+```
+
+A `Play(IQDrag(...))` returns `{op.play, waveform.iq, waveform.iq_drag}`; a `Play(Square(...))` returns `{op.play, waveform.single, waveform.square}`. Loop subclasses contribute their sweep-shape tokens: `ForLoop → {block.for_loop, sweep.linear}`, `Loop → {block.loop, sweep.arbitrary}`.
+
+The validator walks the AST via `body.walk()` and unions per-node sets. Per-node methods are **non-recursive** — children's tokens are picked up when the walker visits them, not by recursing inside `required_capabilities()`. This pattern mirrors MLIR's SPIR-V dialect availability interfaces (requirements declared next to the op, centralized check by a single validator).
+
+## 9.5 Predicates and the validation context
+Some requirements are not properties of one node in isolation but of how an AST node interacts with another — most notably variable bindings flowing through control flow. Example: Qblox supports `Wait.duration` as a variable, but only if that variable is bound by a linear `for_loop`, not by an arbitrary-array `loop`. Predicates handle this:
+
+```python
+def _reject_arbitrary_sweep_at_wait_duration(node, ctx):
+    if not isinstance(node, Wait) or not isinstance(node.duration, Variable):
+        return
+    if ctx.sweep_kind_of(node.duration) == "arbitrary":
+        yield Diagnostic(
+            severity="error",
+            code="qblox.arbitrary-wait-sweep",
+            message="Wait.duration cannot be swept with arbitrary values",
+            node=node,
+        )
+```
+
+The validator builds a `ValidationContext` once per call by pre-walking the AST. The context exposes data-flow queries predicates use:
+
+- `sweep_kind_of(var) -> "linear" | "arbitrary" | "averaged" | None`
+- `binding_loop_of(var) -> Block | None`
+- `max_loop_nesting`, `max_parallel_arity`, `measurement_count` (also drive the limit checks).
+
+Predicates run on every visited node, see the same context, and emit zero or more `Diagnostic` objects.
+
+## 9.6 Profile bundles
+A `Profile` is a named, versioned bundle of (capabilities, limits, predicates, vendor_versions). Vendors register one or more via `register_profile()` as a side effect of importing the vendor package. Profiles can extend other profiles by name — capabilities and predicates accumulate (parent → child), limits inherit and may be overridden (child wins). This mirrors QIR's named-profile design and its experience that hierarchical extension is the only composition mode that doesn't fragment immediately; ad-hoc intersection of arbitrary bundles is out of scope.
+
+```python
+QBLOX_DEFAULT_V1 = Profile(
+    name="qblox-default-v1",
+    version=(0, 1, 0),
+    extends=None,
+    capabilities=frozenset({"op.play", "op.measure", ..., "vendor.qblox.acquire", ...}),
+    limits={"max_loop_nesting": 8, "min_wait_duration_ns": 4, ...},
+    predicates=(_reject_arbitrary_sweep_at_wait_duration,),
+    vendor_versions={"qblox": (0, 1, 0)},
+)
+```
+
+Profile names are arbitrary strings; the convention is `<vendor>-<tier>-v<major>` (e.g. `qblox-default-v1`, future `qblox-adaptive-v1`). A `.qp` file's `require qblox 0.1` line continues to gate vendor-version compatibility — profiles are platform-side metadata and do **not** appear in `.qp` headers today.
+
+## 9.7 Validation
+`PlatformProtocol.validate(qprogram)` returns a list of `Diagnostic` objects (empty if the program is compatible):
+
+```python
+@dataclass(frozen=True)
+class Diagnostic:
+    severity: Literal["error"]
+    code: str                                       # e.g. "missing-capability", "limit-exceeded"
+    message: str
+    node: Operation | Block | None
+    capability: str | None = None
+    limit: tuple[str, float] | None = None
+```
+
+The validator walks the AST once: for each node it (a) checks `required_capabilities() ⊆ caps.capabilities` and emits `missing-capability` for any missing token, (b) runs every registered predicate with the shared `ValidationContext`, and (c) after the walk, checks numeric limits against aggregate measurements (max nesting, parallel arity, total measurements, min wait duration). The validator does not raise — it returns the list, leaving the decision to the caller. A typical `execute()` implementation calls `validate()` first and raises `UnsupportedOperationError` if any diagnostic is present.
+
+`severity` is currently always `"error"`; `"warning"` is reserved for a future limit-violation-with-software-fallback story.
+
 ---
 # 10. File Format (`.qp`)
 QProgram defines its own text-based serialization format for portability. Programs can be saved and loaded without depending on any external serialization library.
@@ -1168,4 +1290,4 @@ print(I_values)
 - [x] **Active reset**: **Resolved** — `active_reset` is a `qblox.*` vendor extension (complex orchestration), not a core operation.
 - [x] **`set_offset`**** dual path**: **Resolved** — core `set_offset` keeps a generic signature; Qblox-specific dual-path behavior is handled by the compiler.
 - [x] **Variable arithmetic**: **Resolved** — expressions support `+`, `-`, `*`, `/`, and unary `-` via the `Expression` AST (Section 3).
-- [ ] **Error model**: How should the compiler report unsupported operations? Exceptions? Warnings? A validation pass before compilation?
+- [x] **Error model**: **Resolved** — a structured `validate()` pass runs before compilation and returns a list of `Diagnostic` objects (Section 9). Platforms decide whether to raise on diagnostics; the typical `execute()` does. `severity` is `"error"` today; `"warning"` is reserved for a future software-fallback story.

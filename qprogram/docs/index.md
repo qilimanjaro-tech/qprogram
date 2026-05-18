@@ -58,6 +58,7 @@ data = result.get(m0)        # xarray.DataArray with named dimensions
 | install QProgram and run something              | [Getting started](getting-started.md)                                |
 | understand the moving parts                     | [Core ideas](guide/concepts.md)                                      |
 | sweep parameters with loops                     | [Control flow](guide/control-flow.md)                                |
+| know which programs a platform will accept       | [Capabilities, diagnostics, and profiles](guide/capabilities.md)     |
 | read the file format                            | [.qp file format](reference/qp-format.md)                            |
 | build your own vendor package                   | [Building a vendor extension](developer/vendor-extensions.md)        |
 | browse the full API                             | [API reference](reference/api-qprogram.md)                           |

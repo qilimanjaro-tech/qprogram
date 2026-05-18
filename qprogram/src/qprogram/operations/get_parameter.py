@@ -24,3 +24,6 @@ class GetParameter(Operation):
         self.alias = alias
         self.parameter = parameter
         self.channel_id = channel_id
+
+    def required_capabilities(self) -> set[str]:
+        return {"op.get_parameter"}

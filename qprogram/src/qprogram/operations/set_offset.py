@@ -20,3 +20,11 @@ class SetOffset(Operation):
         self.bus = bus
         self.offset_path0 = offset_path0
         self.offset_path1 = offset_path1
+
+    def required_capabilities(self) -> set[str]:
+        from qprogram.protocol import expression_tokens  # noqa: PLC0415
+
+        caps = {"op.set_offset"} | expression_tokens(self.offset_path0)
+        if self.offset_path1 is not None:
+            caps |= expression_tokens(self.offset_path1)
+        return caps

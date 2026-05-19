@@ -114,8 +114,9 @@ def test_validation_error_not_a_value_error_by_default():
 
 
 def test_can_catch_invalid_id_as_value_error():
+    bad_id = "1bad"
     with pytest.raises(ValueError, match="must match"):
-        raise InvalidVariableIdError("1bad")
+        raise InvalidVariableIdError(bad_id)
 
 
 def test_can_catch_unassigned_as_value_error():

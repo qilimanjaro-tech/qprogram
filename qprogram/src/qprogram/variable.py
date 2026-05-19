@@ -50,7 +50,7 @@ from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
-from typing import ClassVar, Final, Literal, Self
+from typing import TYPE_CHECKING, ClassVar, Final, Literal, Self
 
 # InvalidVariableIdError and UnassignedVariableError live on the QProgram
 # exception hierarchy in :mod:`qprogram.errors`. They are re-exported here
@@ -58,6 +58,9 @@ from typing import ClassVar, Final, Literal, Self
 # imports keep working.
 from qprogram._reserved import RESERVED_KEYWORDS
 from qprogram.errors import InvalidVariableIdError, UnassignedVariableError
+
+if TYPE_CHECKING:
+    from qprogram.result import MeasurementHandle
 
 # Valid variable ids: Python-style identifiers — letter/underscore start,
 # then letters/digits/underscores. Ids are used verbatim as identifiers in
@@ -369,6 +372,119 @@ class Variable(Expression):
         return f"Variable('{self._id}')"
 
 
+class MeasurementRef(Expression):
+    """Reference to a field of a measurement result.
+
+    Built via ``handle.state`` (and, in the future, other fields like
+    ``handle.iq`` once the platform supports them). Currently only
+    ``field == "state"`` is supported.
+
+    The runtime executor writes the per-measurement value via the
+    underlying :class:`~qprogram.MeasurementHandle`; until then
+    :meth:`evaluate` returns :data:`UNASSIGNED`.
+
+    Structural equality by ``(handle.name, field)``: distinct
+    ``MeasurementRef`` instances built at different sites refer to the
+    same logical reference when the names match. This mirrors the
+    cross-program-equality story for :class:`Variable` and lets a
+    program survive ``deepcopy`` / ``qp.loads(qp.dumps(...))``.
+
+    Construction is direct: ``MeasurementRef(handle, "state")``. Users
+    almost never build one explicitly — the operator-overload proxy
+    returned by :attr:`MeasurementHandle.state` does it for them when
+    building conditions like ``handle.state == 0``.
+    """
+
+    _ALLOWED_FIELDS: ClassVar[frozenset[str]] = frozenset({"state"})
+
+    def __init__(self, handle: MeasurementHandle, field: str) -> None:
+        if field not in self._ALLOWED_FIELDS:
+            msg = f"MeasurementRef field must be one of {sorted(self._ALLOWED_FIELDS)}, got {field!r}"
+            raise ValueError(msg)
+        self.handle: MeasurementHandle = handle
+        self.field: str = field
+
+    def evaluate(self) -> int | float | _UnassignedType:
+        return self.handle._value_for(self.field)  # noqa: SLF001  # ty:ignore[unresolved-attribute]  # pyright: ignore[reportAttributeAccessIssue]
+
+    def variables(self) -> set[Variable]:
+        # A MeasurementRef is its own kind of binding, distinct from
+        # Variable. It does not contribute to the loop-counter variable
+        # walk that the rest of the AST does.
+        return set()
+
+    def __hash__(self) -> int:
+        return hash(("MeasurementRef", self.handle.name, self.field))
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, MeasurementRef) and self.handle.name == other.handle.name and self.field == other.field
+
+    def __repr__(self) -> str:
+        return f"MeasurementRef({self.handle.name!r}, {self.field!r})"
+
+
+class _HandleFieldAccess:
+    """Throwaway proxy returned by :attr:`MeasurementHandle.state`.
+
+    Exists so that ``handle.state == 0`` builds a :class:`Comparison`
+    node directly. The proxy itself is never stored on the AST — the
+    operator overload returns a Comparison whose operand is a real
+    :class:`MeasurementRef`. Overloading ``==`` on :class:`MeasurementRef`
+    itself would conflict with the AST's structural-equality walk
+    (which would try to evaluate ``bool(Comparison)`` and trip
+    :meth:`Expression.__bool__`).
+
+    ``==`` and ``!=`` accept three operand shapes:
+
+    - an ``int`` literal — produces ``Comparison(MeasurementRef, Constant)``,
+    - another ``_HandleFieldAccess`` (e.g. ``m1.state == m2.state``) —
+      produces ``Comparison(MeasurementRef, MeasurementRef)``,
+    - a concrete :class:`MeasurementRef` — same result as the proxy form.
+
+    Hashing is disabled. The proxy is meant to be consumed immediately
+    by an operator; users who store ``s = handle.state`` and then ask
+    ``s == s`` would get a Comparison whose ``bool`` raises — which is
+    the intended outcome (it catches misuse loudly).
+    """
+
+    __slots__ = ("_field", "_handle")
+
+    def __init__(self, handle: MeasurementHandle, field: str) -> None:
+        self._handle = handle
+        self._field = field
+
+    def _as_ref(self) -> MeasurementRef:
+        return MeasurementRef(self._handle, self._field)
+
+    def _comparison(self, op: ComparisonOperator, other: object) -> Comparison:
+        if isinstance(other, bool):
+            msg = f"handle.{self._field} cannot be compared to a bool; use 0 or 1 to compare against a classified state"
+            raise TypeError(msg)
+        if isinstance(other, int):
+            return Comparison(op, self._as_ref(), Constant(other))
+        if isinstance(other, _HandleFieldAccess):
+            return Comparison(op, self._as_ref(), other._as_ref())  # noqa: SLF001
+        if isinstance(other, MeasurementRef):
+            return Comparison(op, self._as_ref(), other)
+        msg = (
+            f"handle.{self._field} can only be compared to int, another "
+            f"handle.<field>, or a MeasurementRef; got "
+            f"{type(other).__name__}"
+        )
+        raise TypeError(msg)
+
+    def __eq__(self, other: object) -> Comparison:  # type: ignore[override]  # pyright: ignore[reportIncompatibleMethodOverride]
+        return self._comparison("==", other)
+
+    def __ne__(self, other: object) -> Comparison:  # type: ignore[override]  # pyright: ignore[reportIncompatibleMethodOverride]
+        return self._comparison("!=", other)
+
+    __hash__ = None  # type: ignore[assignment]  # not hashable; throwaway proxy
+
+    def __repr__(self) -> str:
+        return f"_HandleFieldAccess({self._handle.name!r}, {self._field!r})"
+
+
 class Constant(Expression):
     """A concrete numeric value. Leaf node.
 
@@ -669,11 +785,7 @@ class MathFunc(Expression):
         return hash(("MathFunc", self.name, self.operands))
 
     def __eq__(self, other: object) -> bool:
-        return (
-            isinstance(other, MathFunc)
-            and self.name == other.name
-            and self.operands == other.operands
-        )
+        return isinstance(other, MathFunc) and self.name == other.name and self.operands == other.operands
 
     def __repr__(self) -> str:
         args = ", ".join(repr(op) for op in self.operands)
@@ -763,18 +875,28 @@ def _math_eval(name: str, values: list[int | float]) -> int | float:
 # ----------------------------------------------------------------------------
 
 
-def eq(left: Expression | float, right: Expression | float) -> Comparison:
+def eq(
+    left: Expression | float | _HandleFieldAccess,
+    right: Expression | float | _HandleFieldAccess,
+) -> Comparison:
     """Build an equality comparison ``left == right``.
 
-    Used instead of overloading ``==`` so that :class:`Variable`'s
-    identity-based equality (needed for sets / dict keys / AST traversal)
-    keeps working. The right-hand side is coerced from int/float via
-    :class:`Constant`.
+    Used instead of overloading ``==`` on :class:`Variable` so that
+    Variable's identity-based equality (needed for sets / dict keys /
+    AST traversal) keeps working. Numeric operands are wrapped as
+    :class:`Constant`; ``handle.<field>`` proxies are resolved to
+    :class:`MeasurementRef`. The two ergonomics are equivalent::
+
+        qp.eq(handle.state, 0)  # same as
+        handle.state == 0
     """
     return Comparison("==", _wrap(left), _wrap(right))
 
 
-def ne(left: Expression | float, right: Expression | float) -> Comparison:
+def ne(
+    left: Expression | float | _HandleFieldAccess,
+    right: Expression | float | _HandleFieldAccess,
+) -> Comparison:
     """Build an inequality comparison ``left != right`` (counterpart of :func:`eq`)."""
     return Comparison("!=", _wrap(left), _wrap(right))
 
@@ -869,13 +991,27 @@ def where(condition: Expression, then: Expression | float, else_: Expression | f
 # ----------------------------------------------------------------------------
 
 
-def _wrap(x: Expression | float) -> Expression:
-    """Wrap a literal int/float as a Constant; pass Expressions through."""
+def _wrap(x: Expression | float | _HandleFieldAccess) -> Expression:
+    """Coerce a literal/proxy/Expression into a concrete :class:`Expression`.
+
+    Handles:
+
+    - ``Expression`` instances — passed through.
+    - ``int`` / ``float`` literals — wrapped as :class:`Constant`. ``bool``
+      is rejected (it's an ``int`` subclass but means a different thing).
+    - :class:`_HandleFieldAccess` proxies (returned by ``handle.state``) —
+      resolved to :class:`MeasurementRef`. This lets the helper builders
+      (:func:`eq`, :func:`ne`, the arithmetic operators) accept
+      ``handle.state`` directly: ``qp.eq(handle.state, 0)`` works the
+      same as ``handle.state == 0``.
+    """
     if isinstance(x, Expression):
         return x
+    if isinstance(x, _HandleFieldAccess):
+        return x._as_ref()  # noqa: SLF001
     if isinstance(x, (int, float)) and not isinstance(x, bool):
         return Constant(x)
-    msg = f"Cannot use {type(x).__name__} in an Expression; expected Expression, int, or float"
+    msg = f"Cannot use {type(x).__name__} in an Expression; expected Expression, handle.<field>, int, or float"
     raise TypeError(msg)
 
 

@@ -12,25 +12,26 @@ from qprogram import (
     LogicalNot,
     MathFunc,
     ParseError,
-    QProgram,
+    Variable,
     Where,
     dumps,
     load,
     loads,
 )
+from qprogram.buses import BusRef
 from qprogram.serialization.parser import (
-    _Parser,
     _find_comment,
     _parse_arg,
     _parse_major_minor,
     _parse_number,
+    _Parser,
     _split_args,
-    _tokenize,
     _to_expression,
+    _tokenize,
     _unescape_str,
 )
-from qprogram.waveforms import Gaussian, IQPair, Square
-
+from qprogram.variable import BinaryOp, UnaryOp
+from qprogram.waveforms import Square
 
 # ---------------------------------------------------------------------------
 # Module helpers
@@ -55,7 +56,7 @@ def test_find_comment(line, expected):
     ("raw", "expected"),
     [
         (r"hello", "hello"),
-        (r'a\"b', 'a"b'),
+        (r"a\"b", 'a"b'),
         (r"a\\b", "a\\b"),
         (r"", ""),
     ],
@@ -78,7 +79,7 @@ def test_parse_major_minor(ver, expected):
 
 
 def test_parse_major_minor_too_short_raises():
-    with pytest.raises(ValueError, match="at least major.minor"):
+    with pytest.raises(ValueError, match=r"at least major\.minor"):
         _parse_major_minor("1")
 
 
@@ -176,7 +177,7 @@ def test_parse_arg_unrecognized_identifier_falls_through():
 
 
 def test_parse_arg_with_variable_table():
-    from qprogram import Variable
+
     v = Variable("x")
     assert _parse_arg("x", {"x": v}) is v
 
@@ -187,7 +188,7 @@ def test_parse_arg_waveform_call():
 
 
 def test_to_expression_passes_through():
-    from qprogram import Variable
+
     v = Variable("x")
     assert _to_expression(v) is v
 
@@ -237,7 +238,8 @@ def test_loads_empty_program():
 
 def test_loads_with_vendor_require():
     # qblox is registered by qprogram_qblox, version 0.0.0 or later.
-    import qprogram_qblox  # noqa: F401
+    import qprogram_qblox  # noqa: F401, PLC0415  # conditional vendor import
+
     text = "#!QProgram 1.0\n\nrequire qblox 0.0\n\nbody:\n"
     p = loads(text)
     assert p is not None
@@ -256,14 +258,16 @@ def test_loads_require_malformed_raises():
 
 
 def test_loads_require_major_mismatch_raises():
-    import qprogram_qblox  # noqa: F401
+    import qprogram_qblox  # noqa: F401, PLC0415  # conditional vendor import
+
     text = "#!QProgram 1.0\n\nrequire qblox 99.0\n\nbody:\n"
     with pytest.raises(ParseError, match="major versions must match"):
         loads(text)
 
 
 def test_loads_require_minor_too_old_raises():
-    import qprogram_qblox  # noqa: F401
+    import qprogram_qblox  # noqa: F401, PLC0415  # conditional vendor import
+
     text = "#!QProgram 1.0\n\nrequire qblox 0.99\n\nbody:\n"
     with pytest.raises(ParseError, match="minor version too old"):
         loads(text)
@@ -292,15 +296,7 @@ def test_loads_metadata_description():
 
 
 def test_loads_inline_schema():
-    text = (
-        "#!QProgram 1.0\n\n"
-        "schema:\n"
-        "  element q:\n"
-        "    drive info=IQ\n"
-        "    readout info=IQ+acquires\n"
-        "\n"
-        "body:\n"
-    )
+    text = "#!QProgram 1.0\n\nschema:\n  element q:\n    drive info=IQ\n    readout info=IQ+acquires\n\nbody:\n"
     p = loads(text)
     assert p.schema is not None
     assert "q" in p.schema.elements
@@ -308,13 +304,7 @@ def test_loads_inline_schema():
 
 def test_loads_inline_schema_with_naming():
     text = (
-        "#!QProgram 1.0\n\n"
-        "schema:\n"
-        '  naming: "{kind}_{element}{index}_bus"\n'
-        "  element q:\n"
-        "    drive info=IQ\n"
-        "\n"
-        "body:\n"
+        '#!QProgram 1.0\n\nschema:\n  naming: "{kind}_{element}{index}_bus"\n  element q:\n    drive info=IQ\n\nbody:\n'
     )
     p = loads(text)
     assert p.schema.naming.pattern == "{kind}_{element}{index}_bus"  # type: ignore[union-attr]
@@ -648,13 +638,7 @@ def test_loads_average_missing_shots_raises():
 
 
 def test_loads_for_range_two_args():
-    text = (
-        "#!QProgram 1.0\n\n"
-        "body:\n"
-        "  var x\n"
-        "  for x in range(0, 10):\n"
-        '    wait "bus" 100\n'
-    )
+    text = '#!QProgram 1.0\n\nbody:\n  var x\n  for x in range(0, 10):\n    wait "bus" 100\n'
     p = loads(text)
     fl = p.body.elements[0]
     assert fl.start == 0
@@ -663,51 +647,39 @@ def test_loads_for_range_two_args():
 
 
 def test_loads_for_range_three_args():
-    text = (
-        "#!QProgram 1.0\n\n"
-        "body:\n"
-        "  var x\n"
-        "  for x in range(0.0, 1.0, 0.1):\n"
-        '    wait "bus" 100\n'
-    )
+    text = '#!QProgram 1.0\n\nbody:\n  var x\n  for x in range(0.0, 1.0, 0.1):\n    wait "bus" 100\n'
     p = loads(text)
     fl = p.body.elements[0]
     assert fl.step == 0.1
 
 
 def test_loads_for_range_bad_arity_raises():
-    text = "#!QProgram 1.0\n\nbody:\n  var x\n  for x in range(1):\n    wait \"bus\" 100\n"
+    text = '#!QProgram 1.0\n\nbody:\n  var x\n  for x in range(1):\n    wait "bus" 100\n'
     with pytest.raises(ParseError, match="2 or 3"):
         loads(text)
 
 
 def test_loads_for_values_list():
-    text = (
-        "#!QProgram 1.0\n\n"
-        "body:\n"
-        "  var x\n"
-        "  for x in [0.0, 0.5, 1.0]:\n"
-        '    wait "bus" 100\n'
-    )
+    text = '#!QProgram 1.0\n\nbody:\n  var x\n  for x in [0.0, 0.5, 1.0]:\n    wait "bus" 100\n'
     p = loads(text)
     lp = p.body.elements[0]
     assert np.array_equal(lp.values, np.array([0.0, 0.5, 1.0]))
 
 
 def test_loads_for_invalid_header_raises():
-    text = "#!QProgram 1.0\n\nbody:\n  for in range(0,1):\n    wait \"bus\" 100\n"
+    text = '#!QProgram 1.0\n\nbody:\n  for in range(0,1):\n    wait "bus" 100\n'
     with pytest.raises(ParseError):
         loads(text)
 
 
 def test_loads_for_unknown_generator_raises():
-    text = "#!QProgram 1.0\n\nbody:\n  var x\n  for x in bogus(0,1):\n    wait \"bus\" 100\n"
+    text = '#!QProgram 1.0\n\nbody:\n  var x\n  for x in bogus(0,1):\n    wait "bus" 100\n'
     with pytest.raises(ParseError, match="unknown sweep generator"):
         loads(text)
 
 
 def test_loads_for_unknown_source_form_raises():
-    text = "#!QProgram 1.0\n\nbody:\n  var x\n  for x in something:\n    wait \"bus\" 100\n"
+    text = '#!QProgram 1.0\n\nbody:\n  var x\n  for x in something:\n    wait "bus" 100\n'
     with pytest.raises(ParseError, match="unknown sweep source"):
         loads(text)
 
@@ -727,7 +699,7 @@ def test_loads_parallel_loops():
 
 
 def test_loads_block_scope():
-    text = "#!QProgram 1.0\n\nbody:\n  block:\n    wait \"bus\" 100\n"
+    text = '#!QProgram 1.0\n\nbody:\n  block:\n    wait "bus" 100\n'
     p = loads(text)
     block = p.body.elements[0]
     assert len(block.elements) == 1
@@ -735,12 +707,7 @@ def test_loads_block_scope():
 
 def test_loads_nested_blocks():
     text = (
-        "#!QProgram 1.0\n\n"
-        "body:\n"
-        "  var x\n"
-        "  average 100:\n"
-        "    for x in range(0.0, 1.0, 0.1):\n"
-        '      wait "bus" 100\n'
+        '#!QProgram 1.0\n\nbody:\n  var x\n  average 100:\n    for x in range(0.0, 1.0, 0.1):\n      wait "bus" 100\n'
     )
     p = loads(text)
     assert len(p.body.elements) == 1
@@ -756,7 +723,7 @@ def test_loads_binary_arithmetic():
     p = loads(text)
     op = p.body.elements[0]
     # Result is a BinaryOp expression.
-    from qprogram.variable import BinaryOp
+
     assert isinstance(op.frequency, BinaryOp)
 
 
@@ -764,15 +731,12 @@ def test_loads_unary_neg():
     text = '#!QProgram 1.0\n\nbody:\n  var x\n  set_phase "bus" (-x)\n'
     p = loads(text)
     op = p.body.elements[0]
-    from qprogram.variable import UnaryOp
+
     assert isinstance(op.phase, UnaryOp)
 
 
 def test_loads_comparison():
-    text = (
-        '#!QProgram 1.0\n\nbody:\n  var x\n'
-        '  set_offset "bus" where((x < 5), x, 0)\n'
-    )
+    text = '#!QProgram 1.0\n\nbody:\n  var x\n  set_offset "bus" where((x < 5), x, 0)\n'
     p = loads(text)
     op = p.body.elements[0]
     assert isinstance(op.offset_path0, Where)
@@ -780,10 +744,7 @@ def test_loads_comparison():
 
 
 def test_loads_logical_and():
-    text = (
-        '#!QProgram 1.0\n\nbody:\n  var x\n  var y\n'
-        '  set_offset "bus" where(((x == 1) and (y == 1)), 1, 0)\n'
-    )
+    text = '#!QProgram 1.0\n\nbody:\n  var x\n  var y\n  set_offset "bus" where(((x == 1) and (y == 1)), 1, 0)\n'
     p = loads(text)
     op = p.body.elements[0]
     cond = op.offset_path0.condition
@@ -791,10 +752,7 @@ def test_loads_logical_and():
 
 
 def test_loads_logical_not():
-    text = (
-        '#!QProgram 1.0\n\nbody:\n  var x\n'
-        '  set_offset "bus" where((not (x == 1)), 1, 0)\n'
-    )
+    text = '#!QProgram 1.0\n\nbody:\n  var x\n  set_offset "bus" where((not (x == 1)), 1, 0)\n'
     p = loads(text)
     op = p.body.elements[0]
     assert isinstance(op.offset_path0.condition, LogicalNot)
@@ -910,12 +868,7 @@ def test_load_from_file(tmp_path, rabi_program):
 
 
 def test_loads_handles_inline_comments():
-    text = (
-        "#!QProgram 1.0\n\n"
-        'body:\n'
-        '  var x   # a comment\n'
-        '  set_frequency "bus" 5e9  # another\n'
-    )
+    text = '#!QProgram 1.0\n\nbody:\n  var x   # a comment\n  set_frequency "bus" 5e9  # another\n'
     p = loads(text)
     assert len(p.variables) == 1
 
@@ -937,13 +890,13 @@ def test_loads_resolves_bus_path_against_schema():
         "schema:\n"
         "  element q:\n"
         "    drive info=IQ\n"
-        '    readout info=IQ+acquires\n'
+        "    readout info=IQ+acquires\n"
         "\n"
         "body:\n"
         '  play q[0].drive "wf"\n'
     )
     p = loads(text)
-    from qprogram.buses import BusRef
+
     op = p.body.elements[0]
     assert isinstance(op.bus, BusRef)
     assert op.bus.element == "q"
@@ -952,31 +905,15 @@ def test_loads_resolves_bus_path_against_schema():
 
 
 def test_loads_bus_path_tuple_index():
-    text = (
-        "#!QProgram 1.0\n\n"
-        "schema:\n"
-        "  element c:\n"
-        "    flux info=single\n"
-        "\n"
-        "body:\n"
-        "  set_offset c[0,1].flux 0.5\n"
-    )
+    text = "#!QProgram 1.0\n\nschema:\n  element c:\n    flux info=single\n\nbody:\n  set_offset c[0,1].flux 0.5\n"
     p = loads(text)
-    from qprogram.buses import BusRef
+
     op = p.body.elements[0]
     assert isinstance(op.bus, BusRef)
     assert op.bus.index == (0, 1)
 
 
 def test_loads_invalid_bus_path_raises():
-    text = (
-        "#!QProgram 1.0\n\n"
-        "schema:\n"
-        "  element q:\n"
-        "    drive info=IQ\n"
-        "\n"
-        "body:\n"
-        '  play q[0].nonexistent "wf"\n'
-    )
+    text = '#!QProgram 1.0\n\nschema:\n  element q:\n    drive info=IQ\n\nbody:\n  play q[0].nonexistent "wf"\n'
     with pytest.raises(ParseError, match="does not resolve"):
         loads(text)

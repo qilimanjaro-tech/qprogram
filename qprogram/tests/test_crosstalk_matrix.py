@@ -55,7 +55,7 @@ def test_to_array_off_diagonal():
 
 def test_to_array_missing_entries_zero():
     m = CrosstalkMatrix()
-    m["a"] = {"a": 1.0}      # no "b" entry
+    m["a"] = {"a": 1.0}  # no "b" entry
     m["b"] = {"b": 1.0}
     arr = m.to_array()
     assert arr[0, 1] == 0.0

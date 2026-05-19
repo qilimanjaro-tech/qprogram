@@ -31,9 +31,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from qprogram.blocks.block import Block
+from qprogram.blocks.conditional import Conditional
 from qprogram.blocks.parallel import Parallel
 from qprogram.buses import BusNaming, BusRef
 from qprogram.operations.operation import Operation
+from qprogram.result import MeasurementHandle
 from qprogram.serialization import _specs
 from qprogram.serialization.registry import (
     get_block_spec_by_class,
@@ -48,6 +50,7 @@ from qprogram.variable import (
     LogicalBinaryOp,
     LogicalNot,
     MathFunc,
+    MeasurementRef,
     UnaryOp,
     Variable,
     Where,
@@ -204,10 +207,44 @@ class _Writer:
                 self._out.write(f"{prefix}{' | '.join(headers)}:\n")
                 self._write_block_contents(element, indent + 2)
                 continue
+            if isinstance(element, Conditional):
+                self._write_conditional(element, indent)
+                continue
             if isinstance(element, Block):
                 header = self._serialize_block_header(element)
                 self._out.write(f"{prefix}{header}:\n")
                 self._write_block_contents(element, indent + 2)
+
+    def _write_conditional(self, cond: Conditional, indent: int) -> None:
+        """Emit a Conditional as a sequence of ``if`` / ``elif`` / ``else`` arms.
+
+        Conditional has multiple headers (one per arm), so the generic
+        block-emitter cannot handle it. Each arm renders as
+        ``if|elif <expr>:`` / ``else:`` followed by its body at
+        ``indent + 2``.
+        """
+        prefix = " " * indent
+        for i, (condition, body) in enumerate(cond.arms):
+            keyword = "if" if i == 0 else "elif"
+            cond_text = self._serialize_condition(condition)
+            self._out.write(f"{prefix}{keyword} {cond_text}:\n")
+            self._write_block_contents(body, indent + 2)
+        if cond.else_body is not None:
+            self._out.write(f"{prefix}else:\n")
+            self._write_block_contents(cond.else_body, indent + 2)
+
+    def _serialize_condition(self, condition: object) -> str:
+        """Render a conditional's condition without the wrapping parens.
+
+        :meth:`serialize_value` wraps :class:`Comparison` in
+        ``(<left> <op> <right>)`` to keep operator precedence
+        unambiguous when comparisons appear nested inside arithmetic.
+        For an ``if``/``elif`` header the wrap is noise, so we strip
+        the outer parens of a top-level Comparison.
+        """
+        if isinstance(condition, Comparison):
+            return f"{self.serialize_value(condition.left)} {condition.op} {self.serialize_value(condition.right)}"
+        return self.serialize_value(condition)
 
     def _serialize_block_header(self, block: Block) -> str:
         """Render a block's header line without the trailing colon.
@@ -269,12 +306,21 @@ class _Writer:
         """
         if isinstance(val, BusRef):
             return self.serialize_bus(val)
+        if isinstance(val, MeasurementHandle):
+            # Emit the handle as its quoted name — the canonical form
+            # readers know how to round-trip. The parser converts the
+            # name back into the program's canonical handle instance.
+            return f'"{_escape_str(val.name)}"'
         if isinstance(val, str):
             return f'"{_escape_str(val)}"'
         if isinstance(val, bool):
             return "true" if val else "false"
         if isinstance(val, Variable):
             return self._var_idents[val.id]
+        if isinstance(val, MeasurementRef):
+            # Emit as ``<handle_name>.<field>``. The parser recognises this
+            # form by looking up the identifier in its known-handles set.
+            return f"{val.handle.name}.{val.field}"
         if isinstance(val, Constant):
             return self.serialize_value(val.value)
         if isinstance(val, BinaryOp):
@@ -313,12 +359,7 @@ class _Writer:
 
     def serialize_bus(self, bus: object) -> str:
         """Render a bus argument: path form if schema-backed, quoted string otherwise."""
-        if (
-            self._program.schema is not None
-            and isinstance(bus, BusRef)
-            and bus.element
-            and bus.kind
-        ):
+        if self._program.schema is not None and isinstance(bus, BusRef) and bus.element and bus.kind:
             idx = bus.index
             idx_str = ",".join(str(i) for i in idx) if isinstance(idx, tuple) else str(idx)
             return f"{bus.element}[{idx_str}].{bus.kind}"

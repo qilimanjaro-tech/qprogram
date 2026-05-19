@@ -45,9 +45,9 @@ iterable of strings; values are normalised to a canonical
 `tuple[str, ...]`.
 
 Measurement names follow a convention: schema-backed buses get
-`<element><flat_index>_m<counter>` (`q0_m0`, `c0_1_m2`, ...), raw-string
-buses fall back to a global `m<counter>`. See
-[Measurements and results](measurements.md) for the full naming rules.
+`{bus_string}/m<counter>` (`q0/readout/m0`, `c0_1/flux/m2`, ...) with
+per-bus counters; raw-string buses fall back to a global `m<counter>`.
+See [Measurements and results](measurements.md) for the full naming rules.
 
 ### `wait(bus, duration)`
 

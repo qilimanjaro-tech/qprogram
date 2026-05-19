@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from qprogram import (
-    BusSchema,
+    CrosstalkMatrix,
     QProgram,
     cos,
     dumps,
@@ -17,7 +16,6 @@ from qprogram import (
     sqrt,
     where,
 )
-from qprogram.buses import BusNaming
 from qprogram.waveforms import Gaussian, IQDrag, IQPair, Square
 
 
@@ -89,7 +87,7 @@ def test_round_trip_mixed_schema_and_plain_buses(transmon_schema):
 
 
 def test_round_trip_all_core_operations(transmon_schema):
-    from qprogram import CrosstalkMatrix
+
     p = QProgram(schema=transmon_schema)
     p.set_frequency(transmon_schema.q[0].drive, 5e9)
     p.set_phase(transmon_schema.q[0].drive, 1.5708)
@@ -201,10 +199,8 @@ def test_round_trip_with_parallel_loops():
 def test_round_trip_with_deeply_nested_blocks():
     p = QProgram()
     v = p.variable("x")
-    with p.average(100):
-        with p.for_loop(v, 0.0, 1.0, 0.1):
-            with p.block():
-                p.wait("bus", v)
+    with p.average(100), p.for_loop(v, 0.0, 1.0, 0.1), p.block():
+        p.wait("bus", v)
     _assert_byte_stable(p)
 
 
@@ -234,17 +230,22 @@ def test_round_trip_full_features(transmon_schema):
     freq = p.variable("freq")
     t = p.variable("t", units="ns")
 
-    with p.average(shots=1000):
-        with p.for_loop(gain, 0.0, 1.0, 0.01) | p.loop(t, np.array([10, 20, 30, 40])):
-            with p.for_loop(freq, 4e9, 6e9, 1e6):
-                p.set_gain(transmon_schema.q[0].drive, minimum(gain, 0.5))
-                p.set_frequency(transmon_schema.q[0].drive, freq + sin(freq) * 1e6)
-                p.set_phase(transmon_schema.q[0].drive, where(gain > 0.5, gain, 0.0))
-                p.set_offset("flux", abs(gain - 0.5))
-                p.play(transmon_schema.q[0].drive, IQDrag(amplitude=gain, duration=40, num_sigmas=2.5, drag_coefficient=0.1))
-                p.sync([transmon_schema.q[0].drive, transmon_schema.q[0].readout])
-                p.wait(transmon_schema.q[0].drive, t)
-                p.measure(transmon_schema.q[0].readout, "r", "w", returns=("iq", "raw"))
+    with (
+        p.average(shots=1000),
+        p.for_loop(gain, 0.0, 1.0, 0.01) | p.loop(t, np.array([10, 20, 30, 40])),
+        p.for_loop(freq, 4e9, 6e9, 1e6),
+    ):
+        p.set_gain(transmon_schema.q[0].drive, minimum(gain, 0.5))
+        p.set_frequency(transmon_schema.q[0].drive, freq + sin(freq) * 1e6)
+        p.set_phase(transmon_schema.q[0].drive, where(gain > 0.5, gain, 0.0))
+        p.set_offset("flux", abs(gain - 0.5))
+        p.play(
+            transmon_schema.q[0].drive,
+            IQDrag(amplitude=gain, duration=40, num_sigmas=2.5, drag_coefficient=0.1),
+        )
+        p.sync([transmon_schema.q[0].drive, transmon_schema.q[0].readout])
+        p.wait(transmon_schema.q[0].drive, t)
+        p.measure(transmon_schema.q[0].readout, "r", "w", returns=("iq", "raw"))
 
     _assert_byte_stable(p)
 
@@ -277,8 +278,8 @@ def test_round_trip_with_with_waveforms():
 
 
 def test_round_trip_with_qblox_vendor(transmon_schema):
-    import qprogram_qblox  # noqa: F401
-    from qprogram_qblox import QProgram as QbloxQProgram
+    import qprogram_qblox  # noqa: F401, PLC0415  # conditional vendor import
+    from qprogram_qblox import QProgram as QbloxQProgram  # noqa: PLC0415  # conditional vendor import
 
     p = QbloxQProgram(schema=transmon_schema)
     p.qblox.set_markers(transmon_schema.q[0].drive, "0001")

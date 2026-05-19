@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import re
 
+import numpy as np
 import pytest
 
 from qprogram import (
     BusNaming,
     BusSchema,
+    CrosstalkMatrix,
     QProgram,
-    Variable,
     cos,
     dumps,
     eq,
@@ -19,8 +20,9 @@ from qprogram import (
     sin,
     where,
 )
-from qprogram.operations import Sync
-from qprogram.serialization.writer import _Writer, _escape_str, _major_minor
+from qprogram.operations.operation import Operation
+from qprogram.serialization import registry
+from qprogram.serialization.writer import _escape_str, _major_minor, _Writer
 from qprogram.waveforms import Arbitrary, Gaussian, IQDrag, IQPair, Square
 
 
@@ -51,7 +53,7 @@ def test_major_minor(input_str, expected):
     ("raw", "expected"),
     [
         ("foo", "foo"),
-        ('he said "hi"', r'he said \"hi\"'),
+        ('he said "hi"', r"he said \"hi\""),
         ("a\\b", r"a\\b"),
         ("", ""),
     ],
@@ -97,7 +99,7 @@ def test_dumps_no_metadata_when_empty():
 
 def test_dumps_escapes_quotes_in_label():
     text = dumps(QProgram(label='has "quotes"'))
-    assert r'has \"quotes\"' in text
+    assert r"has \"quotes\"" in text
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +276,7 @@ def test_dumps_set_offset_two_paths():
     p = QProgram()
     p.set_offset("bus", 0.1, 0.2)
     text = dumps(p)
-    assert 'offset_path1=0.2' in text
+    assert "offset_path1=0.2" in text
 
 
 def test_dumps_set_parameter():
@@ -308,7 +310,7 @@ def test_dumps_get_parameter_with_channel_id():
 
 
 def test_dumps_set_crosstalk_stub():
-    from qprogram import CrosstalkMatrix
+
     p = QProgram()
     p.set_crosstalk(CrosstalkMatrix())
     text = dumps(p)
@@ -413,7 +415,7 @@ def test_dumps_for_loop_range():
 
 
 def test_dumps_loop_values():
-    import numpy as np
+
     p = QProgram()
     v = p.variable("amp")
     with p.loop(v, np.array([0.0, 0.5, 1.0])):
@@ -423,7 +425,7 @@ def test_dumps_loop_values():
 
 
 def test_dumps_loop_values_truncated_when_long():
-    import numpy as np
+
     p = QProgram()
     v = p.variable("amp")
     with p.loop(v, np.arange(100)):
@@ -455,12 +457,11 @@ def test_dumps_block_header():
 def test_dumps_nested_indentation():
     p = QProgram()
     v = p.variable("x")
-    with p.average(100):
-        with p.for_loop(v, 0.0, 1.0, 0.1):
-            p.wait("bus", v)
+    with p.average(100), p.for_loop(v, 0.0, 1.0, 0.1):
+        p.wait("bus", v)
     text = dumps(p)
     # 6 spaces of indentation for the deepest content (2-space per level).
-    assert re.search(r"^      wait", text, re.M)
+    assert re.search(r"^      wait", text, re.MULTILINE)
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +520,7 @@ def test_dumps_gaussian_with_variable_amp():
 
 
 def test_dumps_arbitrary_truncates_long_samples():
-    import numpy as np
+
     p = QProgram()
     p.play("bus", Arbitrary(np.arange(50)))
     text = dumps(p)
@@ -528,7 +529,7 @@ def test_dumps_arbitrary_truncates_long_samples():
 
 
 def test_dumps_arbitrary_short_samples_not_truncated():
-    import numpy as np
+
     p = QProgram()
     p.play("bus", Arbitrary(np.array([0.1, 0.2])))
     text = dumps(p)
@@ -547,7 +548,7 @@ def test_writer_serialize_value_handles_tuple_of_strings():
 
 
 def test_writer_serialize_value_handles_numpy_int():
-    import numpy as np
+
     p = QProgram()
     w = _Writer(p)
     assert w.serialize_value(np.int64(42)) == "42"
@@ -556,8 +557,8 @@ def test_writer_serialize_value_handles_numpy_int():
 def test_writer_serialize_value_handles_bool():
     p = QProgram()
     w = _Writer(p)
-    assert w.serialize_value(True) == "true"
-    assert w.serialize_value(False) == "false"
+    assert w.serialize_value(True) == "true"  # noqa: FBT003
+    assert w.serialize_value(False) == "false"  # noqa: FBT003
 
 
 def test_writer_serialize_value_fallback_to_str():
@@ -587,8 +588,9 @@ def test_save_writes_to_file(tmp_path, rabi_program):
 
 
 def test_dumps_includes_require_when_vendor_used():
-    import qprogram_qblox  # noqa: F401
-    from qprogram_qblox import QProgram as QbloxQProgram
+    import qprogram_qblox  # noqa: F401, PLC0415  # conditional vendor import
+    from qprogram_qblox import QProgram as QbloxQProgram  # noqa: PLC0415  # conditional vendor import
+
     p = QbloxQProgram()
     p.qblox.set_markers("bus", "0001")
     text = dumps(p)
@@ -604,8 +606,6 @@ def test_dumps_no_require_for_core_only_program():
 
 def test_dumps_raises_when_vendor_version_missing():
     """If a vendor op is used but no version is registered, writer raises."""
-    from qprogram.operations.operation import Operation
-    from qprogram.serialization import registry
 
     class _OrphanOp(Operation):
         def __init__(self, bus: str) -> None:

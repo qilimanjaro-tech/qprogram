@@ -6,11 +6,13 @@ import numpy as np
 import pytest
 
 from qprogram import (
-    Constant,
+    CrosstalkMatrix,
+    MeasurementHandle,
     QProgram,
     Variable,
 )
-from qprogram.operations import GetParameter, Measure, SetCrosstalk, Sync
+from qprogram.blocks import Average, ForLoop, Loop
+from qprogram.operations import GetParameter, SetCrosstalk, Sync
 from qprogram.serialization._specs import (
     average_parse_header,
     average_serialize_header,
@@ -67,14 +69,14 @@ def test_default_serialize_operation_optional_kwarg_skipped_at_default():
     """When an optional parameter is at its default, the serializer omits it."""
     # Measure.save_adc is gone; returns=("iq",) is the default.
     spec = get_operation_spec(None, "measure")
-    op = spec.cls("bus", "wf", "weights", name="m0")  # type: ignore[union-attr]
+    op = spec.cls("bus", "wf", "weights", handle=MeasurementHandle("m0"))  # type: ignore[union-attr]
     text = default_serialize_operation(op, spec, _writer())  # type: ignore[arg-type]
     assert "returns=" not in text
 
 
 def test_default_serialize_operation_optional_kwarg_emitted_when_non_default():
     spec = get_operation_spec(None, "measure")
-    op = spec.cls("bus", "wf", "weights", name="m0", returns=("iq", "raw"))  # type: ignore[union-attr]
+    op = spec.cls("bus", "wf", "weights", handle=MeasurementHandle("m0"), returns=("iq", "raw"))  # type: ignore[union-attr]
     text = default_serialize_operation(op, spec, _writer())  # type: ignore[arg-type]
     assert 'returns="iq,raw"' in text
 
@@ -185,7 +187,7 @@ def test_get_parameter_parse_missing_alias_raises():
 
 
 def test_set_crosstalk_serialize():
-    from qprogram import CrosstalkMatrix
+
     op = SetCrosstalk(crosstalk=CrosstalkMatrix())
     assert set_crosstalk_serialize(op, _writer()) == "set_crosstalk crosstalk"
 
@@ -201,13 +203,13 @@ def test_set_crosstalk_parse():
 
 
 def test_average_serialize_header():
-    from qprogram.blocks import Average
+
     block = Average(shots=1000)
     assert average_serialize_header(block, _writer()) == "average 1000"
 
 
 def test_average_parse_header():
-    from qprogram.blocks import Average
+
     block = average_parse_header(["1000"], _parser())
     assert isinstance(block, Average)
     assert block.shots == 1000
@@ -249,7 +251,7 @@ def test_range_parse_wrong_arity_raises():
 
 
 def test_range_write():
-    from qprogram.blocks import ForLoop
+
     v = Variable("x")
     fl = ForLoop(v, 0.0, 1.0, 0.1)
     assert range_write(fl, _writer()) == "range(0.0, 1.0, 0.1)"
@@ -269,14 +271,14 @@ def test_values_parse_without_brackets():
 
 
 def test_values_write_short():
-    from qprogram.blocks import Loop
+
     v = Variable("x")
     lp = Loop(v, np.array([0.0, 0.5, 1.0]))
     assert values_write(lp, _writer()) == "[0.0, 0.5, 1.0]"
 
 
 def test_values_write_long_truncated():
-    from qprogram.blocks import Loop
+
     v = Variable("x")
     lp = Loop(v, np.arange(100))
     out = values_write(lp, _writer())

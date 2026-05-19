@@ -82,6 +82,7 @@ _BASE_TOKENS: frozenset[str] = frozenset(
         "block.for_loop",
         "block.loop",
         "block.parallel",
+        "block.conditional",
         # waveform.* — channel kinds
         "waveform.single",
         "waveform.iq",
@@ -103,6 +104,7 @@ _BASE_TOKENS: frozenset[str] = frozenset(
         # expr.* — expression node presence
         "expr.constant",
         "expr.variable",
+        "expr.measurement_ref",
         "expr.binary_op",
         "expr.unary_op",
         "expr.comparison",
@@ -274,6 +276,7 @@ def expression_tokens(value: object) -> set[str]:
         LogicalBinaryOp,
         LogicalNot,
         MathFunc,
+        MeasurementRef,
         UnaryOp,
         Variable,
         Where,
@@ -283,6 +286,8 @@ def expression_tokens(value: object) -> set[str]:
         return {"expr.constant"}
     if isinstance(value, Variable):
         return {"expr.variable"}
+    if isinstance(value, MeasurementRef):
+        return {"expr.measurement_ref"}
     if isinstance(value, BinaryOp):
         return {"expr.binary_op"} | expression_tokens(value.left) | expression_tokens(value.right)
     if isinstance(value, UnaryOp):
@@ -390,7 +395,7 @@ class ValidationContext:
     single, discoverable interface.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913  # all-keyword constructor for a small data carrier
         self,
         *,
         variable_bindings: Mapping[Variable, Block],
@@ -398,12 +403,14 @@ class ValidationContext:
         max_loop_nesting: int,
         max_parallel_arity: int,
         measurement_count: int,
+        measurement_returns: Mapping[str, tuple[str, ...]] | None = None,
     ) -> None:
         self._variable_bindings = dict(variable_bindings)
         self._sweep_kinds = dict(sweep_kinds)
         self._max_loop_nesting = max_loop_nesting
         self._max_parallel_arity = max_parallel_arity
         self._measurement_count = measurement_count
+        self._measurement_returns: dict[str, tuple[str, ...]] = dict(measurement_returns or {})
 
     def sweep_kind_of(self, var: Variable) -> SweepKind | None:
         """Return how ``var`` is bound, or ``None`` if not bound by any loop.
@@ -436,6 +443,21 @@ class ValidationContext:
     def measurement_count(self) -> int:
         """Total :class:`~qprogram.operations.operation.MeasurementOperation` instances in the program."""
         return self._measurement_count
+
+    def measurement_returns(self, name: str) -> tuple[str, ...] | None:
+        """Return the ``returns`` tuple of the measurement with this name.
+
+        ``None`` if no measurement with that name exists in the program.
+        Predicates use this to check that a referenced measurement
+        actually requested the data shape they care about (e.g. that a
+        ``handle.state`` reference's measurement requested
+        ``"state"`` classification).
+        """
+        return self._measurement_returns.get(name)
+
+    def known_measurement_names(self) -> set[str]:
+        """Set of every measurement name in the program."""
+        return set(self._measurement_returns)
 
 
 # ---------------------------------------------------------------------------

@@ -21,7 +21,6 @@ from qprogram.buses import (
     _DynamicElementFactory,
 )
 
-
 # ---------------------------------------------------------------------------
 # BusNaming
 # ---------------------------------------------------------------------------
@@ -86,7 +85,7 @@ def test_busref_deepcopy_preserves_metadata():
 def test_busref_pickle_roundtrip():
     schema = BusSchema.transmon()
     ref = schema.q[0].drive
-    restored = pickle.loads(pickle.dumps(ref))
+    restored = pickle.loads(pickle.dumps(ref))  # noqa: S301
     assert str(restored) == str(ref)
     assert restored.element == ref.element
 
@@ -220,7 +219,7 @@ def test_bus_schema_custom_naming():
 )
 def test_preset_kind_and_elements(preset_factory, expected_kind, expected_elements):
     schema = preset_factory()
-    assert schema.KIND == expected_kind
+    assert expected_kind == schema.KIND
     assert list(schema.elements.keys()) == expected_elements
 
 

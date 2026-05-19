@@ -170,7 +170,7 @@ full story.
 ## Measurements return handles
 
 `program.measure(...)` returns a `MeasurementHandle`. The handle has a name
-(`"q0_m0"`, `"q4_m1"`, ...) that survives `.qp` round-trips and shows up in
+(`"q0/readout/m0"`, `"q4/readout/m1"`, ...) that survives `.qp` round-trips and shows up in
 the result object after execution.
 
 ```python

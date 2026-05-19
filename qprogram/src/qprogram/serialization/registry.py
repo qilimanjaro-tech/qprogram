@@ -196,12 +196,24 @@ def register_operation(
     return cls
 
 
-def register_vendor_operation(vendor: str, name: str, cls: type) -> None:
-    """Backwards-compatible alias used by vendor extension packages.
+def register_vendor_operation(
+    vendor: str,
+    name: str,
+    cls: type,
+    *,
+    serialize: OperationSerializeFn | None = None,
+    parse: OperationParseFn | None = None,
+) -> None:
+    """Convenience wrapper used by vendor extension packages.
 
-    Equivalent to :func:`register_operation(name, cls, vendor=vendor)`.
+    Equivalent to ``register_operation(name, cls, vendor=vendor, ...)``.
+    Optional ``serialize`` / ``parse`` callbacks are forwarded — vendors
+    that ship measurement ops, for example, pass
+    :func:`qprogram.serialization._specs.measurement_op_parse` here so
+    the parser produces a canonical handle instance shared with any
+    :class:`~qprogram.MeasurementRef`.
     """
-    register_operation(name, cls, vendor=vendor)
+    register_operation(name, cls, vendor=vendor, serialize=serialize, parse=parse)
 
 
 # ---------------------------------------------------------------------------

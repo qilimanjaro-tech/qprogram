@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from qprogram.blocks.average import Average
 from qprogram.blocks.block import Block
+from qprogram.blocks.conditional import Conditional
 from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
@@ -27,7 +28,7 @@ from qprogram.operations.set_phase import SetPhase
 from qprogram.operations.sync import Sync
 from qprogram.operations.wait import Wait
 from qprogram.result import MeasurementHandle
-from qprogram.variable import Expression, Variable
+from qprogram.variable import Comparison, Expression, Variable
 from qprogram.waveforms.waveform import IQWaveform, Waveform
 
 if TYPE_CHECKING:
@@ -56,7 +57,7 @@ class _LoopContext:
 
     def __enter__(self) -> ForLoop | Loop | Parallel:
         block = self._parallel_blocks[0] if len(self._parallel_blocks) == 1 else Parallel(loops=self._parallel_blocks)
-        self._program._active_block.append(block)
+        self._program._append_to_active(block)
         self._program._block_stack.append(block)
         return block
 
@@ -72,7 +73,7 @@ class _AverageContext:
         self._block = Average(shots=shots)
 
     def __enter__(self) -> Average:
-        self._program._active_block.append(self._block)
+        self._program._append_to_active(self._block)
         self._program._block_stack.append(self._block)
         return self._block
 
@@ -88,12 +89,115 @@ class _BlockContext:
         self._block = Block()
 
     def __enter__(self) -> Block:
-        self._program._active_block.append(self._block)
+        self._program._append_to_active(self._block)
         self._program._block_stack.append(self._block)
         return self._block
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
         self._program._block_stack.pop()
+
+
+class _IfContext:
+    """Context manager for the opening arm of an ``if_/elif_/else_`` chain.
+
+    On ``__enter__`` creates a new :class:`Conditional`, appends it to
+    the currently active block (at the *parent* level, before any arm
+    body is pushed), records the parent block on
+    :attr:`QProgram._pending_conditional` so a subsequent
+    :class:`_ElifContext` / :class:`_ElseContext` can find it, and
+    pushes the first arm body onto the block stack.
+    """
+
+    def __init__(self, program: QProgram, condition: Expression) -> None:
+        self._program = program
+        self._condition = condition
+        self._conditional = Conditional()
+        self._arm_body = Block()
+
+    def __enter__(self) -> Conditional:
+        parent = self._program._active_block
+        self._conditional.arms.append((self._condition, self._arm_body))
+        # _append_to_active clears any *previous* pending chain (broken by this
+        # new if_) before appending the new Conditional.
+        self._program._append_to_active(self._conditional)
+        self._program._pending_conditional = (self._conditional, parent)
+        self._program._block_stack.append(self._arm_body)
+        return self._conditional
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
+        self._program._block_stack.pop()
+
+
+class _ElifContext:
+    """Context manager for an ``elif_`` arm extending the open chain."""
+
+    def __init__(self, program: QProgram, condition: Expression) -> None:
+        pending = program._pending_conditional
+        if pending is None:
+            msg = (
+                "elif_() must immediately follow an if_() / elif_() block at "
+                "the same nesting level; no open conditional chain"
+            )
+            raise ValidationError(msg)
+        conditional, parent = pending
+        if program._active_block is not parent:
+            msg = (
+                "elif_() must be at the same nesting level as the matching "
+                "if_(); active block does not match the chain's parent"
+            )
+            raise ValidationError(msg)
+        if conditional.else_body is not None:
+            msg = "elif_() cannot follow else_() in the same chain"
+            raise ValidationError(msg)
+        self._program = program
+        self._condition = condition
+        self._conditional = conditional
+        self._arm_body = Block()
+
+    def __enter__(self) -> Conditional:
+        self._conditional.arms.append((self._condition, self._arm_body))
+        self._program._block_stack.append(self._arm_body)
+        return self._conditional
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
+        self._program._block_stack.pop()
+        # _pending_conditional stays set so a following elif_ / else_ can grab it.
+
+
+class _ElseContext:
+    """Context manager for the terminal ``else_`` arm."""
+
+    def __init__(self, program: QProgram) -> None:
+        pending = program._pending_conditional
+        if pending is None:
+            msg = (
+                "else_() must immediately follow an if_() / elif_() block at "
+                "the same nesting level; no open conditional chain"
+            )
+            raise ValidationError(msg)
+        conditional, parent = pending
+        if program._active_block is not parent:
+            msg = (
+                "else_() must be at the same nesting level as the matching "
+                "if_(); active block does not match the chain's parent"
+            )
+            raise ValidationError(msg)
+        if conditional.else_body is not None:
+            msg = "else_() cannot follow another else_() in the same chain"
+            raise ValidationError(msg)
+        self._program = program
+        self._conditional = conditional
+        self._else_body = Block()
+
+    def __enter__(self) -> Conditional:
+        self._conditional.else_body = self._else_body
+        self._program._block_stack.append(self._else_body)
+        return self._conditional
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
+        self._program._block_stack.pop()
+        # else_ terminates the chain — no more elif_/else_ may follow.
+        self._program._pending_conditional = None
 
 
 class QProgram:
@@ -117,6 +221,12 @@ class QProgram:
         self._block_stack: deque[Block] = deque([self._body])
         self._variables: list[Variable] = []
         self._schema = schema
+        # Tracks an open ``if_/elif_/else_`` chain so that a following
+        # ``elif_`` / ``else_`` can find the right Conditional. The tuple
+        # stores both the open Conditional and the parent block it lives
+        # in; the chain is cleared automatically whenever something else
+        # is appended at that parent level, by :meth:`_append_to_active`.
+        self._pending_conditional: tuple[Conditional, Block] | None = None
 
     # --- Properties ---
 
@@ -153,21 +263,40 @@ class QProgram:
     def _active_block(self) -> Block:
         return self._block_stack[-1]
 
+    def _append_to_active(self, element: Block | Operation) -> None:
+        """Append an op or block to the currently active block.
+
+        Also maintains the ``_pending_conditional`` chain state: if an
+        ``if_`` chain is open and the new append lands at the *parent*
+        level of that chain (i.e., the same block the chain lives in),
+        the chain is closed — the user has appended something other
+        than an ``elif_`` / ``else_`` at that level, which makes any
+        subsequent ``elif_`` / ``else_`` ambiguous. The chain stays
+        open while appends happen inside the arm body (a deeper level
+        of the block stack).
+
+        ``_ElifContext`` / ``_ElseContext`` do not call this method —
+        they mutate an existing ``Conditional`` in place and only push
+        a new arm body onto the stack.
+        """
+        if self._pending_conditional is not None and self._active_block is self._pending_conditional[1]:
+            self._pending_conditional = None
+        self._active_block.append(element)
+
     # --- Measurement handles ---
 
     def measurement_handles(self) -> list[MeasurementHandle]:
-        """Return a fresh :class:`MeasurementHandle` for every measurement in the AST.
+        """Return the canonical :class:`MeasurementHandle` for every measurement in the AST.
 
-        Recovers handles in declaration order — the order :meth:`measure`
-        / vendor measurement ops were called. Useful after
-        :func:`qprogram.loads`, where the original Python handle locals are
-        gone but the names survive in the AST.
-
-        Returns a *new* list of fresh handle objects on every call; handles
-        are structurally compared by name, so equality with previously-held
-        handles (or those reconstructed by name) still works.
+        Walks the program body in declaration order and returns
+        ``op.handle`` for each :class:`MeasurementOperation`. The handle
+        objects returned are the *same Python instances* the AST stores
+        — writing per-measurement values via ``handle._set_value(...)``
+        is immediately visible to every :class:`MeasurementRef` that
+        references the same measurement, regardless of whether the
+        program was just built or loaded from a ``.qp`` file.
         """
-        return [MeasurementHandle(op.name) for op in _walk_measurement_ops(self._body)]
+        return [op.handle for op in _walk_measurement_ops(self._body)]
 
     def _allocate_measurement_name(self, bus: str, requested: str | None) -> str:
         """Choose the name for a new measurement and verify uniqueness.
@@ -177,13 +306,13 @@ class QProgram:
           :class:`ValueError` on collision.
         - Otherwise, an auto-name is generated using the convention:
 
-            - **Schema-backed bus** (``BusRef`` with ``element`` and
-              ``index``): ``{element}{flat_index}_m{counter}``. ``flat_index``
-              flattens tuple indices with ``_`` (so ``c[0,1]`` →
-              ``c0_1_m0``). ``counter`` is per-``(element, index)`` and
-              always starts at ``0`` — so the second measurement on q0 is
-              ``q0_m1`` and the first measurement on q4 is ``q4_m0``,
-              regardless of source-order interleaving.
+            - **Schema-backed bus** (``BusRef``): the prefix is the
+              bus's full string form followed by ``/m``. For the default
+              :class:`BusNaming` pattern, ``q[0].readout`` becomes
+              ``q0/readout/m0``, ``q0/readout/m1``, ...; ``q[0].drive``
+              gets its own counter (``q0/drive/m0``, ...). Each unique
+              bus carries an independent counter, so measurements on
+              different buses never collide.
 
             - **Raw-string bus**: falls back to ``m{counter}`` with a
               global counter shared across all raw-string measurements.
@@ -201,10 +330,7 @@ class QProgram:
                 msg = f"measurement name must be a non-empty string, got {requested!r}"
                 raise ValidationError(msg)
             if requested in used_names:
-                msg = (
-                    f"measurement name {requested!r} is already used by another "
-                    f"measurement in this program"
-                )
+                msg = f"measurement name {requested!r} is already used by another measurement in this program"
                 raise ValidationError(msg)
             return requested
 
@@ -296,7 +422,7 @@ class QProgram:
     def play(self, bus: str, waveform: Waveform | IQWaveform | str) -> None:
         self._validate_bus(bus)
         _validate_waveform_channel(bus, waveform)
-        self._active_block.append(Play(bus=bus, waveform=waveform))
+        self._append_to_active(Play(bus=bus, waveform=waveform))
 
     def measure(
         self,
@@ -337,14 +463,15 @@ class QProgram:
         _validate_waveform_channel(bus, waveform)
         _validate_waveform_channel(bus, weights)
         allocated = self._allocate_measurement_name(bus, requested=name)
-        self._active_block.append(
-            Measure(bus=bus, waveform=waveform, weights=weights, name=allocated, returns=returns),
+        handle = MeasurementHandle(allocated)
+        self._append_to_active(
+            Measure(bus=bus, waveform=waveform, weights=weights, handle=handle, returns=returns),
         )
-        return MeasurementHandle(allocated)
+        return handle
 
     def wait(self, bus: str, duration: int | Expression) -> None:
         self._validate_bus(bus)
-        self._active_block.append(Wait(bus=bus, duration=duration))
+        self._append_to_active(Wait(bus=bus, duration=duration))
 
     def sync(self, buses: list[str] | None = None) -> None:
         # User-facing kw arg stays ``buses`` for readability; internally the
@@ -352,23 +479,23 @@ class QProgram:
         if buses:
             for b in buses:
                 self._validate_bus(b)
-        self._active_block.append(Sync(targets=buses))
+        self._append_to_active(Sync(targets=buses))
 
     def set_frequency(self, bus: str, frequency: float | Expression) -> None:
         self._validate_bus(bus)
-        self._active_block.append(SetFrequency(bus=bus, frequency=frequency))
+        self._append_to_active(SetFrequency(bus=bus, frequency=frequency))
 
     def set_phase(self, bus: str, phase: float | Expression) -> None:
         self._validate_bus(bus)
-        self._active_block.append(SetPhase(bus=bus, phase=phase))
+        self._append_to_active(SetPhase(bus=bus, phase=phase))
 
     def reset_phase(self, bus: str) -> None:
         self._validate_bus(bus)
-        self._active_block.append(ResetPhase(bus=bus))
+        self._append_to_active(ResetPhase(bus=bus))
 
     def set_gain(self, bus: str, gain: float | Expression) -> None:
         self._validate_bus(bus)
-        self._active_block.append(SetGain(bus=bus, gain=gain))
+        self._append_to_active(SetGain(bus=bus, gain=gain))
 
     def set_offset(
         self,
@@ -377,7 +504,7 @@ class QProgram:
         offset_path1: float | Expression | None = None,
     ) -> None:
         self._validate_bus(bus)
-        self._active_block.append(SetOffset(bus=bus, offset_path0=offset_path0, offset_path1=offset_path1))
+        self._append_to_active(SetOffset(bus=bus, offset_path0=offset_path0, offset_path1=offset_path1))
 
     def set_parameter(
         self,
@@ -386,7 +513,7 @@ class QProgram:
         value: float | Expression,
         channel_id: int | None = None,
     ) -> None:
-        self._active_block.append(SetParameter(alias=alias, parameter=parameter, value=value, channel_id=channel_id))
+        self._append_to_active(SetParameter(alias=alias, parameter=parameter, value=value, channel_id=channel_id))
 
     def get_parameter(self, alias: str, parameter: str, channel_id: int | None = None) -> Variable:
         # Auto-generate a unique, valid id. The original "alias.parameter"
@@ -399,11 +526,11 @@ class QProgram:
             var_id = f"{base}_{n}"
             n += 1
         var = self.variable(var_id, label=f"{alias}.{parameter}")
-        self._active_block.append(GetParameter(variable=var, alias=alias, parameter=parameter, channel_id=channel_id))
+        self._append_to_active(GetParameter(variable=var, alias=alias, parameter=parameter, channel_id=channel_id))
         return var
 
     def set_crosstalk(self, crosstalk: CrosstalkMatrix) -> None:
-        self._active_block.append(SetCrosstalk(crosstalk=crosstalk))
+        self._append_to_active(SetCrosstalk(crosstalk=crosstalk))
 
     # --- Control flow ---
 
@@ -426,6 +553,107 @@ class QProgram:
 
     def block(self) -> _BlockContext:
         return _BlockContext(self)
+
+    def if_(self, condition: Expression) -> _IfContext:
+        """Open an ``if`` arm gated on a measurement-state predicate.
+
+        ``condition`` must be a :class:`~qprogram.Comparison` between a
+        :class:`~qprogram.MeasurementRef` (built via ``handle.state``) and
+        an ``int`` literal — i.e., ``handle.state == 0`` or
+        ``handle.state != 1``. v1 deliberately limits the surface to
+        that shape; richer conditions (variable comparisons, logical
+        combinations) will land in a follow-up change.
+
+        Build chains with sequential ``with`` blocks::
+
+            with program.if_(m.state == 0):
+                program.play(q[0].drive, "id_pulse")
+            with program.elif_(m.state == 1):
+                program.play(q[0].drive, "pi_pulse")
+            with program.else_():
+                pass
+
+        The measurement op whose handle is referenced **must** request
+        state classification (``returns`` must include ``"state"``); the
+        validator emits ``missing-classification`` otherwise.
+        """
+        self._validate_conditional_condition(condition, where="if_")
+        return _IfContext(self, condition)
+
+    def elif_(self, condition: Expression) -> _ElifContext:
+        """Extend the open ``if_`` chain with another arm.
+
+        Must appear immediately after the matching ``if_()`` /
+        ``elif_()`` block at the same nesting level; any other append
+        in between closes the chain and ``elif_`` raises
+        :class:`~qprogram.ValidationError`. See :meth:`if_` for the
+        accepted condition shape.
+        """
+        self._validate_conditional_condition(condition, where="elif_")
+        return _ElifContext(self, condition)
+
+    def else_(self) -> _ElseContext:
+        """Close the open ``if_`` chain with an unconditional arm.
+
+        Must appear immediately after the matching ``if_()`` /
+        ``elif_()`` block at the same nesting level. Only one
+        ``else_()`` per chain.
+        """
+        return _ElseContext(self)
+
+    @staticmethod
+    def _validate_conditional_condition(condition: Expression, *, where: str) -> None:
+        """Reject conditions outside the v1-supported shape.
+
+        The accepted shape is a single :class:`~qprogram.Comparison`
+        whose operands are :class:`~qprogram.MeasurementRef` (from
+        ``handle.state``) or :class:`~qprogram.Constant` (an ``int``
+        literal), with at least one ``MeasurementRef`` somewhere in
+        the comparison. All of these are valid:
+
+        - ``handle.state == 0``           — ``(MeasurementRef, Constant)``
+        - ``0 == handle.state``           — ``(Constant, MeasurementRef)``
+        - ``m1.state == m2.state``        — ``(MeasurementRef, MeasurementRef)``
+        - ``qp.eq(handle.state, 0)``      — same as the first form
+        - ``qp.ne(handle.state, 1)``      — same as ``handle.state != 1``
+
+        Operators ``==`` / ``!=`` are emitted by the
+        :class:`_HandleFieldAccess` proxy and the :func:`qp.eq` /
+        :func:`qp.ne` helpers; the alphabet is constrained at those
+        construction sites, not here. Other Comparison operators
+        (``<``, ``<=``, ...) round-trip through the AST but have no
+        builder ergonomic today.
+
+        Bare :class:`Variable` comparisons (``var == 5``) are out of
+        v1 scope; this method is the single gate where future
+        widening will land.
+        """
+        from qprogram.variable import Constant, MeasurementRef  # noqa: PLC0415
+
+        if not isinstance(condition, Comparison):
+            msg = (
+                f"{where}() expects a Comparison condition such as "
+                f"`handle.state == 0` or `handle.state != 1`; got "
+                f"{type(condition).__name__}"
+            )
+            raise ValidationError(msg)
+
+        operands = (condition.left, condition.right)
+        if not any(isinstance(o, MeasurementRef) for o in operands):
+            msg = (
+                f"{where}() condition must reference at least one "
+                f"measurement-state ref (e.g. `handle.state`); got a "
+                f"comparison of {type(condition.left).__name__} and "
+                f"{type(condition.right).__name__}"
+            )
+            raise ValidationError(msg)
+        for operand in operands:
+            if not isinstance(operand, (MeasurementRef, Constant)):
+                msg = f"{where}() operands must be measurement-state refs or int literals; got {type(operand).__name__}"
+                raise ValidationError(msg)
+            if isinstance(operand, Constant) and not isinstance(operand.value, int):
+                msg = f"{where}() int literal expected; got {type(operand.value).__name__} ({operand.value})"
+                raise ValidationError(msg)
 
     # --- Transformations ---
 
@@ -527,16 +755,19 @@ def _walk_measurement_ops(block: Block) -> list[MeasurementOperation]:
 def _measurement_name_prefix(bus: str) -> str:
     """Compute the auto-name prefix for a measurement on ``bus``.
 
-    Schema-backed buses (``BusRef`` with element + index metadata) get a
-    per-qubit prefix — e.g. ``q0_m``, ``c0_1_m``. Raw-string buses fall
-    back to a global ``m`` prefix. The caller appends a free integer to
+    Schema-backed buses (``BusRef``) get a per-bus prefix built from the
+    bus's full string form: ``{bus}/m`` — e.g. ``q0/readout/m`` for the
+    default :class:`BusNaming` pattern on ``q[0].readout``, or
+    ``readout_q0_bus/m`` for a custom-naming bus. Each unique bus
+    string carries an independent counter, so measurements on
+    different buses never share a counter (or a name).
+
+    Raw-string buses fall back to a global ``m`` prefix shared across
+    all raw-string measurements. The caller appends a free integer to
     produce the final name. See :meth:`QProgram._allocate_measurement_name`.
     """
-    if isinstance(bus, BusRef) and bus.element and bus.index is not None:
-        idx_str = (
-            "_".join(str(i) for i in bus.index) if isinstance(bus.index, tuple) else str(bus.index)
-        )
-        return f"{bus.element}{idx_str}_m"
+    if isinstance(bus, BusRef):
+        return f"{bus}/m"
     return "m"
 
 

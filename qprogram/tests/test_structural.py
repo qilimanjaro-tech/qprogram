@@ -91,8 +91,17 @@ def test_ast_eq_handles_variable():
 @pytest.mark.parametrize(
     "value",
     [
-        0, 1, -1, 3.14, "x", "", True, False, None,
-        (), (1, 2, 3),
+        0,
+        1,
+        -1,
+        3.14,
+        "x",
+        "",
+        True,
+        False,
+        None,
+        (),
+        (1, 2, 3),
         frozenset({1, 2}),
     ],
 )

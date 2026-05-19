@@ -8,6 +8,8 @@ import numpy as np
 import pytest
 
 from qprogram import (
+    CrosstalkMatrix,
+    InvalidVariableIdError,
     MeasurementHandle,
     QProgram,
     ValidationError,
@@ -38,7 +40,6 @@ from qprogram.qprogram import (
     _walk_measurement_ops,
 )
 from qprogram.waveforms import Gaussian, IQDrag, IQPair, Square
-
 
 # ---------------------------------------------------------------------------
 # Construction & properties
@@ -113,13 +114,13 @@ def test_variable_duplicate_id_raises():
 
 def test_variable_invalid_id_raises():
     p = QProgram()
-    with pytest.raises(Exception):  # InvalidVariableIdError
+    with pytest.raises(InvalidVariableIdError):
         p.variable("123bad")
 
 
 def test_variable_reserved_id_raises():
     p = QProgram()
-    with pytest.raises(Exception):  # InvalidVariableIdError(reserved=True)
+    with pytest.raises(InvalidVariableIdError):
         p.variable("if")
 
 
@@ -253,7 +254,7 @@ def test_get_parameter_with_channel_id(empty_program):
 
 
 def test_set_crosstalk_appends(empty_program):
-    from qprogram import CrosstalkMatrix
+
     empty_program.set_crosstalk(CrosstalkMatrix())
     assert isinstance(empty_program.body.elements[0], SetCrosstalk)
 
@@ -281,8 +282,7 @@ def test_play_single_waveform_on_single_bus_ok(flux_tunable_schema):
 def test_play_iq_waveform_on_flux_raises(flux_tunable_schema):
     p = QProgram(schema=flux_tunable_schema)
     with pytest.raises(ValidationError, match="single channel"):
-        p.play(flux_tunable_schema.q[0].flux,
-               IQDrag(amplitude=0.5, duration=40, num_sigmas=2.5, drag_coefficient=0.1))
+        p.play(flux_tunable_schema.q[0].flux, IQDrag(amplitude=0.5, duration=40, num_sigmas=2.5, drag_coefficient=0.1))
 
 
 def test_play_with_string_waveform_skips_channel_validation(schema_program):
@@ -291,7 +291,7 @@ def test_play_with_string_waveform_skips_channel_validation(schema_program):
 
 
 def test_measure_on_non_acquire_bus_raises(schema_program):
-    with pytest.raises(ValidationError, match="acquisition|acquires"):
+    with pytest.raises(ValidationError, match=r"acquisition|acquires"):
         schema_program.measure(schema_program.schema.q[0].drive, "wf", "w")  # type: ignore[union-attr]
 
 
@@ -384,9 +384,8 @@ def test_three_loops_parallel(empty_program):
 
 def test_nested_blocks(empty_program):
     v = empty_program.variable("x")
-    with empty_program.average(1000):
-        with empty_program.for_loop(v, 0.0, 1.0, 0.1):
-            empty_program.wait("bus", 100)
+    with empty_program.average(1000), empty_program.for_loop(v, 0.0, 1.0, 0.1):
+        empty_program.wait("bus", 100)
     body = empty_program.body
     avg = body.elements[0]
     assert isinstance(avg, Average)
@@ -433,14 +432,14 @@ def test_block_context_class():
 # ---------------------------------------------------------------------------
 
 
-def test_measurement_naming_per_qubit(schema_program):
+def test_measurement_naming_per_bus(schema_program):
     schema = schema_program.schema
     m_q0_first = schema_program.measure(schema.q[0].readout, "r", "w")  # type: ignore[union-attr]
     m_q1_first = schema_program.measure(schema.q[1].readout, "r", "w")  # type: ignore[union-attr]
     m_q0_second = schema_program.measure(schema.q[0].readout, "r", "w")  # type: ignore[union-attr]
-    assert m_q0_first.name == "q0_m0"
-    assert m_q1_first.name == "q1_m0"
-    assert m_q0_second.name == "q0_m1"
+    assert m_q0_first.name == "q0/readout/m0"
+    assert m_q1_first.name == "q1/readout/m0"
+    assert m_q0_second.name == "q0/readout/m1"
 
 
 def test_measurement_raw_string_bus_fallback(empty_program):
@@ -462,7 +461,7 @@ def test_measurement_handles_in_declaration_order(schema_program):
     schema_program.measure(schema.q[0].readout, "r", "w")  # type: ignore[union-attr]
     schema_program.measure(schema.q[1].readout, "r", "w")  # type: ignore[union-attr]
     handles = schema_program.measurement_handles()
-    assert [h.name for h in handles] == ["q1_m0", "q0_m0", "q1_m1"]
+    assert [h.name for h in handles] == ["q1/readout/m0", "q0/readout/m0", "q1/readout/m1"]
 
 
 def test_measurement_name_collision_raises(schema_program):
@@ -479,10 +478,10 @@ def test_measurement_name_empty_raises(schema_program):
 def test_allocate_measurement_name_finds_first_free(schema_program):
     schema = schema_program.schema
     # Manually take m0 and m2; the next auto-allocation should pick m1.
-    schema_program.measure(schema.q[0].readout, "r", "w", name="q0_m0")  # type: ignore[union-attr]
-    schema_program.measure(schema.q[0].readout, "r", "w", name="q0_m2")  # type: ignore[union-attr]
+    schema_program.measure(schema.q[0].readout, "r", "w", name="q0/readout/m0")  # type: ignore[union-attr]
+    schema_program.measure(schema.q[0].readout, "r", "w", name="q0/readout/m2")  # type: ignore[union-attr]
     next_handle = schema_program.measure(schema.q[0].readout, "r", "w")  # type: ignore[union-attr]
-    assert next_handle.name == "q0_m1"
+    assert next_handle.name == "q0/readout/m1"
 
 
 # ---------------------------------------------------------------------------
@@ -543,9 +542,8 @@ def test_with_waveforms_preserves_unmapped_aliases():
 def test_with_waveforms_nested_inside_block():
     p = QProgram()
     v = p.variable("x")
-    with p.average(100):
-        with p.for_loop(v, 0.0, 1.0, 0.1):
-            p.play("bus", "pi_pulse")
+    with p.average(100), p.for_loop(v, 0.0, 1.0, 0.1):
+        p.play("bus", "pi_pulse")
     pi = Gaussian(0.5, 40, 2.5)
     resolved = p.with_waveforms({"pi_pulse": pi})
     deepest_op = resolved.body.elements[0].elements[0].elements[0]
@@ -590,13 +588,13 @@ def test_walk_measurement_ops_finds_nested():
 def test_measurement_name_prefix_for_schema_backed_bus():
     schema = BusSchema.transmon()
     ref = schema.q[0].readout
-    assert _measurement_name_prefix(ref) == "q0_m"
+    assert _measurement_name_prefix(ref) == "q0/readout/m"
 
 
 def test_measurement_name_prefix_for_tuple_index():
     schema = BusSchema.transmon_coupled()
     ref = schema.c[(0, 1)].flux
-    assert _measurement_name_prefix(ref) == "c0_1_m"
+    assert _measurement_name_prefix(ref) == "c0_1/flux/m"
 
 
 def test_measurement_name_prefix_for_plain_string():

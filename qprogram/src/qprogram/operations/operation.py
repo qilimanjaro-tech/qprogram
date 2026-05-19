@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
     from qprogram.blocks.block import Block
+    from qprogram.result import MeasurementHandle
 
 
 class Operation:
@@ -169,20 +170,38 @@ class MeasurementOperation(Operation):
     """Marker base for operations that produce a referenceable measurement.
 
     Concrete subclasses (``Measure`` in core; ``Acquire`` in qprogram-qblox;
-    any future vendor measurement op) **must** expose a ``name: str``
-    instance attribute. The runtime and the result API rely on this
-    contract — :class:`~qprogram.QProgramResult.get` looks up by name —
-    and :class:`~qprogram.QProgram` walks the AST for instances of this
-    class to allocate fresh names and to surface :meth:`measurement_handles`.
+    any future vendor measurement op) **must** expose a
+    ``handle: MeasurementHandle`` instance attribute carrying the
+    *canonical* handle for this measurement. The handle's ``name`` (read
+    via the :attr:`name` property here) is what flows through the
+    ``.qp`` file, the result API, and the validator's name-keyed
+    diagnostics.
 
-    A marker base (rather than duck-typing on a ``name`` attribute) keeps
-    the contract explicit: vendor authors opt in deliberately, and tooling
+    Storing the canonical :class:`~qprogram.MeasurementHandle` on the op
+    (rather than just a name string) is what lets every reference to a
+    measurement — the user's variable, the AST's measurement op, every
+    ``MeasurementRef`` inside any ``Conditional`` arm, the value returned
+    by :meth:`~qprogram.QProgram.measurement_handles` — be the same
+    Python instance. The runtime injects per-measurement values once via
+    ``handle._set_value(field, value)`` and every reader sees them.
+
+    A marker base (rather than duck-typing on the attribute) keeps the
+    contract explicit: vendor authors opt in deliberately, and tooling
     that wants to enumerate measurements has a single ``isinstance`` to
     check.
     """
 
-    name: str  # subclasses must set this
+    handle: MeasurementHandle  # subclasses must set this
     returns: tuple[str, ...]  # subclasses must set this
+
+    @property
+    def name(self) -> str:
+        """The measurement's name — proxy for ``self.handle.name``.
+
+        Kept as a property so existing code paths reading ``op.name``
+        (writer, validator, result lookup) continue to work unchanged.
+        """
+        return self.handle.name
 
     def required_capabilities(self) -> set[str]:
         """Add one ``measure.returns.<token>`` per token in :attr:`returns`.

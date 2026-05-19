@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import pytest
 
@@ -12,8 +11,11 @@ from qprogram.buses import BusSchema
 from qprogram.operations.operation import MeasurementOperation, Operation
 from qprogram.vendor import VendorNamespace
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 # A minimal vendor op set we can register temporarily.
+
 
 class _ToyOp(Operation):
     """Toy op to test _append: takes a bus + a value."""
@@ -28,10 +30,11 @@ class _ToyMeasurement(MeasurementOperation):
 
     WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ("weights",)
 
-    def __init__(self, bus: str, weights: str, name: str) -> None:
+    def __init__(self, bus: str, weights: str, handle: MeasurementHandle) -> None:
         self.bus = bus
         self.weights = weights
-        self.name = name
+        self.handle = handle
+        self.returns: tuple[str, ...] = ()
 
 
 class _ToyNamespace(VendorNamespace):
@@ -106,14 +109,14 @@ def test_append_measurement_with_explicit_name(toy_program: QProgram):
 
 
 def test_append_measurement_shares_counter_with_core_measure(transmon_schema):
-    """Vendor measurement on q0 picks up the next name after a core measure on q0."""
+    """Vendor measurement on the same bus picks up the next name after a core measure on that bus."""
     QProgram.register_vendor("toy", _ToyNamespace)
     try:
         p = QProgram(schema=transmon_schema)
         m_core = p.measure(transmon_schema.q[0].readout, "r", "w")
         m_vendor = p.toy.toy_measurement(transmon_schema.q[0].readout, "weights")  # type: ignore[attr-defined]
-        assert m_core.name == "q0_m0"
-        assert m_vendor.name == "q0_m1"
+        assert m_core.name == "q0/readout/m0"
+        assert m_vendor.name == "q0/readout/m1"
     finally:
         QProgram._vendor_registry.pop("toy", None)
 

@@ -27,6 +27,8 @@ from qprogram.errors import ValidationError
 if TYPE_CHECKING:
     import xarray as xr
 
+    from qprogram.variable import _HandleFieldAccess, _UnassignedType
+
 
 class MeasurementHandle:
     """A reference to a measurement performed by a :class:`QProgram`.
@@ -47,15 +49,56 @@ class MeasurementHandle:
     after ``qp.loads(...)`` the original handle Python objects are gone,
     but the names survive in the AST, and ``MeasurementHandle("q0_m0")``
     constructed anywhere compares equal to whatever the program produced.
+
+    Per-measurement values written by the runtime (e.g. the classified
+    qubit state when ``returns`` includes ``"state"``) live in a private
+    ``_values`` dict, indexed by field name. They participate in
+    Python-side :class:`MeasurementRef` evaluation but are *not* part of
+    handle identity — two handles with the same name compare equal
+    regardless of their value state.
     """
 
-    __slots__ = ("name",)
+    __slots__ = ("_values", "name")
 
     def __init__(self, name: str) -> None:
         if not isinstance(name, str) or not name:
             msg = f"MeasurementHandle name must be a non-empty string, got {name!r}"
             raise ValidationError(msg)
         self.name = name
+        self._values: dict[str, int | float] = {}
+
+    @property
+    def state(self) -> _HandleFieldAccess:
+        """Reference the classified state of this measurement.
+
+        Returns a throwaway proxy whose ``==`` / ``!=`` operators build
+        :class:`~qprogram.Comparison` nodes. Use in a condition::
+
+            with program.if_(handle.state == 0):
+                ...
+
+        The measurement op must request state classification (its
+        ``returns`` must include ``"state"``) or the validator will
+        emit a ``missing-classification`` diagnostic. See the spec
+        section on conditionals.
+        """
+        from qprogram.variable import _HandleFieldAccess  # noqa: PLC0415
+
+        return _HandleFieldAccess(self, "state")  # pyright: ignore[reportArgumentType]
+
+    def _value_for(self, field: str) -> int | float | _UnassignedType:
+        """Read a per-measurement field value (used by :class:`MeasurementRef`).
+
+        Returns :data:`~qprogram.UNASSIGNED` until the runtime sets the
+        value via :meth:`_set_value`.
+        """
+        from qprogram.variable import UNASSIGNED  # noqa: PLC0415
+
+        return self._values.get(field, UNASSIGNED)
+
+    def _set_value(self, field: str, value: float) -> None:
+        """Set a per-measurement field value. Called by the runtime."""
+        self._values[field] = value
 
     def __repr__(self) -> str:
         return f"MeasurementHandle({self.name!r})"
@@ -142,11 +185,7 @@ class QProgramResult:
                 measurement exists in scope.
             IndexError: ``measurement`` was an integer and is out of range.
         """
-        candidates = (
-            self._measurements
-            if bus is None
-            else [m for m in self._measurements if m.bus == bus]
-        )
+        candidates = self._measurements if bus is None else [m for m in self._measurements if m.bus == bus]
 
         if isinstance(measurement, MeasurementHandle):
             return self._lookup_by_name(candidates, measurement.name, bus)

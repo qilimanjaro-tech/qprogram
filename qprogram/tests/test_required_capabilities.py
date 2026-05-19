@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from qprogram import QProgram
+from qprogram import MeasurementHandle, QProgram
 from qprogram.blocks.average import Average
 from qprogram.blocks.block import Block
 from qprogram.blocks.for_loop import ForLoop
@@ -66,7 +66,7 @@ def test_play_with_iq_pair_includes_iq_pair_token() -> None:
 def test_measure_with_concrete_waveform_and_weights() -> None:
     wf = IQPair(I=Square(0.5, 100), Q=Square(0.0, 100))
     weights = IQPair(I=Square(1.0, 100), Q=Square(1.0, 100))
-    m = Measure(bus="readout_q0", waveform=wf, weights=weights, name="q0_m0")
+    m = Measure(bus="readout_q0", waveform=wf, weights=weights, handle=MeasurementHandle("q0_m0"))
     caps = m.required_capabilities()
     assert "op.measure" in caps
     assert "waveform.iq" in caps
@@ -75,14 +75,14 @@ def test_measure_with_concrete_waveform_and_weights() -> None:
 
 
 def test_measure_with_string_aliases_includes_alias_token_once() -> None:
-    m = Measure(bus="readout_q0", waveform="readout", weights="weights", name="q0_m0")
+    m = Measure(bus="readout_q0", waveform="readout", weights="weights", handle=MeasurementHandle("q0_m0"))
     caps = m.required_capabilities()
     assert "waveform.alias" in caps  # both aliases collapse into one token
 
 
 def test_measure_with_raw_return_token() -> None:
     wf = IQPair(I=Square(0.5, 100), Q=Square(0.0, 100))
-    m = Measure(bus="readout_q0", waveform=wf, weights=wf, name="q0_m0", returns="iq,raw")
+    m = Measure(bus="readout_q0", waveform=wf, weights=wf, handle=MeasurementHandle("q0_m0"), returns="iq,raw")
     caps = m.required_capabilities()
     assert "measure.returns.iq" in caps
     assert "measure.returns.raw" in caps

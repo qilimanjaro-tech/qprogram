@@ -63,6 +63,84 @@ with program.block():
     program.wait("drive_q0", 50)
 ```
 
+## Conditional execution: `if_` / `elif_` / `else_`
+
+Branch on a measurement outcome. Build chains with sequential `with` blocks
+— exactly mirroring Python's own `if`/`elif`/`else` shape.
+
+```python
+m = program.measure(q[0].readout, "readout", "weights", returns="iq,state")
+
+with program.if_(m.state == 1):
+    program.play(q[0].drive, "pi_pulse")
+with program.elif_(m.state == 0):
+    program.play(q[0].drive, "id_pulse")
+with program.else_():
+    program.sync()
+```
+
+Three rules to keep in mind:
+
+- **The condition is a measurement-state predicate.** Today the
+  accepted shapes are:
+
+    - `handle.state == 0` / `handle.state != 1` — measurement vs `int` literal
+    - `0 == handle.state` / `1 != handle.state` — reverse order (same node)
+    - `m1.state == m2.state` / `m1.state != m2.state` — measurement vs measurement, useful for "did two qubits land in the same state?"
+    - `qp.eq(handle.state, 0)` / `qp.ne(handle.state, 0)` — the helper form, equivalent to the operator form. Use this when you want to build a condition programmatically without relying on operator overloading.
+
+  Wider shapes (bare `Variable` comparisons, logical combinations) are
+  planned for a later release; the validator rejects them today with a
+  clear error pointing at the rejected shape.
+
+- **`elif_` and `else_` must follow immediately.** Each must come
+  directly after the matching `if_` / `elif_` block at the same
+  indentation level. Anything appended between arms closes the chain
+  and a following `elif_` / `else_` raises `ValidationError`.
+- **Every referenced measurement must request state classification.**
+  Referencing `handle.state` requires the measurement's `returns` to
+  include `"state"`. The validator emits a `missing-classification`
+  diagnostic otherwise. Pass `returns="iq,state"` (or
+  `returns="state"` for state-only) when calling `measure(...)`.
+  In a `m1.state == m2.state` comparison, *both* measurements must
+  request classification — the validator checks each `MeasurementRef`
+  it finds in the condition.
+
+### The shape of an `if` chain
+
+The construct builds a `Conditional` block in the AST. Each arm is a
+`(condition, body_block)` tuple; the terminal `else` lives in
+`else_body`:
+
+```python
+cond = program.body.elements[-1]
+isinstance(cond, qp.blocks.Conditional)        # True
+len(cond.arms)                                  # 3 (if, elif, elif)
+[(arm[0].op, arm[0].right.value) for arm in cond.arms]
+# [('==', 1), ('==', 0), ('==', 2)]
+cond.else_body                                  # Block | None
+```
+
+Iterate `arms` directly when writing analyzers or compilers; the
+list preserves source order.
+
+### Active reset, portably
+
+The motivating use case is active reset — measure, then conditionally
+apply a π-pulse if the qubit landed in `|1⟩`:
+
+```python
+m = program.measure(q[0].readout, "readout", "weights", returns="iq,state")
+with program.if_(m.state == 1):
+    program.play(q[0].drive, "pi_pulse")
+```
+
+The same intent used to require the vendor-specific
+`program.qblox.active_reset(...)`. The conditional expresses it without
+locking the program to one backend; platforms that have optimized
+active-reset choreographies can still recognize the pattern at
+compile time and lower it to their preferred form.
+
 ## Parallel loops with `|`
 
 Combine multiple loops with the `|` operator to run them concurrently. All
@@ -142,10 +220,11 @@ The platform decides; you do not have to think about it twice.
 ## Measurement names inside loops
 
 Measurement counters are per-qubit and do not reset when you enter a loop.
-A `measure` inside a `for_loop` still increments the same `q0_m<N>` counter
-across iterations. If you have two `measure` calls on the same qubit inside
-the same loop, you get distinct handles (`q0_m0`, `q0_m1`), and the result
-array has both. See [Measurements](measurements.md).
+A `measure` inside a `for_loop` still increments the same per-bus counter
+across iterations. If you have two `measure` calls on the same bus inside
+the same loop, you get distinct handles (`q0/readout/m0`,
+`q0/readout/m1`), and the result array has both. See
+[Measurements](measurements.md).
 
 ## A note on `Parallel`
 

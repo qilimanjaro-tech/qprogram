@@ -141,3 +141,55 @@ def test_device_can_tighten_limits_via_overrides() -> None:
     assert any(
         diag.code == "limit-exceeded" and diag.limit and diag.limit[0] == "max_loop_nesting" for diag in diagnostics
     )
+
+
+# ---------------------------------------------------------------------------
+# Conditional execution
+# ---------------------------------------------------------------------------
+
+
+def test_conditional_active_reset_validates_clean() -> None:
+    """The canonical motivation: portable active-reset expressed as a conditional."""
+    caps = CompilerCapabilities.from_profile("qblox-default-v1")
+    p = QProgram()
+    m = p.measure(
+        "readout_q0",
+        IQPair(I=Square(0.5, 200), Q=Square(0.0, 200)),
+        IQPair(I=Square(1.0, 200), Q=Square(1.0, 200)),
+        returns="iq,state",
+    )
+    with p.if_(m.state == 1):
+        p.play("drive_q0", "pi_pulse")
+    assert validate(p, caps) == []
+
+
+def test_conditional_with_full_chain_validates_clean() -> None:
+    caps = CompilerCapabilities.from_profile("qblox-default-v1")
+    p = QProgram()
+    m = p.measure(
+        "readout_q0",
+        IQPair(I=Square(0.5, 200), Q=Square(0.0, 200)),
+        IQPair(I=Square(1.0, 200), Q=Square(1.0, 200)),
+        returns="iq,state",
+    )
+    with p.if_(m.state == 0):
+        p.play("drive_q0", "id_pulse")
+    with p.elif_(m.state == 1):
+        p.play("drive_q0", "pi_pulse")
+    with p.else_():
+        p.sync()
+    assert validate(p, caps) == []
+
+
+def test_conditional_missing_state_classification_caught_by_validator() -> None:
+    caps = CompilerCapabilities.from_profile("qblox-default-v1")
+    p = QProgram()
+    m = p.measure(
+        "readout_q0",
+        IQPair(I=Square(0.5, 200), Q=Square(0.0, 200)),
+        IQPair(I=Square(1.0, 200), Q=Square(1.0, 200)),
+    )  # default returns=("iq",) — no state
+    with p.if_(m.state == 1):
+        p.play("drive_q0", "pi_pulse")
+    diagnostics = validate(p, caps)
+    assert any(d.code == "missing-classification" for d in diagnostics)

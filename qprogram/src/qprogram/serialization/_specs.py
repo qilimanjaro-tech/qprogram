@@ -65,6 +65,8 @@ from qprogram.serialization.registry import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from qprogram.operations.operation import Operation
     from qprogram.variable import Variable
 
@@ -129,6 +131,56 @@ def default_parse_operation(spec: OperationSpec, tokens: list[str], ctx: Any) ->
             final[params[i].name] = value
     final.update(kwargs)
     return spec.cls(**final)
+
+
+def make_measurement_op_parse(cls: type[Operation]) -> Callable[[list[str], Any], Operation]:
+    """Build a parse callback for :class:`MeasurementOperation` subclasses.
+
+    The returned callback is identical to :func:`default_parse_operation`
+    *except* that it converts the ``handle`` parameter from the
+    name-string token to the canonical
+    :class:`~qprogram.MeasurementHandle` via
+    ``ctx.get_or_create_handle``. That way every measurement op
+    produced by the parser shares its handle instance with any
+    :class:`~qprogram.MeasurementRef` that later references the same
+    name — a single Python object per measurement, for the whole
+    loaded program.
+
+    Vendor measurement ops register with this factory the same way
+    core ``measure`` does::
+
+        register_vendor_operation(
+            "myvendor",
+            "acquire",
+            Acquire,
+            parse=make_measurement_op_parse(Acquire),
+        )
+    """
+
+    def parse(tokens: list[str], ctx: Any) -> Operation:
+        sig = inspect.signature(cls.__init__)
+        params = list(sig.parameters.values())[1:]
+        positional: list[Any] = []
+        kwargs: dict[str, Any] = {}
+        for tok in tokens:
+            tok_stripped = tok.strip()
+            if not tok_stripped:
+                continue
+            if _looks_like_kwarg(tok_stripped):
+                key, _, val = tok_stripped.partition("=")
+                kwargs[key.strip()] = ctx.parse_value(val.strip())
+            else:
+                positional.append(ctx.parse_value(tok_stripped))
+        final: dict[str, Any] = {}
+        for i, value in enumerate(positional):
+            if i < len(params):
+                final[params[i].name] = value
+        final.update(kwargs)
+        if "handle" in final and isinstance(final["handle"], str):
+            final["handle"] = ctx.get_or_create_handle(final["handle"])
+        return cls(**final)
+
+    return parse
 
 
 def _looks_like_kwarg(tok: str) -> bool:
@@ -263,9 +315,7 @@ def range_parse(var: Variable, args_text: str, ctx: Any) -> ForLoop:
 
 def range_write(loop: ForLoop, ctx: Any) -> str:
     return (
-        f"range({ctx.serialize_value(loop.start)}, "
-        f"{ctx.serialize_value(loop.stop)}, "
-        f"{ctx.serialize_value(loop.step)})"
+        f"range({ctx.serialize_value(loop.start)}, {ctx.serialize_value(loop.stop)}, {ctx.serialize_value(loop.step)})"
     )
 
 
@@ -333,7 +383,7 @@ def _register_core_specs() -> None:
     # Core operations — default callbacks for the regular shapes,
     # explicit callbacks for the three special-form ops.
     register_operation("play", Play)
-    register_operation("measure", Measure)
+    register_operation("measure", Measure, parse=make_measurement_op_parse(Measure))
     register_operation("wait", Wait)
     register_operation("sync", Sync, serialize=sync_serialize, parse=sync_parse)
     register_operation("set_frequency", SetFrequency)

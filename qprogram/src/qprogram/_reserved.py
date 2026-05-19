@@ -36,23 +36,36 @@ from typing import Final
 RESERVED_KEYWORDS: Final[frozenset[str]] = frozenset(
     {
         # Conditional / iteration control flow
-        "if", "else", "elif",
-        "while", "until",
-        "break", "continue", "return",
+        "if",
+        "else",
+        "elif",
+        "while",
+        "until",
+        "break",
+        "continue",
+        "return",
         # Definitions and reusable fragments
-        "fragment", "def", "gate",
+        "fragment",
+        "def",
+        "gate",
         # Pattern matching
-        "case", "match",
+        "case",
+        "match",
         # Timing / scheduling
         "repeat",
         # Conditional expression (already exists as a helper; reserve the bare keyword too)
         "where",
         # Bindings
-        "let", "const",
+        "let",
+        "const",
         # Imports / aliases (future module system)
-        "import", "from", "as",
+        "import",
+        "from",
+        "as",
         # Literals
-        "true", "false", "null",
+        "true",
+        "false",
+        "null",
     },
 )
 """Identifiers reserved for future QProgram syntax.

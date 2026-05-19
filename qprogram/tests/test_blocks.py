@@ -5,13 +5,11 @@ from __future__ import annotations
 import copy
 
 import numpy as np
-import pytest
 
 from qprogram import Variable
 from qprogram.blocks import Average, Block, ForLoop, Loop, Parallel
 from qprogram.operations import Play, Wait
 from qprogram.waveforms import Square
-
 
 # ---------------------------------------------------------------------------
 # Block — base container

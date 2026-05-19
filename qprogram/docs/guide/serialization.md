@@ -109,7 +109,7 @@ Bus paths in the body then reference the schema:
 
 ```
 play q[0].drive pi_pulse
-measure q[0].readout "readout" "weights" name="q0_m0"
+measure q[0].readout "readout" "weights" name="q0/readout/m0"
 ```
 
 The Python class identity does not survive: a program written from
@@ -160,7 +160,7 @@ Vendor ops use dot notation:
 require qblox 0.1
 
 body:
-  qblox.acquire "readout_q0" "weights" name="q0_m0"
+  qblox.acquire "readout_q0" "weights" name="q0/readout/m0"
   qblox.set_markers "drive_q0" "0001"
   qblox.active_reset "readout_q0" "readout" "weights" "drive_q0" "pi_pulse" trigger_address=1
 ```

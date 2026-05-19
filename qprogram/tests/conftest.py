@@ -101,12 +101,11 @@ def rabi_program(transmon_schema: BusSchema) -> QProgram:
     """A small but realistic Rabi-style program with average + for_loop + measure."""
     p = QProgram(label="rabi", schema=transmon_schema)
     gain = p.variable("gain")
-    with p.average(1000):
-        with p.for_loop(gain, 0.0, 1.0, 0.01):
-            p.set_gain(transmon_schema.q[0].drive, gain)
-            p.play(transmon_schema.q[0].drive, "pi_pulse")
-            p.sync()
-            p.measure(transmon_schema.q[0].readout, "readout", "weights")
+    with p.average(1000), p.for_loop(gain, 0.0, 1.0, 0.01):
+        p.set_gain(transmon_schema.q[0].drive, gain)
+        p.play(transmon_schema.q[0].drive, "pi_pulse")
+        p.sync()
+        p.measure(transmon_schema.q[0].readout, "readout", "weights")
     return p
 
 

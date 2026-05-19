@@ -150,8 +150,8 @@ Variable references are unquoted. Numeric arguments are decimal.
 ```
 play "drive_q0" pi_pulse
 play "drive_q0" Gaussian(amplitude=0.5, duration=40, num_sigmas=2.5)
-measure "readout_q0" "readout" "weights" name="q0_m0"
-measure "readout_q0" "readout" "weights" name="q0_m1" returns="iq,raw"
+measure "readout_q0" "readout" "weights" name="q0/readout/m0"
+measure "readout_q0" "readout" "weights" name="q0/readout/m1" returns="iq,raw"
 wait "drive_q0" 100
 wait "drive_q0" duration
 sync
@@ -285,7 +285,7 @@ line:
 require qblox 0.1
 
 body:
-  qblox.acquire "readout_q0" "weights" name="q0_m0"
+  qblox.acquire "readout_q0" "weights" name="q0/readout/m0"
   qblox.set_markers "drive_q0" "0001"
   qblox.active_reset "readout_q0" "readout" "weights" "drive_q0" "pi_pulse" trigger_address=1
 ```

@@ -28,11 +28,11 @@ def test_acquire_returns_handle_and_appends_op(qblox_program):
     assert isinstance(qblox_program.body.elements[0], Acquire)
 
 
-def test_acquire_uses_per_qubit_naming(qblox_program, transmon_schema):
+def test_acquire_uses_per_bus_naming(qblox_program, transmon_schema):
     h0 = qblox_program.qblox.acquire(transmon_schema.q[0].readout, "weights")
     h1 = qblox_program.qblox.acquire(transmon_schema.q[0].readout, "weights")
-    assert h0.name == "q0_m0"
-    assert h1.name == "q0_m1"
+    assert h0.name == "q0/readout/m0"
+    assert h1.name == "q0/readout/m1"
 
 
 def test_acquire_with_explicit_name(qblox_program):
@@ -53,11 +53,11 @@ def test_acquire_with_returns_iterable(qblox_program):
 
 
 def test_acquire_shares_counter_with_core_measure(qblox_program, transmon_schema):
-    """measure + acquire on the same qubit share the m0, m1, ... counter."""
+    """measure + acquire on the same bus share the m0, m1, ... counter."""
     h0 = qblox_program.measure(transmon_schema.q[0].readout, "wf", "weights")
     h1 = qblox_program.qblox.acquire(transmon_schema.q[0].readout, "weights")
-    assert h0.name == "q0_m0"
-    assert h1.name == "q0_m1"
+    assert h0.name == "q0/readout/m0"
+    assert h1.name == "q0/readout/m1"
 
 
 # ---------------------------------------------------------------------------

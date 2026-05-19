@@ -37,7 +37,6 @@ from qprogram import (
 )
 from qprogram.variable import _UnassignedType, _wrap
 
-
 # ---------------------------------------------------------------------------
 # UNASSIGNED sentinel
 # ---------------------------------------------------------------------------
@@ -345,10 +344,10 @@ def test_nested_arithmetic():
         (lambda a, b: a <= b, 2, 2, True),
         (lambda a, b: a > b, 3, 2, True),
         (lambda a, b: a >= b, 2, 2, True),
-        (lambda a, b: eq(a, b), 2, 2, True),
-        (lambda a, b: eq(a, b), 2, 3, False),
-        (lambda a, b: ne(a, b), 2, 3, True),
-        (lambda a, b: ne(a, b), 2, 2, False),
+        (eq, 2, 2, True),
+        (eq, 2, 3, False),
+        (ne, 2, 3, True),
+        (ne, 2, 2, False),
     ],
 )
 def test_comparison_evaluate(op_fn, left_val, right_val, expected):
@@ -505,8 +504,8 @@ def test_logical_binary_op_rejects_non_expression():
 
 def test_logical_binary_op_message_mentions_eq_helper_for_bool():
     # The error message specifically helps users who wrote `var == lit`.
-    with pytest.raises(TypeError, match="qprogram.eq"):
-        LogicalBinaryOp("and", True, Variable("x"))  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"qprogram\.eq"):
+        LogicalBinaryOp("and", True, Variable("x"))  # type: ignore[arg-type]  # noqa: FBT003
 
 
 def test_logical_not_rejects_non_expression():
@@ -711,7 +710,7 @@ def test_where_chosen_branch_only_evaluated():
 
 def test_where_rejects_non_expression_condition():
     with pytest.raises(TypeError, match="must be an Expression"):
-        Where(True, Constant(1), Constant(2))  # type: ignore[arg-type]
+        Where(True, Constant(1), Constant(2))  # type: ignore[arg-type]  # noqa: FBT003
 
 
 def test_where_helper_wraps_literal_branches():
@@ -768,9 +767,13 @@ def test_expression_bool_message_points_to_where():
 def test_expression_in_if_raises():
     v = Variable("x")
     v.set_value(3)
-    with pytest.raises(TypeError):
-        if v < 5:  # noqa: F841
+
+    def _bool_in_if() -> None:
+        if v < 5:
             pass
+
+    with pytest.raises(TypeError):
+        _bool_in_if()
 
 
 # ---------------------------------------------------------------------------

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
+from dataclasses import FrozenInstanceError
 
 import numpy as np
+import pytest
 
-from qprogram.blocks import Block, ForLoop, Loop
+from qprogram.blocks import Average, Block, ForLoop, Loop
 from qprogram.operations import Operation, Play
+from qprogram.serialization import registry
 from qprogram.serialization.registry import (
     BlockSpec,
     OperationSpec,
@@ -31,7 +33,6 @@ from qprogram.serialization.registry import (
 )
 from qprogram.waveforms import Square
 from qprogram.waveforms.waveform import Waveform
-
 
 # ---------------------------------------------------------------------------
 # Operation registration & lookups
@@ -99,7 +100,7 @@ def test_register_vendor_operation_alias():
         assert spec.cls is _Op
     finally:
         # Cleanup: remove the temp registration (registry is module-state).
-        from qprogram.serialization import registry
+
         registry._operation_specs_by_qualified.pop(("temp_vendor", "temp_op"), None)
         registry._operation_specs_by_class.pop(_Op, None)
 
@@ -113,7 +114,6 @@ def test_register_operation_returns_class():
     try:
         assert result is _Op
     finally:
-        from qprogram.serialization import registry
         registry._operation_specs_by_qualified.pop(("temp_vendor_2", "_test_op"), None)
         registry._operation_specs_by_class.pop(_Op, None)
 
@@ -139,7 +139,7 @@ def test_get_block_spec_unknown_returns_none():
 
 
 def test_get_block_spec_by_class():
-    from qprogram.blocks import Average
+
     spec = get_block_spec_by_class(Average)
     assert spec is not None
     assert spec.name == "average"
@@ -154,7 +154,6 @@ def test_register_block_returns_class():
         assert result is _Block
         assert get_block_spec("_test_block") is not None
     finally:
-        from qprogram.serialization import registry
         registry._block_specs_by_name.pop("_test_block", None)
         registry._block_specs_by_class.pop(_Block, None)
 
@@ -205,6 +204,7 @@ def test_get_sweep_generator_by_class_loop():
 
 def test_sweep_generator_spec_default_write_none():
     """A parse-only registration leaves write=None and skips by-class indexing."""
+
     class _ParseOnlyLoop(Block):
         pass
 
@@ -218,7 +218,6 @@ def test_sweep_generator_spec_default_write_none():
         assert spec.write is None
         assert get_sweep_generator_spec_by_class(_ParseOnlyLoop) is None
     finally:
-        from qprogram.serialization import registry
         registry._sweep_generator_specs_by_name.pop("_test_sweep", None)
 
 
@@ -236,7 +235,6 @@ def test_register_vendor_version():
     try:
         assert get_vendor_version("temp_test_vendor") == "1.2.3"
     finally:
-        from qprogram.serialization import registry
         registry._vendor_versions.pop("temp_test_vendor", None)
 
 
@@ -269,7 +267,6 @@ def test_register_waveform_decorator():
         assert cls is _TestWaveform  # decorator returns the class
         assert get_waveform_class("_TestWaveform") is _TestWaveform
     finally:
-        from qprogram.serialization import registry
         registry._waveform_registry.pop("_TestWaveform", None)
 
 
@@ -280,17 +277,17 @@ def test_register_waveform_decorator():
 
 def test_block_spec_frozen():
     spec = BlockSpec(name="test", cls=Block)
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         spec.name = "x"  # type: ignore[misc]
 
 
 def test_operation_spec_frozen():
     spec = OperationSpec(name="play", vendor=None, cls=Play)
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         spec.name = "x"  # type: ignore[misc]
 
 
 def test_sweep_generator_spec_frozen():
     spec = SweepGeneratorSpec(name="r", block_cls=ForLoop, parse=lambda *_a: None)
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         spec.name = "x"  # type: ignore[misc]

@@ -44,11 +44,7 @@ def ast_eq(a: Any, b: Any) -> bool:  # noqa: ANN401
     delegates to the value's own ``__eq__``.
     """
     if isinstance(a, np.ndarray) or isinstance(b, np.ndarray):
-        return (
-            isinstance(a, np.ndarray)
-            and isinstance(b, np.ndarray)
-            and bool(np.array_equal(a, b))
-        )
+        return isinstance(a, np.ndarray) and isinstance(b, np.ndarray) and bool(np.array_equal(a, b))
     if isinstance(a, list):
         if not isinstance(b, list) or len(a) != len(b):
             return False

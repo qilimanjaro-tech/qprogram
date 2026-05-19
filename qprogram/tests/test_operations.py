@@ -32,7 +32,6 @@ from qprogram.operations.operation import (
 )
 from qprogram.waveforms import Gaussian, Square
 
-
 # ---------------------------------------------------------------------------
 # Operation base — class-level conventions
 # ---------------------------------------------------------------------------
@@ -63,7 +62,7 @@ def test_play_waveform_attrs():
 
 
 def test_measure_construction():
-    op = Measure("readout", "wf", "weights", name="m0")
+    op = Measure("readout", "wf", "weights", handle=MeasurementHandle("m0"))
     assert op.bus == "readout"
     assert op.waveform == "wf"
     assert op.weights == "weights"
@@ -76,17 +75,17 @@ def test_measure_waveform_attrs():
 
 
 def test_measure_returns_string_input():
-    op = Measure("readout", "wf", "w", name="m0", returns="iq,raw")
+    op = Measure("readout", "wf", "w", handle=MeasurementHandle("m0"), returns="iq,raw")
     assert op.returns == ("iq", "raw")
 
 
 def test_measure_returns_tuple_input():
-    op = Measure("readout", "wf", "w", name="m0", returns=("iq", "raw"))
+    op = Measure("readout", "wf", "w", handle=MeasurementHandle("m0"), returns=("iq", "raw"))
     assert op.returns == ("iq", "raw")
 
 
 def test_measure_is_measurement_operation():
-    op = Measure("readout", "wf", "w", name="m0")
+    op = Measure("readout", "wf", "w", handle=MeasurementHandle("m0"))
     assert isinstance(op, MeasurementOperation)
 
 
@@ -222,7 +221,7 @@ def test_wait_no_variables_with_literal():
 def test_measure_variables_from_waveform_and_weights():
     v = Variable("amp")
     wf = Gaussian(amplitude=v, duration=2000, num_sigmas=2.5)
-    op = Measure("bus", wf, "w", name="m0")
+    op = Measure("bus", wf, "w", handle=MeasurementHandle("m0"))
     assert v in op.variables()
 
 
@@ -312,7 +311,7 @@ def test_play_waveforms():
 
 
 def test_measure_waveforms():
-    op = Measure("bus", "wf_alias", "weights_alias", name="m0")
+    op = Measure("bus", "wf_alias", "weights_alias", handle=MeasurementHandle("m0"))
     assert op.waveforms() == {"wf_alias", "weights_alias"}
 
 
@@ -340,7 +339,7 @@ def test_operation_walk_yields_self_only():
     [
         ("iq", ("iq",)),
         ("iq,raw", ("iq", "raw")),
-        ("iq, raw", ("iq", "raw")),       # whitespace tolerated
+        ("iq, raw", ("iq", "raw")),  # whitespace tolerated
         (" iq , raw ", ("iq", "raw")),
         (["iq"], ("iq",)),
         (["iq", "raw"], ("iq", "raw")),
@@ -428,7 +427,7 @@ def test_collect_variables_from_nested_structures():
 
 
 def test_measurement_operation_marker():
-    op = Measure("readout", "wf", "w", name="m0")
+    op = Measure("readout", "wf", "w", handle=MeasurementHandle("m0"))
     assert isinstance(op, MeasurementOperation)
 
 
@@ -449,8 +448,8 @@ def test_play_structural_equality():
 
 
 def test_measure_structural_equality():
-    a = Measure("b", "w", "wt", name="m0")
-    b = Measure("b", "w", "wt", name="m0")
+    a = Measure("b", "w", "wt", handle=MeasurementHandle("m0"))
+    b = Measure("b", "w", "wt", handle=MeasurementHandle("m0"))
     assert a == b
 
 
@@ -477,8 +476,8 @@ def test_unequal_to_non_operation():
 
 def test_measure_returns_default_constant_singleton():
     """Two Measure ops with default returns share the tuple value (not necessarily identity)."""
-    a = Measure("b", "w", "wt", name="m0")
-    b = Measure("b", "w", "wt", name="m1")
+    a = Measure("b", "w", "wt", handle=MeasurementHandle("m0"))
+    b = Measure("b", "w", "wt", handle=MeasurementHandle("m1"))
     assert a.returns == b.returns == ("iq",)
 
 

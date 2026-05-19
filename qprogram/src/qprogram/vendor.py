@@ -35,7 +35,7 @@ class VendorNamespace:
                 for item in value:
                     if isinstance(item, BusRef):
                         self._program._validate_bus(item)  # noqa: SLF001
-        self._program._active_block.append(operation)  # noqa: SLF001
+        self._program._append_to_active(operation)  # noqa: SLF001
 
     def _append_measurement(
         self,
@@ -66,11 +66,12 @@ class VendorNamespace:
                 )
         """
         allocated = self._program._allocate_measurement_name(bus, requested=name)  # noqa: SLF001
+        handle = MeasurementHandle(allocated)
         # ``MeasurementOperation`` is a marker base; concrete subclasses
-        # always accept ``bus`` and ``name`` plus per-class kwargs. Static
-        # analysers can't see that through the type variable — a Protocol
-        # with a generic constructor would, but it's more machinery than
-        # this single call site warrants.
-        op = op_cls(bus=bus, name=allocated, **kwargs)  # type: ignore[call-arg]  # ty:ignore[unknown-argument]
+        # always accept ``bus`` and ``handle`` plus per-class kwargs.
+        # Static analysers can't see that through the type variable — a
+        # Protocol with a generic constructor would, but it's more
+        # machinery than this single call site warrants.
+        op = op_cls(bus=bus, handle=handle, **kwargs)  # type: ignore[call-arg]  # ty:ignore[unknown-argument]
         self._append(op)
-        return MeasurementHandle(allocated)
+        return handle

@@ -330,10 +330,13 @@ class BusSchema:
     2. **Dynamic** — use ``add_element()`` for custom topologies (no static typing)::
 
         schema = BusSchema()
-        schema.add_element("q", buses={
-            "drive":   ("IQ", False),
-            "readout": ("IQ", True),
-        })
+        schema.add_element(
+            "q",
+            buses={
+                "drive": ("IQ", False),
+                "readout": ("IQ", True),
+            },
+        )
         schema.q[0].drive  # works at runtime, but IDE doesn't know about .q
 
     3. **Custom typed** — subclass for your own qubit types (see example below).

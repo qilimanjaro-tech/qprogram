@@ -25,16 +25,19 @@ data = result.get(m0)                  # xarray.DataArray
 
 If you do not pass `name=`, QProgram picks the name for you.
 
-| Bus kind                        | Auto-name format                                |
-|---------------------------------|-------------------------------------------------|
-| Schema-backed `q[0].readout`    | `q0_m<counter>` (`q0_m0`, `q0_m1`, ...)         |
-| Schema-backed `c[0, 1].readout` | `c0_1_m<counter>` (the index flattens with `_`) |
-| Raw string `"readout_q0"`       | `m<counter>`, global across raw-string buses    |
+| Bus kind                        | Auto-name format                                              |
+|---------------------------------|---------------------------------------------------------------|
+| Schema-backed `q[0].readout`    | `q0/readout/m<counter>` (`q0/readout/m0`, `q0/readout/m1`, …) |
+| Schema-backed `c[0, 1].flux`    | `c0_1/flux/m<counter>` (the index flattens with `_`)          |
+| Raw string `"readout_q0"`       | `m<counter>`, global across raw-string buses                  |
 
-Counters are per-element-index (so q0 and q1 each have their own
-`m<counter>`), and they always start at 0. The second measurement on q0
-becomes `q0_m1` regardless of how many measurements happened on q1 in
-between.
+The prefix for schema-backed buses is the bus's full string form (the same
+text that appears wherever else the bus shows up — the `.qp` `play` /
+`measure` lines, the `BusSchema.naming` pattern, the result-store keys).
+Each unique bus carries its own counter that always starts at 0, so a
+program that measures `q[0].readout` and then `q[0].drive` produces
+`q0/readout/m0` and `q0/drive/m0` — different counters because they live on
+different buses.
 
 The counter is recomputed by walking the AST. There is no hidden state on
 the program, so `copy.deepcopy`, `with_waveforms`, and `qp.loads(qp.dumps(...))`
@@ -53,20 +56,26 @@ Duplicate names raise `ValidationError`.
 ## Recovering handles after a round-trip
 
 `measure()` returns a handle, but the Python local that captured it is gone
-after a `.qp` reload. To get a fresh handle list from a loaded program:
+after a `.qp` reload. `measurement_handles()` returns the program's
+canonical handles in declaration order:
 
 ```python
 program = qp.load("rabi.qp")
-handles = program.measurement_handles()       # list, in declaration order
+handles = program.measurement_handles()       # canonical instances
 data    = result.get(handles[0])
 ```
 
-Handles use structural equality, so a fresh `MeasurementHandle("q0_m0")`
-constructed anywhere compares equal to the one produced at the original
-`measure` call site:
+The handles returned are the **same Python instances** the AST holds
+inside its measurement ops and any `MeasurementRef`s — writing to one
+via `handle._set_value(field, value)` is immediately visible everywhere
+the measurement is referenced.
+
+Handles also use structural equality, so a freshly-constructed
+`MeasurementHandle("q0/readout/m0")` compares equal to the canonical one —
+handy for result lookups by name without holding the original variable:
 
 ```python
-MeasurementHandle("q0_m0") == m0      # True if m0 was assigned that name
+MeasurementHandle("q0/readout/m0") == handles[0]      # True
 ```
 
 ## The `returns` field
@@ -110,10 +119,10 @@ data.coords["IQ"]       # ["I", "Q"]
 Three lookup forms work:
 
 ```python
-result.get(m0)                  # by handle (preferred)
-result.get("q0_m0")             # by name string
-result.get(0)                   # by integer position
-result.get(0, bus="readout_q0") # the same, filtered to one bus
+result.get(m0)                       # by handle (preferred)
+result.get("q0/readout/m0")          # by name string
+result.get(0)                        # by integer position
+result.get(0, bus="q0/readout")      # the same, filtered to one bus
 ```
 
 `data.sel(IQ="I")` peels off the I trace; `data.sel(freq=5e9, method="nearest")`
@@ -142,7 +151,7 @@ in declaration order:
 ```python
 m0 = program.measure(q[0].readout, "r", "w")
 m1 = program.measure(q[1].readout, "r", "w")
-m2 = program.measure(q[0].readout, "r", "w")    # q0_m1
+m2 = program.measure(q[0].readout, "r", "w")    # q0/readout/m1
 
 result.get(m0)              # first
 result.get(m1)              # second
@@ -158,6 +167,8 @@ Three cases:
 1. After `qp.load(...)` to get handles back without re-running the program.
 2. In test code that wants to assert against named measurements.
 3. When you serialise a program, hand it to another process, and need to
-   match results to operations later.
+   match results to operations later — or to inject classified state
+   values into the AST so any `Conditional` referencing them evaluates
+   correctly in Python.
 
 In every other case, hold on to the handle returned by `measure`.

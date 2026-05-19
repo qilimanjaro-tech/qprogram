@@ -25,12 +25,15 @@ from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 
+from qprogram.blocks.conditional import Conditional
 from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
 from qprogram.buses import BusNaming, BusRef, BusSchema
 from qprogram.errors import QProgramError
+from qprogram.operations.operation import MeasurementOperation
 from qprogram.qprogram import QProgram
+from qprogram.result import MeasurementHandle
 from qprogram.serialization import _specs as _core_specs
 from qprogram.serialization.registry import (
     get_block_spec,
@@ -39,7 +42,7 @@ from qprogram.serialization.registry import (
     get_vendor_version,
     get_waveform_class,
 )
-from qprogram.variable import _ID_RE
+from qprogram.variable import _ID_RE, MeasurementRef
 
 if TYPE_CHECKING:
     from qprogram.blocks.block import Block
@@ -97,6 +100,7 @@ class _Parser:
         self._pos = 0
         self._program = QProgram()
         self._variables: dict[str, Variable] = {}
+        self._handles: dict[str, MeasurementHandle] = {}
         self._required_vendors: set[str] = set()
 
     # -- public entry point --------------------------------------------------
@@ -168,8 +172,7 @@ class _Parser:
                 tokens = line.split()
                 if len(tokens) != 3:
                     msg = (
-                        f"`require` declaration must specify a version: "
-                        f"`require <vendor> <major.minor>`. Got: {line!r}"
+                        f"`require` declaration must specify a version: `require <vendor> <major.minor>`. Got: {line!r}"
                     )
                     raise ParseError(msg, self._pos + 1)
                 _, vendor, file_version = tokens
@@ -300,10 +303,7 @@ class _Parser:
                 break
             m = _BUS_LINE_RE.match(line)
             if not m:
-                msg = (
-                    f"invalid bus declaration in schema body: {line!r}; "
-                    f"expected `<kind> info=<channel>[+acquires]`"
-                )
+                msg = f"invalid bus declaration in schema body: {line!r}; expected `<kind> info=<channel>[+acquires]`"
                 raise ParseError(msg, self._pos + 1)
             kind, info_value = m.group(1), m.group(2)
             if kind in buses:
@@ -425,6 +425,16 @@ class _Parser:
             if op is not None:
                 self._upgrade_busrefs(op)
                 parent.append(op)
+                # Track measurement handles so subsequent conditions can
+                # resolve ``<name>.<field>`` references.
+                if isinstance(op, MeasurementOperation):
+                    # The op's canonical handle was already obtained via
+                    # ctx.get_or_create_handle(name) inside the custom
+                    # parse callback for the measurement op (see
+                    # _specs.py:measurement_op_parse). Re-publishing here
+                    # is idempotent (same instance) and provides a safety
+                    # net if a future vendor op skips the custom callback.
+                    self._handles[op.name] = op.handle
             self._pos += 1
 
     def _try_parse_block_header(self, parent: Block, line: str, min_indent: int) -> bool:
@@ -436,19 +446,94 @@ class _Parser:
         if header.startswith("for ") or ("|" in header and "for " in header):
             self._parse_loop_or_parallel(parent, header, min_indent)
             return True
+        # Conditional family: ``if`` opens a chain; ``elif``/``else`` here
+        # without a preceding ``if`` at the same level is a parse error
+        # (the well-formed case is handled inside _parse_conditional).
+        if header.startswith("if ") or header == "if":
+            self._parse_conditional(parent, header, min_indent)
+            return True
+        if header.startswith("elif ") or header in {"elif", "else"}:
+            msg = f"{header.split()[0]!r} without a preceding `if:` at the same indent level"
+            raise ParseError(msg, self._pos + 1)
         # Keyword-led block: leading word maps to a registered BlockSpec.
         first_token, _, rest = header.partition(" ")
         spec = get_block_spec(first_token)
         if spec is None:
             return False
         tokens = _tokenize(rest) if rest.strip() else []
-        block: Block = (
-            spec.parse_header(tokens, self) if spec.parse_header is not None else spec.cls()
-        )
+        block: Block = spec.parse_header(tokens, self) if spec.parse_header is not None else spec.cls()
         parent.append(block)
         self._pos += 1
         self._parse_statements(block, min_indent + 2)
         return True
+
+    def _parse_conditional(self, parent: Block, header: str, min_indent: int) -> None:
+        """Parse an ``if`` block plus any ``elif`` / ``else`` continuation arms.
+
+        Each arm is ``<keyword> [<condition>]:`` followed by an indented
+        body. The chain stops at the first non-``elif``/``else`` line at
+        the same indent level (or any line that outdents).
+        """
+        if header == "if":
+            msg = "`if` requires a condition: `if <expr>:`"
+            raise ParseError(msg, self._pos + 1)
+        cond = Conditional()
+        parent.append(cond)
+        self._parse_conditional_arm(cond, header, min_indent, keyword="if")
+        while self._pos < len(self._lines):
+            line = self._stripped()
+            indent = self._indent()
+            if not line:
+                self._pos += 1
+                continue
+            if indent != min_indent:
+                break
+            if not line.endswith(":"):
+                break
+            arm_header = line[:-1].rstrip()
+            if arm_header.startswith("elif "):
+                if cond.else_body is not None:
+                    msg = "`elif` cannot follow `else` in the same chain"
+                    raise ParseError(msg, self._pos + 1)
+                self._parse_conditional_arm(cond, arm_header, min_indent, keyword="elif")
+                continue
+            if arm_header == "else":
+                if cond.else_body is not None:
+                    msg = "multiple `else` arms in the same conditional chain"
+                    raise ParseError(msg, self._pos + 1)
+                self._parse_conditional_else(cond, min_indent)
+                continue
+            break
+
+    def _parse_conditional_arm(
+        self,
+        cond: Conditional,
+        header: str,
+        min_indent: int,
+        *,
+        keyword: str,
+    ) -> None:
+        """Parse one ``if``/``elif`` arm: condition + indented body."""
+        expr_text = header[len(keyword) + 1 :].strip()
+        if not expr_text:
+            msg = f"`{keyword}` requires a condition"
+            raise ParseError(msg, self._pos + 1)
+        # Reuse the parenthesised-expression parser for the Comparison
+        # shape; writer omits the outer parens for top-level conditions,
+        # so synthesize them back.
+        wrapped = expr_text if expr_text.startswith("(") and expr_text.endswith(")") else f"({expr_text})"
+        condition = self._parse_paren_expression(wrapped)
+        arm_body = self._program._body.__class__()  # noqa: SLF001  # build a bare Block instance
+        cond.arms.append((condition, arm_body))  # type: ignore[arg-type]
+        self._pos += 1
+        self._parse_statements(arm_body, min_indent + 2)
+
+    def _parse_conditional_else(self, cond: Conditional, min_indent: int) -> None:
+        """Parse the terminal ``else:`` arm."""
+        else_body = self._program._body.__class__()  # noqa: SLF001
+        cond.else_body = else_body
+        self._pos += 1
+        self._parse_statements(else_body, min_indent + 2)
 
     def _parse_loop_or_parallel(self, parent: Block, header: str, min_indent: int) -> None:
         loop_parts = [p.strip() for p in header.split("|")]
@@ -598,6 +683,13 @@ class _Parser:
         # share the function-call form with waveform constructors.
         if "(" in tok and not tok[0].isdigit() and not tok.startswith("-"):
             return self._parse_function_call(tok)
+        # Measurement-handle field reference: ``<handle_name>.<field>``.
+        # Checked before the variable lookup because a dotted token can't
+        # be a Variable id (Variable.id is restricted to [A-Za-z_][\w]*).
+        if "." in tok and not tok.startswith("."):
+            head, _, tail = tok.partition(".")
+            if head in self._handles and tail:
+                return MeasurementRef(self._handles[head], tail)
         if tok in self._variables:
             return self._variables[tok]
         try:
@@ -717,6 +809,18 @@ class _Parser:
     def declared_variable(self, name: str) -> Variable | None:
         """Return the declared :class:`Variable` named ``name``, or ``None``."""
         return self._variables.get(name)
+
+    def get_or_create_handle(self, name: str) -> MeasurementHandle:
+        """Return the canonical :class:`MeasurementHandle` for ``name``, creating it on demand.
+
+        The same instance is returned for every call with the same name
+        during a single parse, so every measurement op, every
+        :class:`MeasurementRef`, and every other consumer of the handle
+        end up sharing one Python object.
+        """
+        if name not in self._handles:
+            self._handles[name] = MeasurementHandle(name)
+        return self._handles[name]
 
 
 # ---------------------------------------------------------------------------
@@ -849,7 +953,8 @@ def _parse_waveform_expr(expr: str, variables: dict[str, Variable] | None = None
 
 
 def _parse_constructor_args(
-    args_str: str, variables: dict[str, Variable] | None = None,
+    args_str: str,
+    variables: dict[str, Variable] | None = None,
 ) -> tuple[list, dict]:
     pos: list = []
     kw: dict = {}
@@ -918,5 +1023,3 @@ def _parse_arg(val: str, variables: dict[str, Variable] | None = None) -> object
         return _parse_number(val)
     except ValueError:
         return val
-
-

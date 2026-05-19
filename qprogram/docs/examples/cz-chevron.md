@@ -80,8 +80,8 @@ body:
       sync
       play q[0].flux FlatTop(amplitude=amp, duration=dur, smooth_duration=5)
       sync
-      measure q[0].readout "readout" "weights" name="q0_m0"
-      measure q[1].readout "readout" "weights" name="q1_m0"
+      measure q[0].readout "readout" "weights" name="q0/readout/m0"
+      measure q[1].readout "readout" "weights" name="q1/readout/m0"
 ```
 
 ## Reading the results

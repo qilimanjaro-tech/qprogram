@@ -7,6 +7,7 @@ from qprogram.operations.operation import MeasurementOperation, normalize_return
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from qprogram.result import MeasurementHandle
     from qprogram.waveforms.waveform import IQWaveform
 
 
@@ -16,14 +17,18 @@ class Measure(MeasurementOperation):
     ``returns`` is the canonical tuple of return-type tokens for this
     measurement. The default ``("iq",)`` matches the historical behaviour
     of returning in-phase / quadrature data. ``"raw"`` requests the raw
-    ADC trace alongside; ``"state"`` (forward-looking) will request a
-    classified outcome once the platform-side classifier lands. Platforms
-    decide which tokens they recognise.
+    ADC trace alongside; ``"state"`` requests a classified outcome
+    (required when the program references ``handle.state`` in a
+    conditional). Platforms decide which tokens they recognise.
 
-    ``name`` is the measurement's :class:`~qprogram.MeasurementHandle`
-    name, assigned at construction time by :meth:`QProgram.measure`. It
-    is part of the AST node so that round-tripping through ``.qp``
-    preserves handle identity.
+    ``handle`` is the *canonical*
+    :class:`~qprogram.MeasurementHandle` — the same Python instance the
+    user got back from :meth:`QProgram.measure`, the same instance every
+    :class:`~qprogram.MeasurementRef` inside a conditional points at,
+    and the same instance returned by
+    :meth:`~qprogram.QProgram.measurement_handles`. The runtime writes
+    per-measurement values onto this handle once and every reader sees
+    them.
     """
 
     WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ("waveform", "weights")
@@ -33,13 +38,13 @@ class Measure(MeasurementOperation):
         bus: str,
         waveform: IQWaveform | str,
         weights: IQWaveform | str,
-        name: str,
+        handle: MeasurementHandle,
         returns: str | Iterable[str] = ("iq",),
     ) -> None:
         self.bus = bus
         self.waveform = waveform
         self.weights = weights
-        self.name = name
+        self.handle = handle
         self.returns: tuple[str, ...] = normalize_returns(returns)
 
     def required_capabilities(self) -> set[str]:

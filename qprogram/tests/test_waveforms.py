@@ -21,7 +21,6 @@ from qprogram.waveforms import (
     Waveform,
 )
 
-
 # ---------------------------------------------------------------------------
 # Square
 # ---------------------------------------------------------------------------
@@ -278,11 +277,11 @@ def test_chained_empty():
 
 
 def test_iq_pair_components():
-    I = Square(1.0, 10)
-    Q = Square(0.0, 10)
-    wf = IQPair(I, Q)
-    assert wf.get_I() is I
-    assert wf.get_Q() is Q
+    i_wf = Square(1.0, 10)
+    q_wf = Square(0.0, 10)
+    wf = IQPair(i_wf, q_wf)
+    assert wf.get_I() is i_wf
+    assert wf.get_Q() is q_wf
 
 
 def test_iq_pair_get_duration():

@@ -32,6 +32,9 @@ the narrative guides where helpful.
         - loop
         - average
         - block
+        - if_
+        - elif_
+        - else_
         - with_bus_mapping
         - with_waveforms
 
@@ -84,6 +87,10 @@ the narrative guides where helpful.
       show_root_full_path: false
 
 ::: qprogram.Where
+    options:
+      show_root_full_path: false
+
+::: qprogram.MeasurementRef
     options:
       show_root_full_path: false
 
@@ -156,6 +163,7 @@ the narrative guides where helpful.
         - ForLoop
         - Loop
         - Parallel
+        - Conditional
 
 ## Crosstalk
 

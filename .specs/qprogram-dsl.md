@@ -363,6 +363,7 @@ QProgram has a small AST for **symbolic expressions** — anywhere an operation 
 | `Expression` | Abstract base. Anything usable where a number is expected. | — |
 | `Variable` | Leaf. Symbolic placeholder identified by `id`. Holds a value — initially `UNASSIGNED`, set via `set_value()`. | **Structural by id** — two `Variable` instances with the same `id` compare equal. |
 | `Constant` | Leaf. A concrete numeric value. | **Structural** — `Constant(5) == Constant(5)`. |
+| `MeasurementRef` | Leaf. Reference to a field of a measurement result (today only `field == "state"`). Built via `handle.state`. | **Structural** by `(handle.name, field)` — distinct refs to the same handle/field are equal. |
 | `BinaryOp` | Internal node. Arithmetic operator (`+`, `-`, `*`, `/`) over two expressions. | **Structural** — same op, same operands. |
 | `UnaryOp` | Internal node. Unary operator (`-`, `+`) over one expression. | **Structural**. |
 | `Comparison` | Internal node. Comparison operator (`==`, `!=`, `<`, `<=`, `>`, `>=`) over two expressions. | **Structural**. |
@@ -967,6 +968,29 @@ with program.block():
     program.play("drive_q0", pulse)
     program.wait("drive_q0", 100)
 ```
+**`if_(condition) / elif_(condition) / else_()`** — conditional execution
+Branch on a measurement result. The condition is a `Comparison` whose operands are `MeasurementRef`s (built via `handle.<field>`) or `int` literal `Constant`s, with at least one `MeasurementRef` somewhere in the comparison. v1 accepts all of these shapes:
+
+- `handle.state == 0` / `handle.state != 1` — measurement vs literal
+- `0 == handle.state` — literal vs measurement (same Comparison, MeasurementRef ends up on the left)
+- `m1.state == m2.state` / `m1.state != m2.state` — measurement vs measurement
+- `qp.eq(handle.state, 0)` / `qp.ne(handle.state, 0)` — same as the operator forms; equivalent ergonomic
+
+Richer shapes (bare `Variable` comparisons, logical combinations) are planned for a follow-up; the validator emits a clear error pointing at the rejected shape.
+
+```python
+m = program.measure(q[0].readout, "readout", "weights", returns="iq,state")
+with program.if_(m.state == 1):
+    program.play(q[0].drive, "pi_pulse")
+with program.elif_(m.state == 0):
+    program.play(q[0].drive, "id_pulse")
+with program.else_():
+    program.sync()
+```
+`elif_` and `else_` must immediately follow the matching `if_` / `elif_` block at the same nesting level. Any other append at that level between arms closes the chain and a following `elif_` / `else_` raises `ValidationError`. This mirrors how Python's own `if/elif/else` parser handles continuation.
+**Classification gating.** Referencing `handle.state` requires the measurement op's `returns` to include `"state"`. The validator emits a `missing-classification` diagnostic when the requirement is unmet.
+**AST shape.** The construct produces a flat `Conditional(arms=[(condition, body), ...], else_body=Block | None)` block. The arms list preserves source order; `else_body` is `None` when no `else_()` arm was supplied. Compilers that want to inspect the chain iterate the arms directly.
+**Replaces** the historical role of `qblox.active_reset` for portable active-reset choreographies — the conditional expresses the same intent without committing to a vendor extension. The vendor op remains as a convenience for backends that optimize the lowering differently.
 ## 6.2 Nesting
 Blocks can be arbitrarily nested. The program's `body` is the root block; all operations and blocks are descendants of it.
 ```python
@@ -1291,3 +1315,4 @@ print(I_values)
 - [x] **`set_offset`**** dual path**: **Resolved** — core `set_offset` keeps a generic signature; Qblox-specific dual-path behavior is handled by the compiler.
 - [x] **Variable arithmetic**: **Resolved** — expressions support `+`, `-`, `*`, `/`, and unary `-` via the `Expression` AST (Section 3).
 - [x] **Error model**: **Resolved** — a structured `validate()` pass runs before compilation and returns a list of `Diagnostic` objects (Section 9). Platforms decide whether to raise on diagnostics; the typical `execute()` does. `severity` is `"error"` today; `"warning"` is reserved for a future software-fallback story.
+- [x] **Conditional execution / mid-circuit branching**: **Resolved** (v1) — `program.if_(condition) / elif_(condition) / else_()` with sequential `with` blocks. Conditions are restricted to `Comparison` with at least one `MeasurementRef` operand and `int` literals or other `MeasurementRef`s on the remaining side(s); both operator (`handle.state == 0`, `m1.state == m2.state`) and helper (`qp.eq(handle.state, 0)`) ergonomics are supported. Richer boolean shapes (variable comparisons, logical combinations) are a follow-up. AST: flat `Conditional(arms=[(cond, body), ...], else_body)`. See Section 6.1.

@@ -115,6 +115,7 @@ _BLOCKS: frozenset[str] = frozenset(
         "block.for_loop",
         "block.loop",
         "block.parallel",
+        "block.conditional",
     },
 )
 
@@ -142,12 +143,16 @@ _EXPRS: frozenset[str] = frozenset(
     {
         "expr.constant",
         "expr.variable",
+        "expr.measurement_ref",
         "expr.binary_op",
         "expr.unary_op",
+        "expr.comparison",
     },
 )
 
-_RETURNS: frozenset[str] = frozenset({"measure.returns.iq", "measure.returns.raw"})
+_RETURNS: frozenset[str] = frozenset(
+    {"measure.returns.iq", "measure.returns.raw", "measure.returns.state"},
+)
 
 _VENDOR: frozenset[str] = frozenset(
     {

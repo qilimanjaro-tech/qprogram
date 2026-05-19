@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from qprogram import Variable
+from qprogram import MeasurementHandle, Variable
 from qprogram.waveforms import IQDrag, IQPair, Square
 from qprogram_qblox.operations import (
     Acquire,
@@ -22,7 +22,7 @@ from qprogram_qblox.operations import (
 
 
 def test_acquire_construct_defaults():
-    op = Acquire("readout", "weights", name="q0_m0")
+    op = Acquire("readout", "weights", handle=MeasurementHandle("q0_m0"))
     assert op.bus == "readout"
     assert op.weights == "weights"
     assert op.name == "q0_m0"
@@ -30,17 +30,17 @@ def test_acquire_construct_defaults():
 
 
 def test_acquire_returns_normalized_from_iterable():
-    op = Acquire("readout", "weights", name="m0", returns=["iq", "raw"])
+    op = Acquire("readout", "weights", handle=MeasurementHandle("m0"), returns=["iq", "raw"])
     assert op.returns == ("iq", "raw")
 
 
 def test_acquire_returns_normalized_from_csv_string():
-    op = Acquire("readout", "weights", name="m0", returns="iq,raw")
+    op = Acquire("readout", "weights", handle=MeasurementHandle("m0"), returns="iq,raw")
     assert op.returns == ("iq", "raw")
 
 
 def test_acquire_introspection():
-    op = Acquire("bus", "weights", name="m0")
+    op = Acquire("bus", "weights", handle=MeasurementHandle("m0"))
     assert list(op.buses()) == ["bus"]
     assert list(op.waveforms()) == ["weights"]
     assert list(op.variables()) == []
@@ -48,21 +48,21 @@ def test_acquire_introspection():
 
 def test_acquire_with_inline_waveform():
     wf = IQPair(Square(1.0, 100), Square(1.0, 100))
-    op = Acquire("bus", wf, name="m0")
+    op = Acquire("bus", wf, handle=MeasurementHandle("m0"))
     assert op.weights is wf
     assert list(op.waveforms()) == [wf]
 
 
 def test_acquire_structural_equality():
-    a = Acquire("bus", "w", name="m0", returns=("iq",))
-    b = Acquire("bus", "w", name="m0", returns=("iq",))
+    a = Acquire("bus", "w", handle=MeasurementHandle("m0"), returns=("iq",))
+    b = Acquire("bus", "w", handle=MeasurementHandle("m0"), returns=("iq",))
     assert a == b
     assert hash(a) == hash(b)
 
 
 def test_acquire_distinct_when_different():
-    a = Acquire("bus", "w", name="m0")
-    b = Acquire("bus", "w", name="m1")
+    a = Acquire("bus", "w", handle=MeasurementHandle("m0"))
+    b = Acquire("bus", "w", handle=MeasurementHandle("m1"))
     assert a != b
 
 

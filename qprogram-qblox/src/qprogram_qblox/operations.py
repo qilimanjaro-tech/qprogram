@@ -12,11 +12,14 @@ where its data shape differs from the core ``Operation`` defaults. The base
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from qprogram.operations.operation import MeasurementOperation, Operation, normalize_returns
 from qprogram.variable import Expression
 from qprogram.waveforms.waveform import IQWaveform
+
+if TYPE_CHECKING:
+    from qprogram.result import MeasurementHandle
 
 
 class Acquire(MeasurementOperation):
@@ -29,6 +32,9 @@ class Acquire(MeasurementOperation):
     per-qubit name counter (so an ``acquire`` after a ``measure`` on the
     same qubit picks up the next free name on that qubit).
 
+    ``handle`` carries the canonical :class:`~qprogram.MeasurementHandle`
+    — see :class:`~qprogram.operations.Measure` for the design rationale.
+
     ``returns`` controls what the platform returns for this acquisition
     (default ``("iq",)``); see :class:`~qprogram.operations.Measure` for
     the full description.
@@ -40,12 +46,12 @@ class Acquire(MeasurementOperation):
         self,
         bus: str,
         weights: IQWaveform | str,
-        name: str,
+        handle: MeasurementHandle,
         returns: str | Iterable[str] = ("iq",),
     ) -> None:
         self.bus = bus
         self.weights = weights
-        self.name = name
+        self.handle = handle
         self.returns: tuple[str, ...] = normalize_returns(returns)
 
     def required_capabilities(self) -> set[str]:

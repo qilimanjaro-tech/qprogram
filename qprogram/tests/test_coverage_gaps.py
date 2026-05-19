@@ -7,11 +7,31 @@ serialize paths, and a couple of registry edge conditions.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 import qprogram as qp
-from qprogram import serialization
-
+from qprogram import BusSchema, ParseError, Variable, serialization
+from qprogram.blocks import Block
+from qprogram.buses import BusRef
+from qprogram.operations import Wait
+from qprogram.operations.operation import Operation
+from qprogram.serialization import registry
+from qprogram.serialization._specs import default_parse_operation, default_serialize_operation
+from qprogram.serialization.parser import (
+    _parse_constructor_args,
+    _parse_waveform_expr,
+    _Parser,
+    _unescape_str,
+)
+from qprogram.serialization.registry import (
+    OperationSpec,
+    get_operation_spec,
+    get_operation_vendor_name,
+)
+from qprogram.serialization.writer import _Writer
+from qprogram.vendor import VendorNamespace
+from qprogram.waveforms import Square
 
 # ---------------------------------------------------------------------------
 # Lazy __getattr__ fallbacks: unknown attribute raises AttributeError.
@@ -55,8 +75,6 @@ def test_qprogram_lazy_parse_error():
 
 def test_writer_unknown_operation_emits_comment():
     """Operation not registered in the registry → emit a `# unknown ...` comment."""
-    from qprogram.operations.operation import Operation
-    from qprogram.serialization.writer import _Writer
 
     class _GhostOp(Operation):
         def __init__(self) -> None: ...
@@ -68,8 +86,6 @@ def test_writer_unknown_operation_emits_comment():
 
 
 def test_writer_unknown_block_emits_comment():
-    from qprogram.blocks import Block
-    from qprogram.serialization.writer import _Writer
 
     class _GhostBlock(Block):
         pass
@@ -82,8 +98,6 @@ def test_writer_unknown_block_emits_comment():
 
 def test_writer_unknown_sweep_block_emits_comment():
     """A loop block class that isn't registered as a sweep generator."""
-    from qprogram.blocks import Block
-    from qprogram.serialization.writer import _Writer
 
     class _GhostLoop(Block):
         pass
@@ -103,7 +117,6 @@ def test_writer_unknown_sweep_block_emits_comment():
 
 def test_get_operation_vendor_name_unregistered():
     """If a class isn't in the operation registry, get_operation_vendor_name returns None."""
-    from qprogram.serialization.registry import get_operation_vendor_name
 
     class _NotRegistered:
         pass
@@ -118,8 +131,6 @@ def test_get_operation_vendor_name_unregistered():
 
 def test_serialize_waveform_skips_private_attrs():
     """Waveforms with a `_private` attr should not have it emitted."""
-    from qprogram.serialization.writer import _Writer
-    from qprogram.waveforms import Square
 
     p = qp.QProgram(label="x")
     wf = Square(0.5, 100)
@@ -136,9 +147,6 @@ def test_serialize_waveform_skips_private_attrs():
 
 
 def test_default_parse_operation_skips_empty_tokens():
-    from qprogram.serialization._specs import default_parse_operation
-    from qprogram.serialization.parser import _Parser
-    from qprogram.serialization.registry import get_operation_spec
 
     spec = get_operation_spec(None, "reset_phase")
     parser = _Parser("#!QProgram 1.0\nbody:\n")
@@ -149,7 +157,7 @@ def test_default_parse_operation_skips_empty_tokens():
 
 def test_typed_element_accessor_repr():
     """Direct repr of a typed element accessor returns the bracket form."""
-    from qprogram.buses import BusSchema
+
     schema = BusSchema.transmon()
     r = repr(schema.q[0])
     assert "q" in r
@@ -158,7 +166,7 @@ def test_typed_element_accessor_repr():
 
 def test_validate_bus_with_metadata_less_busref():
     """A BusRef constructed manually without element/kind passes through validation."""
-    from qprogram.buses import BusRef
+
     ref = BusRef("anything", element="", index=0, kind="", channel="IQ", acquires=False)
     p = qp.QProgram()
     # Should not raise: opaque/manually-constructed BusRefs skip validation.
@@ -167,7 +175,7 @@ def test_validate_bus_with_metadata_less_busref():
 
 def test_validate_bus_without_recorded_schema():
     """A BusRef with element/kind but schema=None is deferred to other validators."""
-    from qprogram.buses import BusRef
+
     ref = BusRef("q0/drive", element="q", index=0, kind="drive", channel="IQ", acquires=False, schema=None)
     p = qp.QProgram()
     p._validate_bus(ref)  # no exception
@@ -175,8 +183,7 @@ def test_validate_bus_without_recorded_schema():
 
 def test_resolve_bus_path_returns_none_for_non_path():
     """Token that doesn't match the bus-path regex returns None (not a parse error)."""
-    from qprogram import BusSchema
-    from qprogram.serialization.parser import _Parser
+
     schema = BusSchema.transmon()
     parser = _Parser("#!QProgram 1.0\nbody:\n")
     parser._parse_header()
@@ -186,7 +193,7 @@ def test_resolve_bus_path_returns_none_for_non_path():
 
 
 def test_resolve_bus_path_no_schema_returns_none():
-    from qprogram.serialization.parser import _Parser
+
     parser = _Parser("#!QProgram 1.0\nbody:\n")
     parser._parse_header()
     # program.schema is None — no resolution.
@@ -195,20 +202,19 @@ def test_resolve_bus_path_no_schema_returns_none():
 
 def test_unescape_str_trailing_backslash():
     """Lone trailing backslash survives intact."""
-    from qprogram.serialization.parser import _unescape_str
+
     assert _unescape_str("a\\") == "a\\"
 
 
 def test_parse_waveform_expr_unknown_class_raises():
-    from qprogram import ParseError
-    from qprogram.serialization.parser import _parse_waveform_expr
+
     with pytest.raises(ParseError, match="Unknown waveform type"):
         _parse_waveform_expr("NoSuchWaveform()")
 
 
 def test_writer_serialize_value_passthrough_str_value():
     """Writer handles a plain ``str`` value at top level by quoting it."""
-    from qprogram.serialization.writer import _Writer
+
     w = _Writer(qp.QProgram(label="x"))
     w._allocate_var_idents()
     assert w.serialize_value("hello") == '"hello"'
@@ -216,8 +222,6 @@ def test_writer_serialize_value_passthrough_str_value():
 
 def test_vendor_append_skips_non_bus_attrs():
     """_append walks vars(op) and only validates BusRef / list-of-BusRef entries."""
-    from qprogram.operations.operation import Operation
-    from qprogram.vendor import VendorNamespace
 
     class _MixedOp(Operation):
         def __init__(self, bus: str, label: str, port: int) -> None:
@@ -241,8 +245,6 @@ def test_vendor_append_skips_non_bus_attrs():
 
 def test_vendor_append_list_with_non_busref_skipped():
     """A list attribute whose elements are not all BusRefs gets the non-BusRef items skipped."""
-    from qprogram.operations.operation import Operation
-    from qprogram.vendor import VendorNamespace
 
     class _ListOp(Operation):
         def __init__(self, targets: list) -> None:
@@ -264,13 +266,9 @@ def test_vendor_append_list_with_non_busref_skipped():
 
 def test_default_serialize_operation_skips_missing_attr():
     """If __init__ has a param without a stored attribute, the serializer skips it."""
-    from qprogram.operations.operation import Operation
-    from qprogram.serialization._specs import default_serialize_operation
-    from qprogram.serialization.registry import OperationSpec
-    from qprogram.serialization.writer import _Writer
 
     class _OddOp(Operation):
-        def __init__(self, bus: str, extra: int = 5) -> None:
+        def __init__(self, bus: str, extra: int = 5) -> None:  # noqa: ARG002
             self.bus = bus
             # Note: ``extra`` is in the signature but not stored.
 
@@ -291,8 +289,6 @@ def test_default_serialize_operation_skips_missing_attr():
 
 def test_operation_variables_skips_private_attrs():
     """``Operation.variables`` should walk only public attrs, never `_x`."""
-    from qprogram import Variable
-    from qprogram.operations import Wait
 
     op = Wait("bus", Variable("v"))
     op._private_var = Variable("private")  # type: ignore[attr-defined]
@@ -308,7 +304,7 @@ def test_typed_element_factory_base_getitem_via_subclass():
     # No-op: the line was already covered when we constructed a factory
     # subclass like `TransmonQubitFactory`. This test exists purely to
     # confirm the path is hit.
-    from qprogram import BusSchema
+
     _ = BusSchema.transmon().q[0]
     assert True
 
@@ -337,7 +333,6 @@ def test_parser_non_block_non_var_line_falls_to_operation():
 
 def test_parse_operation_empty_line_returns_none():
     """The empty-tokens branch of `_parse_operation` returns None."""
-    from qprogram.serialization.parser import _Parser
 
     parser = _Parser("#!QProgram 1.0\nbody:\n")
     parser._parse_header()
@@ -346,7 +341,7 @@ def test_parse_operation_empty_line_returns_none():
 
 def test_parse_value_returns_bare_identifier_as_string():
     """An unknown bare identifier — not a variable, not a number — returns the string."""
-    from qprogram.serialization.parser import _Parser
+
     parser = _Parser("#!QProgram 1.0\nbody:\n")
     parser._parse_header()
     # Not in variables, not a number, not a function call: returns the raw string.
@@ -355,7 +350,7 @@ def test_parse_value_returns_bare_identifier_as_string():
 
 def test_parse_value_finds_declared_variable():
     """A declared variable is resolved to the Variable object."""
-    from qprogram.serialization.parser import _Parser
+
     parser = _Parser("#!QProgram 1.0\nbody:\n")
     parser._parse_header()
     v = parser.get_or_declare_variable("x")
@@ -363,7 +358,7 @@ def test_parse_value_finds_declared_variable():
 
 
 def test_parse_value_number():
-    from qprogram.serialization.parser import _Parser
+
     parser = _Parser("#!QProgram 1.0\nbody:\n")
     parser._parse_header()
     assert parser.parse_value("42") == 42
@@ -371,7 +366,7 @@ def test_parse_value_number():
 
 def test_parse_constructor_args_skips_blank_entries():
     """Constructor arg lists with empty entries (e.g., trailing commas) skip them."""
-    from qprogram.serialization.parser import _parse_constructor_args
+
     pos, kw = _parse_constructor_args("0.5, , 100")
     # Two values; the blank one is skipped.
     assert pos == [0.5, 100]
@@ -380,16 +375,14 @@ def test_parse_constructor_args_skips_blank_entries():
 
 def test_get_operation_vendor_name_for_vendor_op():
     """For a registered vendor op, returns the (vendor, name) tuple."""
-    import qprogram_qblox  # noqa: F401
-    from qprogram.serialization.registry import get_operation_vendor_name
-    from qprogram_qblox.operations import Acquire
+    import qprogram_qblox  # noqa: F401, PLC0415  # conditional vendor import
+    from qprogram_qblox.operations import Acquire  # noqa: PLC0415  # conditional vendor import
+
     assert get_operation_vendor_name(Acquire) == ("qblox", "acquire")
 
 
 def test_writer_serialize_numpy_integer():
     """``serialize_value`` of a numpy.integer returns its int repr."""
-    import numpy as np
-    from qprogram.serialization.writer import _Writer
 
     w = _Writer(qp.QProgram(label="x"))
     w._allocate_var_idents()
@@ -400,8 +393,6 @@ def test_parallel_with_non_loop_inner_raises():
     """If a custom sweep generator produced something other than ForLoop/Loop,
     the parser would reject it on Parallel composition. We can't reach this
     naturally with built-in generators, so register a temporary one."""
-    from qprogram.blocks import Block
-    from qprogram.serialization import registry
 
     class _OddBlock(Block):
         def __init__(self, variable, x):
@@ -417,14 +408,7 @@ def test_parallel_with_non_loop_inner_raises():
 
     registry.register_sweep_generator("oddgen", _OddBlock, parse=_parse, write=_write)
     try:
-        text = (
-            "#!QProgram 1.0\n\n"
-            "body:\n"
-            "  var a\n"
-            "  var b\n"
-            "  for a in oddgen(1) | for b in oddgen(2):\n"
-            "    sync\n"
-        )
+        text = "#!QProgram 1.0\n\nbody:\n  var a\n  var b\n  for a in oddgen(1) | for b in oddgen(2):\n    sync\n"
         with pytest.raises(qp.ParseError, match="parallel"):
             qp.loads(text)
     finally:
@@ -434,7 +418,6 @@ def test_parallel_with_non_loop_inner_raises():
 
 def test_parse_var_decl_with_only_var_token_raises():
     """``_parse_var_decl`` called directly with a one-token line raises."""
-    from qprogram.serialization.parser import _Parser
 
     parser = _Parser("#!QProgram 1.0\nbody:\n")
     parser._parse_header()
@@ -468,7 +451,7 @@ def test_parser_top_level_unknown_line_ignored():
 
 def test_parser_indent_past_end_returns_zero():
     """``_indent()`` returns 0 when pos is past the end of the file."""
-    from qprogram.serialization.parser import _Parser
+
     parser = _Parser("#!QProgram 1.0\nbody:\n")
     parser._parse_header()
     parser._pos = 999
@@ -476,7 +459,7 @@ def test_parser_indent_past_end_returns_zero():
 
 
 def test_parser_stripped_past_end_returns_empty():
-    from qprogram.serialization.parser import _Parser
+
     parser = _Parser("#!QProgram 1.0\nbody:\n")
     parser._pos = 999
     assert parser._stripped() == ""
@@ -484,8 +467,7 @@ def test_parser_stripped_past_end_returns_empty():
 
 def test_parser_require_malformed_version_raises():
     """``_check_vendor_compat`` re-raises a ParseError when version parse fails."""
-    import qprogram_qblox  # noqa: F401
-    from qprogram.serialization import registry
+    import qprogram_qblox  # noqa: F401, PLC0415  # conditional vendor import
 
     # Force a malformed installed version.
     original = registry._vendor_versions.get("qblox")
@@ -508,7 +490,7 @@ def test_parser_blank_line_inside_nested_block():
         "  average 100:\n"
         "    for freq in range(0, 10, 1):\n"
         "\n"  # blank inside the loop body
-        '      sync\n'
+        "      sync\n"
         "\n"
         '      play "bus" "wf"\n'
     )
@@ -528,7 +510,7 @@ def test_parser_block_header_without_colon():
 
 def test_parser_var_decl_attr_unquoted_value_message():
     """The unquoted-value path uses a specific message; check it."""
-    text = '#!QProgram 1.0\n\nbody:\n  var x label=foo\n'
+    text = "#!QProgram 1.0\n\nbody:\n  var x label=foo\n"
     with pytest.raises(qp.ParseError, match="quoted string"):
         qp.loads(text)
 
@@ -559,16 +541,7 @@ def test_parser_blank_lines_in_inline_schema():
 
 def test_parser_blank_lines_in_element_bus_list():
     """The element-bus inline parser tolerates blank lines."""
-    text = (
-        "#!QProgram 1.0\n\n"
-        "schema:\n"
-        "  element q:\n"
-        "    drive info=IQ\n"
-        "\n"
-        "    readout info=IQ+acquires\n"
-        "\n"
-        "body:\n"
-    )
+    text = "#!QProgram 1.0\n\nschema:\n  element q:\n    drive info=IQ\n\n    readout info=IQ+acquires\n\nbody:\n"
     p = qp.loads(text)
     assert set(p.schema.elements["q"].buses.keys()) == {"drive", "readout"}  # type: ignore[union-attr]
 
@@ -593,7 +566,7 @@ def test_parser_unknown_operator_in_paren_expression():
 def test_parse_value_with_bus_path_token_returns_string():
     """Bus path token like ``q[0].drive`` returns the string and lets
     ``_upgrade_busrefs`` promote it later."""
-    from qprogram.serialization.parser import _Parser
+
     parser = _Parser("#!QProgram 1.0\nbody:\n")
     parser._parse_header()
     # Not in variables, contains `[` and `.`; not a function call.

@@ -8,7 +8,6 @@ import xarray as xr
 
 from qprogram import MeasurementHandle, MeasurementResult, QProgramResult, ValidationError
 
-
 # ---------------------------------------------------------------------------
 # MeasurementHandle
 # ---------------------------------------------------------------------------
@@ -141,7 +140,7 @@ def test_result_get_by_handle():
 def test_result_get_by_name_not_found_raises_keyerror():
     r = QProgramResult()
     r.append_measurement(bus="q0/readout", name="q0_m0", data=_fake_data())
-    with pytest.raises(KeyError, match="not found|No measurement"):
+    with pytest.raises(KeyError, match=r"not found|No measurement"):
         r.get("nonexistent")
 
 

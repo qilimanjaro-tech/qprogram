@@ -53,12 +53,12 @@ body:
       set_gain q[0].drive gain
       play q[0].drive "pi_pulse"
       sync
-      measure q[0].readout "readout" "weights" name="q0_m0"
+      measure q[0].readout "readout" "weights" name="q0/readout/m0"
 ```
 
 The schema declaration captures the chip's structure. Bus references use the
-compact `q[0].drive` path. The measurement name `q0_m0` was auto-allocated
-and the `name="q0_m0"` keyword makes it stable across round-trips.
+compact `q[0].drive` path. The measurement name `q0/readout/m0` was auto-allocated
+and the `name="q0/readout/m0"` keyword makes it stable across round-trips.
 
 ## Plugging in calibration data
 

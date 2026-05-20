@@ -199,7 +199,7 @@ def register_operation(
 def register_vendor_operation(
     vendor: str,
     name: str,
-    cls: type,
+    cls: type[Operation],
     *,
     serialize: OperationSerializeFn | None = None,
     parse: OperationParseFn | None = None,

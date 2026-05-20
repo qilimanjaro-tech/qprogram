@@ -1,0 +1,157 @@
+[project]
+site_name = "QProgram"
+site_description = "A domain-specific language for pulse-level quantum programming."
+site_url = "https://qilimanjaro.github.io/qprogram/"
+repo_url = "https://github.com/qilimanjaro-tech/qprogram"
+repo_name = "qilimanjaro-tech/qprogram"
+edit_uri = ""
+copyright = "Copyright © 2026 Qilimanjaro Quantum Tech"
+docs_dir = "docs"
+site_dir = "site"
+use_directory_urls = false
+
+nav = [
+    { "Home" = "index.md" },
+    { "Getting started" = "getting-started.md" },
+    { "User guide" = [
+        "guide/index.md",
+        { "Core ideas" = "guide/concepts.md" },
+        { "Buses and schemas" = "guide/buses.md" },
+        { "Variables and expressions" = "guide/variables.md" },
+        { "Waveforms" = "guide/waveforms.md" },
+        { "Operations" = "guide/operations.md" },
+        { "Control flow" = "guide/control-flow.md" },
+        { "Measurements and results" = "guide/measurements.md" },
+        { "Capabilities, diagnostics, and profiles" = "guide/capabilities.md" },
+        { "Saving and loading" = "guide/serialization.md" },
+    ] },
+    { "Examples" = [
+        "examples/index.md",
+        { "Rabi oscillation" = "examples/rabi.md" },
+        { "CZ chevron" = "examples/cz-chevron.md" },
+    ] },
+    { "Reference" = [
+        "reference/index.md",
+        { ".qp file format" = "reference/qp-format.md" },
+        { "Reserved keywords" = "reference/reserved.md" },
+        { "Errors" = "reference/errors.md" },
+        { "API reference" = "reference/api-qprogram.md" },
+    ] },
+    { "Developer guide" = [
+        "developer/index.md",
+        { "Architecture" = "developer/architecture.md" },
+        { "Adding operations" = "developer/adding-operations.md" },
+        { "Adding waveforms" = "developer/adding-waveforms.md" },
+        { "Building a vendor extension" = "developer/vendor-extensions.md" },
+        { "Capability protocol internals" = "developer/capability-protocol.md" },
+        { "Serialization internals" = "developer/serialization-internals.md" },
+        { "Testing" = "developer/testing.md" },
+        { "Contributing" = "developer/contributing.md" },
+    ] },
+]
+
+# ----------------------------------------------------------------------------
+# Theme
+# ----------------------------------------------------------------------------
+[project.theme]
+language = "en"
+features = [
+    "announce.dismiss",
+    "content.code.annotate",
+    "content.code.copy",
+    "content.tabs.link",
+    "content.tooltips",
+    "navigation.footer",
+    "navigation.indexes",
+    "navigation.instant",
+    "navigation.instant.progress",
+    "navigation.path",
+    "navigation.sections",
+    "navigation.tabs",
+    "navigation.tabs.sticky",
+    "navigation.top",
+    "navigation.tracking",
+    "search.highlight",
+    "search.share",
+    "toc.follow",
+]
+
+[project.theme.icon]
+repo = "fontawesome/brands/github"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "indigo"
+accent = "indigo"
+toggle.icon = "material/weather-sunny"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "indigo"
+accent = "indigo"
+toggle.icon = "material/weather-night"
+toggle.name = "Switch to light mode"
+
+[project.extra]
+generator = false
+
+# ----------------------------------------------------------------------------
+# Markdown extensions
+# ----------------------------------------------------------------------------
+[project.markdown_extensions.abbr]
+[project.markdown_extensions.admonition]
+[project.markdown_extensions.attr_list]
+[project.markdown_extensions.def_list]
+[project.markdown_extensions.footnotes]
+[project.markdown_extensions.md_in_html]
+[project.markdown_extensions.tables]
+[project.markdown_extensions.toc]
+permalink = true
+toc_depth = 3
+[project.markdown_extensions.pymdownx.caret]
+[project.markdown_extensions.pymdownx.details]
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true
+[project.markdown_extensions.pymdownx.inlinehilite]
+[project.markdown_extensions.pymdownx.keys]
+[project.markdown_extensions.pymdownx.mark]
+[project.markdown_extensions.pymdownx.smartsymbols]
+[project.markdown_extensions.pymdownx.snippets]
+[project.markdown_extensions.pymdownx.superfences]
+custom_fences = [
+    { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
+[project.markdown_extensions.pymdownx.tasklist]
+custom_checkbox = true
+[project.markdown_extensions.pymdownx.tilde]
+
+# ----------------------------------------------------------------------------
+# Plugins
+# ----------------------------------------------------------------------------
+[project.plugins.search]
+
+[project.plugins.mkdocstrings]
+default_handler = "python"
+
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["src"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+docstring_style = "google"
+show_source = true
+show_root_heading = true
+show_root_full_path = false
+show_signature = true
+show_signature_annotations = true
+separate_signature = true
+merge_init_into_class = true
+docstring_section_style = "list"
+members_order = "source"
+filters = ["!^_", "^__init__$"]

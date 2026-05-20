@@ -1,3 +1,10 @@
+"""Built-in waveform shapes for pulse-level programs.
+
+Single-channel waveforms subclass :class:`Waveform`; complex (I/Q) waveforms subclass :class:`IQWaveform`.
+Both bases expose ``envelope(resolution)`` / ``get_I()`` / ``get_Q()`` and ``get_duration()`` for
+platforms that need to render samples.
+"""
+
 from qprogram.waveforms.arbitrary import Arbitrary
 from qprogram.waveforms.chained import Chained
 from qprogram.waveforms.flat_top import FlatTop

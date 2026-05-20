@@ -1,34 +1,20 @@
 """Registries that drive the ``.qp`` serializer and parser.
 
-The serialization layer is intentionally schema-free in its grammar: there are
-no hard-coded keyword lists for operations, blocks, or sweep generators. Every
-extension point — core operations, vendor operations, control-flow blocks,
-sweep sources for ``for ... in <generator>`` — is a registered entry here. The
-writer and parser dispatch through these registries instead of through
-``isinstance`` chains or per-keyword branches.
+The serialization grammar is schema-free: there are no hard-coded keyword lists for operations,
+blocks, or sweep generators. Every extension point is a registered entry; the writer and parser
+dispatch through the registries instead of ``isinstance`` chains.
 
-Three registries cover the language surface:
+The five registries:
 
-- :data:`_operation_specs_by_class` / ``_by_qualified`` — operations, keyed both
-  by class (for serialization) and by ``(vendor, name)`` (for parsing). The
-  ``vendor`` slot is ``None`` for core operations.
-- :data:`_block_specs_by_name` / ``_by_class`` — control-flow blocks whose
-  header is a single keyword followed by optional arguments
-  (``average 1000:``, ``block:``). Loops live in a separate registry below
-  because their header is keyword-led by ``for`` and parameterised by a sweep
-  source.
-- :data:`_sweep_generator_specs_by_name` / ``_by_class`` — sweep sources used
-  inside ``for <var> in <generator>``. Maps both directions: name → spec for
-  parsing, block class → spec for writing. Built-in entries are ``range``
-  (produces :class:`ForLoop`), ``values`` (the ``[...]`` literal, produces
-  :class:`Loop`), and ``file`` (produces :class:`Loop`).
+- **Operations** (by class + by ``(vendor, name)``) — for write and parse respectively.
+- **Blocks** (by name + by class) — keyword-led headers like ``average 1000:`` / ``block:``.
+- **Sweep generators** (by name + by class) — sources for ``for <var> in <source>``; built-ins
+  ``range``, ``values``, and ``file``.
+- **Waveforms** by class name.
+- **Vendor protocol versions** by vendor name.
 
-Two additional registries — waveforms (keyed by class name) and vendor
-protocol versions — remain as they were; the new APIs build on top.
-
-Vendor extensions continue to use :func:`register_vendor_operation` and
-:func:`register_vendor_version` from their own ``__init__.py``; nothing about
-their integration changes.
+Vendor extensions register through :func:`register_vendor_operation` and
+:func:`register_vendor_version` at import time.
 """
 
 from __future__ import annotations
@@ -44,12 +30,10 @@ if TYPE_CHECKING:
     from qprogram.operations.operation import Operation
     from qprogram.waveforms import IQWaveform, Waveform
 
-# Callback signatures are intentionally type-erased: the registry stores
-# callbacks for concrete subclasses (e.g. ``sync_serialize`` takes ``Sync``,
-# not ``Operation``) and the writer/parser is the only call site. Typing
-# them as ``Callable[[Operation, Any], str]`` would force every registration
-# to cast or accept a wider base; ``Any`` lets the natural per-class signature
-# survive and keeps callbacks readable.
+# Why these callback aliases use ``Any``: the registry stores per-subclass callbacks (e.g.
+# ``sync_serialize`` takes a concrete ``Sync``, not ``Operation``). Tightening the alias to
+# ``Callable[[Operation, ...]]`` would force every registration to cast or widen — ``Any`` lets the
+# natural per-class signature survive.
 OperationSerializeFn = Callable[[Any, Any], str]
 OperationParseFn = Callable[[list[str], Any], Any]
 BlockSerializeHeaderFn = Callable[[Any, Any], str]
@@ -65,12 +49,14 @@ SweepWriteFn = Callable[[Any, Any], str]
 
 @dataclass(frozen=True)
 class OperationSpec:
-    """Serialization metadata for one operation (core or vendor).
+    """Serialization metadata for one operation, core or vendor.
 
-    ``vendor`` is ``None`` for core operations; otherwise it is the vendor
-    name used in the dot-prefix on the wire (``<vendor>.<op>``). ``serialize``
-    and ``parse`` may be ``None``, in which case the default callbacks based
-    on ``inspect.signature`` are used.
+    Attributes:
+        name: Operation name as it appears in ``.qp``.
+        vendor: Vendor name for the dot-prefix (``<vendor>.<name>``), or ``None`` for core.
+        cls: The :class:`Operation` subclass.
+        serialize: Optional override; default uses ``inspect.signature``-driven serialization.
+        parse: Optional override; default uses ``inspect.signature``-driven parsing.
     """
 
     name: str
@@ -81,24 +67,23 @@ class OperationSpec:
 
     @property
     def qualified_name(self) -> str:
+        """Return ``name`` for core ops or ``"<vendor>.<name>"`` for vendor ops."""
         return f"{self.vendor}.{self.name}" if self.vendor else self.name
 
 
 @dataclass(frozen=True)
 class BlockSpec:
-    """Serialization metadata for a control-flow block whose header is keyword-led.
+    """Serialization metadata for a keyword-led control-flow block.
 
-    Loop-like blocks (``for var in <generator>``) are not registered here —
-    they live in the sweep generator registry, which maps both names (for
-    parsing) and classes (for writing).
+    Loop-like blocks (``for var in <source>``) live in :class:`SweepGeneratorSpec` instead.
 
-    ``serialize_header`` takes the block and a write context and returns the
-    header text *without* the trailing ``:`` (e.g. ``"average 1000"``). The
-    default emits the bare keyword.
-
-    ``parse_header`` takes the tokens after the keyword and a parse context
-    and returns a freshly-constructed block. The default invokes ``cls()``
-    with no arguments.
+    Attributes:
+        name: Header keyword as it appears in ``.qp`` (e.g. ``"average"``, ``"block"``).
+        cls: The :class:`Block` subclass.
+        serialize_header: Optional override returning the header text without the trailing ``:``
+            (e.g. ``"average 1000"``). Default emits the bare keyword.
+        parse_header: Optional override taking the post-keyword tokens; default invokes ``cls()`` with
+            no arguments.
     """
 
     name: str
@@ -111,17 +96,16 @@ class BlockSpec:
 class SweepGeneratorSpec:
     """Serialization metadata for a sweep source used in ``for <var> in <gen>``.
 
-    ``parse`` builds a block from the textual arguments of the generator;
-    ``write`` reconstructs those arguments from the block instance. The link
-    between the directions is the block class — exactly one sweep generator
-    owns each loop block class on the write side.
+    Why ``write`` may be ``None``: parse-only sources (e.g. ``file("path.npy")``) load into a
+    :class:`Loop` whose values are written back as a ``[...]`` literal via the ``values`` generator.
+    The file path is not preserved on the AST, so the source has no write side and doesn't appear in
+    the by-class lookup.
 
-    ``write`` may be ``None`` for parse-only generators that don't have a
-    natural serialized form. For example, ``file("path.npy")`` reads values
-    into a :class:`Loop`, but the loaded values are then written back as a
-    ``[...]`` literal via the ``values`` generator — the file path is not
-    retained on the AST. Such generators contribute their parse side only and
-    do not appear in the by-class lookup.
+    Attributes:
+        name: Generator name in ``.qp`` (e.g. ``"range"``, ``"values"``).
+        block_cls: The :class:`Block` subclass produced and consumed by this generator.
+        parse: Builds a block instance from textual arguments.
+        write: Reconstructs textual arguments from a block instance, or ``None`` for parse-only.
     """
 
     name: str
@@ -166,22 +150,23 @@ def register_operation(
 ) -> type[Operation]:
     """Register an operation for ``.qp`` serialization.
 
-    ``name`` is the keyword used in the file (``play``, ``measure``, …). For
-    vendor extensions, pass ``vendor="<vendor>"`` and the file writes
-    ``<vendor>.<name>``. ``serialize`` and ``parse`` are optional overrides; when
-    omitted, the default signature-driven callbacks handle the operation.
+    Re-registering the same class overwrites the previous entry but leaves the old ``(vendor, name)``
+    key in the by-qualified map — useful for hot-reload, surprising otherwise.
 
-    The same class can only be registered once — registering a second time
-    overwrites the previous entry, which is what you want for hot-reload but
-    note that the *old* (vendor, name) key remains in the by-qualified map.
+    Args:
+        name: Keyword used in ``.qp`` (``play``, ``measure``, ...). Operation names are unrestricted;
+            future block keywords like ``if`` register on the block registry instead.
+        cls: The :class:`Operation` subclass.
+        vendor: Vendor namespace. ``None`` registers a core op (emitted without prefix). Cannot be
+            ``"core"`` or any :data:`~qprogram.RESERVED_KEYWORDS`.
+        serialize: Optional override; default uses signature-driven serialization.
+        parse: Optional override; default uses signature-driven parsing.
 
-    ``vendor`` cannot be ``"core"`` or any of
-    :data:`~qprogram.RESERVED_KEYWORDS`. Core operations register with
-    ``vendor=None`` (the default) and emit unprefixed on the wire; the
-    ``"core"`` string is reserved as a sentinel and the keyword set is
-    reserved against namespace collisions with future syntax. Operation
-    *names* themselves are unrestricted — future block keywords like
-    ``if`` register on the block registry, not here.
+    Returns:
+        ``cls``, so the function can be used as a decorator.
+
+    Raises:
+        ValueError: If ``vendor`` is reserved.
     """
     if vendor is not None and vendor in RESERVED_VENDOR_NAMES:
         msg = (
@@ -228,12 +213,19 @@ def register_block(
     serialize_header: BlockSerializeHeaderFn | None = None,
     parse_header: BlockParseHeaderFn | None = None,
 ) -> type[Block]:
-    """Register a control-flow block for ``.qp`` serialization.
+    """Register a keyword-led control-flow block for ``.qp`` serialization.
 
-    ``name`` is the leading keyword in the block header (``average``,
-    ``block``). The body parser handles indentation and child statements
-    uniformly across all registered blocks. Loops are *not* registered here —
-    they use the sweep generator registry instead.
+    The body parser handles indentation and child statements uniformly. Loops are not registered
+    here — they use the sweep-generator registry instead.
+
+    Args:
+        name: Leading keyword in the block header (``average``, ``block``, ...).
+        cls: The :class:`Block` subclass.
+        serialize_header: Optional header-text override.
+        parse_header: Optional header-token override.
+
+    Returns:
+        ``cls``, so the function can be used as a decorator.
     """
     spec = BlockSpec(name=name, cls=cls, serialize_header=serialize_header, parse_header=parse_header)
     _block_specs_by_name[name] = spec
@@ -253,22 +245,21 @@ def register_sweep_generator(
     parse: SweepParseFn,
     write: SweepWriteFn | None = None,
 ) -> type[Block]:
-    """Register a sweep source for ``for <var> in <name>(...)``.
+    """Register a sweep source for the ``for <var> in <name>(...)`` grammar.
 
-    ``parse`` receives the declared variable, the textual argument string
-    (between parentheses), and a parse context, and returns a
-    fully-constructed loop block (e.g. a :class:`ForLoop` or :class:`Loop`).
+    Two generators may share a block class — typically one canonical writer and one or more
+    parse-only siblings. For example, ``values`` writes :class:`Loop` as ``[...]``; ``file`` parses
+    ``file("...")`` into a :class:`Loop` but writes back through ``values``.
 
-    ``write`` receives that same block and a write context and returns the
-    textual generator expression (e.g. ``"range(0, 1, 0.01)"``). It may be
-    ``None`` for parse-only generators (see :class:`SweepGeneratorSpec`); in
-    that case the generator is not registered as the writer for its block
-    class, leaving room for another generator to own the write side.
+    Args:
+        name: Generator name (``range``, ``values``, ``file``, ...).
+        cls: Loop block class produced (:class:`ForLoop` or :class:`Loop`).
+        parse: Receives ``(variable, args_text, parse_ctx)`` and returns the constructed block.
+        write: Receives ``(block, write_ctx)`` and returns the textual generator expression. ``None``
+            for parse-only generators — they don't own the write side of their block class.
 
-    Two generators may share a block class: typically one with a ``write``
-    function (the canonical write form) and one or more parse-only siblings.
-    For example, ``values`` writes ``Loop`` as ``[...]``; ``file`` parses
-    ``file("...")`` into a ``Loop`` but writes back through ``values``.
+    Returns:
+        ``cls``, so the function can be used as a decorator.
     """
     spec = SweepGeneratorSpec(name=name, block_cls=cls, parse=parse, write=write)
     _sweep_generator_specs_by_name[name] = spec
@@ -283,18 +274,17 @@ def register_sweep_generator(
 
 
 def register_waveform(cls: type[Waveform | IQWaveform]) -> type:
-    """Decorator to register a waveform type for serialization."""
+    """Decorator that registers a waveform class for ``.qp`` serialization, keyed by class name."""
     _waveform_registry[cls.__name__] = cls
     return cls
 
 
 def register_vendor_version(vendor: str, version: str) -> None:
-    """Register the protocol version of an installed vendor extension.
+    """Record the protocol version of an installed vendor extension.
 
     Args:
         vendor: Vendor name as used in the dot-notation operations.
-        version: Semver string (e.g. "0.1.0"). Major.minor is what counts for
-            compatibility; patch is informational.
+        version: Semver string. Major.minor governs compatibility; patch is informational.
     """
     _vendor_versions[vendor] = version
 
@@ -305,30 +295,37 @@ def register_vendor_version(vendor: str, version: str) -> None:
 
 
 def get_operation_spec(vendor: str | None, name: str) -> OperationSpec | None:
+    """Return the spec for ``(vendor, name)``, or ``None`` if no operation is registered."""
     return _operation_specs_by_qualified.get((vendor, name))
 
 
 def get_operation_spec_by_class(cls: type) -> OperationSpec | None:
+    """Return the spec for an :class:`Operation` subclass, or ``None`` if it's not registered."""
     return _operation_specs_by_class.get(cls)
 
 
 def get_block_spec(name: str) -> BlockSpec | None:
+    """Return the spec for the block keyword ``name``, or ``None`` if none is registered."""
     return _block_specs_by_name.get(name)
 
 
 def get_block_spec_by_class(cls: type) -> BlockSpec | None:
+    """Return the spec for a :class:`Block` subclass, or ``None`` if it's not registered."""
     return _block_specs_by_class.get(cls)
 
 
 def get_sweep_generator_spec(name: str) -> SweepGeneratorSpec | None:
+    """Return the spec for the sweep generator ``name``, or ``None``."""
     return _sweep_generator_specs_by_name.get(name)
 
 
 def get_sweep_generator_spec_by_class(cls: type) -> SweepGeneratorSpec | None:
+    """Return the writing-side spec owning ``cls``, or ``None`` if no generator has registered a writer."""
     return _sweep_generator_specs_by_class.get(cls)
 
 
 def get_waveform_class(name: str) -> type[Waveform | IQWaveform] | None:
+    """Return the waveform class registered under ``name``, or ``None``."""
     return _waveform_registry.get(name)
 
 
@@ -337,29 +334,25 @@ def get_vendor_version(vendor: str) -> str | None:
     return _vendor_versions.get(vendor)
 
 
-# ---------------------------------------------------------------------------
-# Legacy compatibility shims (kept for direct callers; prefer the new APIs)
-# ---------------------------------------------------------------------------
+# Legacy compatibility shims — direct callers should prefer the new APIs above.
 
 
 def get_operation_class(vendor: str, name: str) -> type | None:
+    """Return the :class:`Operation` subclass for ``(vendor, name)``, or ``None`` if not registered."""
     spec = _operation_specs_by_qualified.get((vendor, name))
     return spec.cls if spec is not None else None
 
 
 def get_operation_vendor_name(cls: type) -> tuple[str, str] | None:
+    """Return ``(vendor, name)`` for ``cls`` when it is a registered vendor op, else ``None``."""
     spec = _operation_specs_by_class.get(cls)
     if spec is None or spec.vendor is None:
         return None
     return (spec.vendor, spec.name)
 
 
-# ---------------------------------------------------------------------------
-# Built-in waveforms
-# ---------------------------------------------------------------------------
-
-
 def _register_builtin_waveforms() -> None:
+    """Populate the waveform registry with the built-in classes."""
     from qprogram.waveforms import (  # noqa: PLC0415
         Arbitrary,
         Chained,

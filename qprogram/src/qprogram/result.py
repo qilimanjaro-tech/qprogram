@@ -1,20 +1,8 @@
 """Result types for executed QPrograms.
 
-This module exposes three things:
-
-- :class:`MeasurementHandle` — the value returned by ``QProgram.measure(...)``
-  and by vendor measurement operations. A handle is just a stable name; it
-  identifies a measurement across the lifetime of a program — from
-  construction (where a Python local captures it), through ``.qp``
-  serialization (the name is part of the line), through execution (the
-  runtime tags each measurement in the result with the same name), and
-  retrieval (``result.get(handle)``).
-
-- :class:`MeasurementResult` — the per-measurement record produced by
-  the runtime: the bus name, the result data, and the measurement's name.
-
-- :class:`QProgramResult` — the in-memory container of measurements.
-  Indexed by handle, by name string, or by integer position.
+:class:`MeasurementHandle` is returned by :meth:`QProgram.measure` and identifies a measurement across
+construction, ``.qp`` serialization, execution, and retrieval. :class:`MeasurementResult` is the runtime's
+per-measurement record. :class:`QProgramResult` is the in-memory container of all measurements.
 """
 
 from __future__ import annotations
@@ -33,29 +21,20 @@ if TYPE_CHECKING:
 class MeasurementHandle:
     """A reference to a measurement performed by a :class:`QProgram`.
 
-    Carries a stable ``name`` that identifies the measurement across the
-    program's full lifetime:
+    Equality is **structural**: two handles with the same name refer to the same measurement. Why this
+    matters: after a ``.qp`` round-trip the original Python objects are gone but names survive in the
+    AST, so a freshly-constructed ``MeasurementHandle("q0_m0")`` compares equal to the original.
 
-    - At construction time, the name is auto-assigned (``q0_m0``, ``c0_1_m0``,
-      ``m0`` for raw-string buses, …) or user-supplied via ``name=``.
-    - The name is emitted into the ``.qp`` file as part of the ``measure``
-      / ``<vendor>.<op>`` / … line, so :func:`qprogram.loads` reconstructs
-      the same name.
-    - At result-retrieval time, ``QProgramResult.get(handle)`` looks up the
-      measurement by name.
+    Runtime-supplied values (e.g. the classified qubit state when ``returns`` includes ``"state"``) live
+    in a private ``_values`` dict keyed by field name. They participate in :class:`MeasurementRef`
+    evaluation but do not contribute to handle identity.
 
-    Handles use **structural** equality: two handles with the same name
-    refer to the same measurement. This matters for the post-load story —
-    after ``qp.loads(...)`` the original handle Python objects are gone,
-    but the names survive in the AST, and ``MeasurementHandle("q0_m0")``
-    constructed anywhere compares equal to whatever the program produced.
+    Args:
+        name: Stable identifier for the measurement. Auto-assigned by :meth:`QProgram.measure`
+            (``q0/readout/m0``, ``m0``, ...) or user-supplied. Emitted verbatim into ``.qp``.
 
-    Per-measurement values written by the runtime (e.g. the classified
-    qubit state when ``returns`` includes ``"state"``) live in a private
-    ``_values`` dict, indexed by field name. They participate in
-    Python-side :class:`MeasurementRef` evaluation but are *not* part of
-    handle identity — two handles with the same name compare equal
-    regardless of their value state.
+    Raises:
+        ValidationError: If ``name`` is not a non-empty string.
     """
 
     __slots__ = ("_values", "name")
@@ -69,35 +48,27 @@ class MeasurementHandle:
 
     @property
     def state(self) -> _HandleFieldAccess:
-        """Reference the classified state of this measurement.
+        """Return a proxy to reference this measurement's classified state in a conditional.
 
-        Returns a throwaway proxy whose ``==`` / ``!=`` operators build
-        :class:`~qprogram.Comparison` nodes. Use in a condition::
+        The returned proxy is a throwaway whose ``==`` and ``!=`` operators build
+        :class:`~qprogram.Comparison` AST nodes::
 
             with program.if_(handle.state == 0):
                 ...
 
-        The measurement op must request state classification (its
-        ``returns`` must include ``"state"``) or the validator will
-        emit a ``missing-classification`` diagnostic. See the spec
-        section on conditionals.
+        The producing measurement op must request state classification (its ``returns`` must include
+        ``"state"``); the validator emits ``missing-classification`` otherwise.
         """
         from qprogram.variable import _HandleFieldAccess  # noqa: PLC0415
 
         return _HandleFieldAccess(self, "state")  # pyright: ignore[reportArgumentType]
 
     def _value_for(self, field: str) -> int | float | _UnassignedType:
-        """Read a per-measurement field value (used by :class:`MeasurementRef`).
-
-        Returns :data:`~qprogram.UNASSIGNED` until the runtime sets the
-        value via :meth:`_set_value`.
-        """
         from qprogram.variable import UNASSIGNED  # noqa: PLC0415
 
         return self._values.get(field, UNASSIGNED)
 
     def _set_value(self, field: str, value: float) -> None:
-        """Set a per-measurement field value. Called by the runtime."""
         self._values[field] = value
 
     def __repr__(self) -> str:
@@ -112,11 +83,12 @@ class MeasurementHandle:
 
 @dataclass
 class MeasurementResult:
-    """Result of a single measurement operation.
+    """One measurement record produced by the runtime.
 
-    Carries the bus the measurement was taken on, the measurement's
-    :class:`MeasurementHandle` name (assigned at program construction time),
-    and the raw data.
+    Attributes:
+        bus: The bus the measurement was taken on.
+        name: The measurement handle's name, as assigned at program construction.
+        data: The result :class:`xarray.DataArray`.
     """
 
     bus: str
@@ -127,34 +99,29 @@ class MeasurementResult:
 class QProgramResult:
     """In-memory result of executing a :class:`QProgram`.
 
-    Each measurement operation produces an :class:`xarray.DataArray` with
-    dimensions named after the enclosing loops (outermost first) and a
-    trailing ``"IQ"`` dimension with coordinates ``["I", "Q"]``.
+    Each measurement produces an :class:`xarray.DataArray` whose dimensions are named after the enclosing
+    loops (outermost first) followed by a trailing ``"IQ"`` dimension with coordinates ``["I", "Q"]``.
 
-    Results are stored in construction order and addressable three ways:
-
-    - **By handle** — the primary form. ``result.get(m0)``.
-    - **By name string** — same lookup with a bare name.
-      ``result.get("q0_m0")``. Useful after a ``loads()`` round-trip where
-      handles are reconstructed via :meth:`QProgram.measurement_handles`.
-    - **By integer position** — sugar over the underlying list.
-      ``result.get(0)`` returns the first measurement in declaration order.
-
-    All three lookup forms also accept an optional ``bus=`` filter, which
-    narrows the search to measurements on that bus before applying the
-    handle/name/position lookup.
+    Results are stored in construction order and addressable by handle, by name string, or by integer
+    position via :meth:`get`.
     """
 
     def __init__(self) -> None:
         self._measurements: list[MeasurementResult] = []
 
     def append_measurement(self, bus: str, name: str, data: xr.DataArray) -> None:
-        """Append a measurement result. ``name`` is the handle name from the AST."""
+        """Append a measurement record.
+
+        Args:
+            bus: The bus the measurement was taken on.
+            name: The measurement handle name as it appears in the AST.
+            data: The result data.
+        """
         self._measurements.append(MeasurementResult(bus=bus, name=name, data=data))
 
     @property
     def measurements(self) -> list[MeasurementResult]:
-        """All measurement results in construction order."""
+        """All measurement records in construction order."""
         return self._measurements
 
     def get(
@@ -162,27 +129,25 @@ class QProgramResult:
         measurement: MeasurementHandle | str | int = 0,
         bus: str | None = None,
     ) -> xr.DataArray:
-        """Get a measurement result.
+        """Retrieve one measurement's data.
 
         Args:
-            measurement: The measurement to retrieve.
+            measurement: Which measurement to retrieve.
 
                 - :class:`MeasurementHandle`: looked up by name.
-                - ``str``: looked up by name (equivalent to passing a handle).
-                - ``int``: positional sugar — returns the N-th measurement
-                  in declaration order (or N-th measurement on ``bus`` if
-                  the filter is given). Kept for migration convenience;
-                  prefer handle or name in new code.
+                - ``str``: looked up by name. Useful after a ``loads()`` round-trip when the original
+                  handle objects are gone but handles can be reconstructed via
+                  :meth:`QProgram.measurement_handles`.
+                - ``int``: positional sugar; returns the N-th measurement in declaration order, or N-th
+                  on ``bus`` when the filter is given. Prefer handle or name in new code.
 
-            bus: Optional bus name filter. When set, only measurements on
-                that bus are considered.
+            bus: Optional bus name filter — narrows the search before the handle/name/position lookup.
 
         Returns:
             The measurement's :class:`xarray.DataArray`.
 
         Raises:
-            KeyError: ``measurement`` was a handle/name and no matching
-                measurement exists in scope.
+            KeyError: ``measurement`` was a handle or name and no match exists in scope.
             IndexError: ``measurement`` was an integer and is out of range.
         """
         candidates = self._measurements if bus is None else [m for m in self._measurements if m.bus == bus]

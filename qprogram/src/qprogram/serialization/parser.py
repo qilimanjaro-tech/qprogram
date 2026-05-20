@@ -1,20 +1,12 @@
 """Parser for the ``.qp`` file format.
 
-Like the writer, the parser is intentionally thin. Header/require/metadata
-parsing is fixed grammar, but everything inside ``body:`` — operations,
-control-flow blocks, sweep generators — is dispatched through the registries
-in :mod:`qprogram.serialization.registry`. New operations, blocks, or sweep
-sources can be added by registration alone; no parser change required.
+Header / ``require`` / metadata parsing is fixed-grammar; everything inside ``body:`` is dispatched
+through the registries in :mod:`qprogram.serialization.registry`. New operations, blocks, and sweep
+sources can be added by registration alone — no parser change required.
 
-The parser exposes a small *parse context* API used by spec callbacks:
-
-- :meth:`parse_value` — token → typed value (string / number / bool / list /
-  inline waveform / declared variable).
-- :meth:`parse_error` — produce a :class:`ParseError` tagged with the current
-  line number, for use by callbacks that detect bad input.
-- :meth:`get_or_declare_variable` — used by callbacks (e.g. ``get_parameter``)
-  that need a target variable identifier; auto-declares one if not seen
-  already, which matches the runtime behaviour of the Python API.
+The parser exposes a small *parse context* API used by spec callbacks: :meth:`parse_value` for token
+to typed-value conversion, :meth:`parse_error` for line-tagged errors, and
+:meth:`get_or_declare_variable` for callbacks that need a target variable identifier.
 """
 
 from __future__ import annotations
@@ -62,11 +54,12 @@ FORMAT_VERSION = "1.0"
 class ParseError(QProgramError):
     """Error during ``.qp`` file parsing.
 
-    A direct child of :class:`~qprogram.QProgramError`, separate from
-    :class:`~qprogram.ValidationError`. Validation runs on in-memory
-    programs; parsing fails on malformed input text. Both are user-facing
-    errors but the failure surfaces are distinct enough that they live on
-    different branches of the hierarchy.
+    Direct child of :class:`~qprogram.QProgramError`, distinct from :class:`~qprogram.ValidationError`
+    — validation runs on in-memory programs, parsing fails on malformed input text.
+
+    Args:
+        message: Human-readable error description.
+        line_num: 1-based line number of the offending input, or ``0`` for whole-file errors.
     """
 
     def __init__(self, message: str, line_num: int = 0) -> None:
@@ -75,12 +68,32 @@ class ParseError(QProgramError):
 
 
 def loads(text: str) -> QProgram:
-    """Parse a .qp format string into a QProgram."""
+    """Parse a ``.qp``-format string into a :class:`QProgram`.
+
+    Args:
+        text: ``.qp`` source.
+
+    Returns:
+        The reconstructed :class:`QProgram`.
+
+    Raises:
+        ParseError: On malformed input or unknown registry entries.
+    """
     return _Parser(text).parse()
 
 
 def load(path: str) -> QProgram:
-    """Load a .qp file into a QProgram."""
+    """Read a ``.qp`` file and parse it into a :class:`QProgram`.
+
+    Args:
+        path: Path to the ``.qp`` file.
+
+    Returns:
+        The reconstructed :class:`QProgram`.
+
+    Raises:
+        ParseError: On malformed input or unknown registry entries.
+    """
     with Path(path).open("r") as f:
         return loads(f.read())
 

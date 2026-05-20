@@ -7,7 +7,19 @@ from qprogram.waveforms.waveform import Waveform
 
 
 class SuddenNetZero(Waveform):
-    """Sudden Net Zero pulse shape for two-qubit gates."""
+    """Sudden Net Zero (SNZ) pulse for fast, leakage-suppressed two-qubit gates.
+
+    The shape is a positive square segment, a zero hold of width ``t_phi``, then a negative square segment
+    scaled by ``b``. The positive and negative areas cancel so the net integrated flux is zero.
+
+    Args:
+        amplitude: Amplitude of the positive segment. Accepts an :class:`~qprogram.Expression`.
+        duration: Total pulse duration in nanoseconds. Accepts an :class:`~qprogram.Expression`.
+        b: Ratio of negative-to-positive amplitudes (typically near 1.0). Accepts an
+            :class:`~qprogram.Expression`.
+        t_phi: Width of the zero hold between the two segments in nanoseconds. Accepts an
+            :class:`~qprogram.Expression`.
+    """
 
     def __init__(
         self,

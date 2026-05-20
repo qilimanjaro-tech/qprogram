@@ -6,15 +6,14 @@ from qprogram.operations.operation import Operation
 
 
 class Sync(Operation):
-    """Synchronize buses.
+    """Synchronise buses to a common time reference.
 
-    ``targets`` is the list of bus names to sync; ``None`` means sync all
-    buses currently active in the program. The field is named ``targets``
-    rather than ``buses`` to avoid shadowing :meth:`Operation.buses` on
-    the same instance (a list-typed attribute named ``buses`` would
-    silently hide the introspection method). The user-facing
-    :meth:`QProgram.sync` keeps its ``buses=`` keyword argument; only the
-    AST attribute changes name.
+    The user-facing :meth:`QProgram.sync` exposes a ``buses=`` keyword; the AST attribute is named
+    ``targets`` to avoid shadowing :meth:`Operation.buses` (a list attribute named ``buses`` would
+    silently hide the introspection method).
+
+    Args:
+        targets: Bus names to sync, or ``None`` to sync every bus currently active in the program.
     """
 
     BUS_ATTRS: ClassVar[tuple[str, ...]] = ("targets",)

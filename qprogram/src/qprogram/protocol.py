@@ -1,40 +1,9 @@
 """Compiler capability protocol for QProgram.
 
-A platform / compiler that executes :class:`~qprogram.QProgram` programs declares
-its **supported feature set** through three orthogonal axes (Vulkan-style, because
-flags, numbers, and AST-shape checks have different *shapes of check*):
-
-1. **Capabilities** — flat set of dotted string tokens (``op.play``,
-   ``waveform.iq_drag``, ``vendor.<name>.<op>``). Each Operation, Block,
-   and Waveform declares the tokens *it* needs through
-   :meth:`Operation.required_capabilities`, instance-aware: a ``Play``
-   carrying an :class:`IQDrag` returns ``{op.play, waveform.iq,
-   waveform.iq_drag}``; a ``Play`` carrying a :class:`Square` returns
-   ``{op.play, waveform.single, waveform.square}``.
-
-2. **Limits** — dict of numeric thresholds: ``max_loop_nesting``,
-   ``min_wait_duration_ns``, ``max_parallel_loops``. Each profile sets
-   defaults, a concrete device can tighten them at runtime.
-
-3. **Predicates** — callables ``(node, ctx) -> Iterable[Diagnostic]`` that
-   inspect each AST node with cross-op context. The escape hatch for
-   data-flow / context-sensitive checks ("arbitrary sweep is fine for a
-   waveform parameter but not at :class:`Wait.duration`").
-
-Vendors register named, hierarchical **profile bundles** via
-:func:`register_profile`. A profile combines a capability set, limits, and
-predicates; profiles can extend other profiles by name (capabilities and
-predicates accumulate; limits inherit then override).
-
-A concrete platform exposes :attr:`PlatformProtocol.capabilities` (resolves a
-profile, optionally tightens limits) and :meth:`PlatformProtocol.validate`
-(walks the AST once and returns a list of :class:`Diagnostic` objects).
-
-Design lineage: distributed-declaration + centralized-validation comes from
-MLIR's SPIR-V dialect availability interfaces. Operand/instance-sensitive
-predicates mirror MLIR's ``addDynamicallyLegalOp`` mechanism. The profile
-abstraction mirrors QIR profiles (named, hierarchical bundles). The
-features/limits/extensions split mirrors Vulkan.
+Platforms declare which DSL features they support along three orthogonal axes — capability tokens,
+numeric limits, and predicates — and the validator walks an AST once against the resulting descriptor.
+See the architecture docs (``docs/developer/capability-protocol.md``) for the design rationale and the
+MLIR/Vulkan/QIR lineage.
 """
 
 from __future__ import annotations
@@ -49,16 +18,10 @@ if TYPE_CHECKING:
     from qprogram.variable import Variable
 
 
-# ---------------------------------------------------------------------------
-# Canonical capability-token registry
-# ---------------------------------------------------------------------------
-#
-# Every dotted token that any in-tree :meth:`required_capabilities` may emit
-# is listed here. The set is the single source of truth: profile-bundle
-# constructors call :func:`validate_tokens` against it so a typo in a vendor
-# package becomes an error at registration time rather than a silent
-# acceptance at validate-time. Vendor extensions extend the registry by
-# calling :func:`register_capability_tokens`.
+# Canonical capability-token registry.
+# Every dotted token any in-tree ``required_capabilities`` may emit is listed here. Profile bundles
+# validate their token sets against this registry at construction time, so a typo in a vendor package
+# becomes an error at registration rather than a silent acceptance at validate-time.
 
 _BASE_TOKENS: frozenset[str] = frozenset(
     {
@@ -133,13 +96,17 @@ vendor packages extend it via :func:`register_capability_tokens`."""
 
 
 def register_capability_tokens(*tokens: str) -> None:
-    """Register additional capability tokens (vendor extensions).
+    """Register vendor-extension capability tokens.
 
-    Idempotent — duplicate registration is a no-op. Tokens must follow
-    the dotted-name convention so they remain readable in error messages
-    and in the eventual ``.qp`` format extensions; this function does not
-    enforce a syntax (each vendor knows its own namespace) but does flag
-    obvious typos like leading/trailing dots or empty segments.
+    Idempotent (re-registration is a no-op). Validates the shape of each token but does not enforce
+    a namespace policy beyond rejecting empty segments and stray dots — each vendor owns its own
+    ``vendor.<name>.*`` prefix.
+
+    Args:
+        *tokens: Tokens to register.
+
+    Raises:
+        ValueError: If any token is empty, starts/ends with ``.``, or contains ``..``.
     """
     for token in tokens:
         if not token or token.startswith(".") or token.endswith(".") or ".." in token:
@@ -149,11 +116,13 @@ def register_capability_tokens(*tokens: str) -> None:
 
 
 def validate_tokens(tokens: Iterable[str]) -> None:
-    """Raise :class:`ValueError` if any of ``tokens`` is not registered.
+    """Validate that every token in ``tokens`` is registered.
 
-    Called by :func:`register_profile` so a profile bundle that mentions
-    an unknown token (typo, removed feature) is rejected at registration
-    time rather than during validation.
+    Called from :class:`Profile`'s ``__post_init__`` so unknown tokens (typos, removed features) are
+    rejected at registration rather than during validation.
+
+    Raises:
+        ValueError: If any token is not in :data:`CAPABILITY_REGISTRY`.
     """
     unknown = [t for t in tokens if t not in CAPABILITY_REGISTRY]
     if unknown:
@@ -164,37 +133,33 @@ def validate_tokens(tokens: Iterable[str]) -> None:
         raise ValueError(msg)
 
 
-# ---------------------------------------------------------------------------
-# Waveform class → capability-token dispatch
-# ---------------------------------------------------------------------------
-#
-# Per-class waveform tokens are looked up here rather than declared on each
-# waveform class. Keeping the mapping centralized lets the validator stay
-# decoupled from the waveform module structure, and lets vendor packages
-# register their own waveform classes the same way they register tokens.
+# Waveform class → capability-token dispatch.
+# Centralised here (rather than declared on each waveform class) so the validator stays decoupled from
+# the waveform module structure; vendor packages register their classes through the same API.
 
 WAVEFORM_TOKEN: dict[type, str] = {}
-"""Map of waveform class → canonical capability token. Populated lazily by
-:func:`_register_builtin_waveform_tokens` on first use to avoid a circular
-import; vendor packages call :func:`register_waveform_token` directly."""
+"""Map of waveform class to canonical capability token. Populated lazily on first use to avoid a
+circular import; vendor packages extend it via :func:`register_waveform_token`."""
 
 
 def register_waveform_token(cls: type, token: str) -> None:
     """Register a waveform class → token mapping.
 
-    Vendors call this for waveforms they ship. Also automatically registers
-    ``token`` in :data:`CAPABILITY_REGISTRY` so a profile that lists the
-    token does not have to call both functions.
+    Also registers ``token`` in :data:`CAPABILITY_REGISTRY` so profiles that list the token don't
+    have to call both functions.
+
+    Args:
+        cls: Waveform class to register.
+        token: Canonical capability token (e.g. ``"waveform.iq_drag"``).
     """
     WAVEFORM_TOKEN[cls] = token
     register_capability_tokens(token)
 
 
 def _register_builtin_waveform_tokens() -> None:
-    """Populate :data:`WAVEFORM_TOKEN` with the core waveforms.
+    """Populate :data:`WAVEFORM_TOKEN` with the built-in waveforms.
 
-    Called from inside :func:`waveform_token` on first lookup (lazy) to
-    avoid an import cycle between this module and :mod:`qprogram.waveforms`.
+    Lazily imported here to break the circular import between this module and :mod:`qprogram.waveforms`.
     """
     if WAVEFORM_TOKEN:
         return
@@ -228,21 +193,15 @@ def _register_builtin_waveform_tokens() -> None:
 
 
 def waveform_token(wf: object) -> str | None:
-    """Return the canonical token for a waveform value, or ``None``.
+    """Return the canonical capability token for a waveform value, or ``None``.
 
-    - String aliases return ``None`` — callers add ``waveform.alias`` directly.
-    - Unknown concrete classes (e.g. a vendor-defined waveform whose author
-      forgot to register a token) return ``None``; the validator will not
-      include any per-class refinement for it. Channel-kind tokens
-      (``waveform.single`` / ``waveform.iq``) come from
-      :meth:`required_capabilities` directly using ``isinstance`` checks,
-      so they remain present even for unregistered classes.
+    String aliases return ``None`` (callers add ``waveform.alias`` directly). Unknown concrete classes
+    also return ``None``; the validator simply skips per-class refinement for them. Channel-kind tokens
+    (``waveform.single`` / ``waveform.iq``) come from :meth:`Operation.required_capabilities` via
+    ``isinstance`` checks, so they remain present even when no per-class token is registered.
 
-    The parameter is annotated ``object`` because the dispatch is purely
-    class-keyed: any instance whose ``type(...)`` is in the registry returns
-    a token, and the typical callers pass a ``Waveform`` / ``IQWaveform``
-    instance or a string alias. A vendor adding its own waveform class
-    registers and queries here without inheriting from the base classes.
+    Why ``wf`` is typed ``object``: the dispatch is purely class-keyed, and vendor packages register
+    their own classes here without subclassing :class:`Waveform` / :class:`IQWaveform`.
     """
     _register_builtin_waveform_tokens()
     if isinstance(wf, str):
@@ -256,22 +215,18 @@ def waveform_token(wf: object) -> str | None:
 
 
 def expression_tokens(value: object) -> set[str]:
-    """Recursively collect capability tokens for an expression value.
+    """Recursively collect capability tokens contributed by an expression value.
 
-    Handles:
+    The returned set always describes the ``Expression`` node type (and operator name for
+    :class:`MathFunc`), not the value. Plain numeric literals contribute nothing — they're not
+    Expression nodes. Operations call this on each Expression-typed instance attribute they carry.
 
-    - :class:`Constant` → ``{"expr.constant"}``
-    - :class:`Variable` → ``{"expr.variable"}``
-    - :class:`BinaryOp` / :class:`UnaryOp` / :class:`Comparison` /
-      :class:`LogicalBinaryOp` / :class:`LogicalNot` / :class:`Where` →
-      one token + recursion into children
-    - :class:`MathFunc` → ``{"expr.math.<name>"}`` + recursion into operands
-    - plain ``int`` / ``float`` → ``set()`` (a literal numeric never adds
-      anything; the *type* of the parameter is what the caller is asking
-      about, not the value)
+    Args:
+        value: Anything that can appear as an expression operand; non-:class:`Expression` values
+            return an empty set.
 
-    The base ``Operation.required_capabilities`` lets each op call this on
-    each Expression-typed instance attribute it carries.
+    Returns:
+        Set of capability tokens contributed by the value and its descendants.
     """
     from qprogram.variable import (  # noqa: PLC0415
         BinaryOp,
@@ -329,20 +284,17 @@ def expression_tokens(value: object) -> set[str]:
 class Diagnostic:
     """One issue found by the validator.
 
-    ``severity`` is currently always ``"error"``. ``"warning"`` is reserved
-    for the future (e.g. a limit-violation that the platform can spill to
-    software-driven execution); widening the annotation is the only change
-    needed when the fallback story lands.
-
-    ``code`` is a short machine-readable identifier (``missing-capability``,
-    ``limit-exceeded``, vendor-defined codes prefixed by the vendor name).
-    ``message`` is the human-readable explanation. ``node`` points to the
-    offending AST node when one is available (capability-missing diagnostics
-    always have one; whole-program checks like total-measurement-count don't).
-
-    ``capability`` is the token that was missing, when applicable.
-    ``limit`` is a ``(name, observed_value)`` tuple when a numeric limit was
-    exceeded — the threshold itself is in :attr:`CompilerCapabilities.limits`.
+    Attributes:
+        severity: Always ``"error"`` today. ``"warning"`` is reserved for a future fallback story
+            (e.g. limit violations a platform can spill to software-driven execution).
+        code: Short machine-readable identifier (``"missing-capability"``, ``"limit-exceeded"``, or
+            a vendor-prefixed code).
+        message: Human-readable explanation.
+        node: The offending AST node when one is available. Capability-missing diagnostics always
+            have one; whole-program checks (total-measurement-count, ...) do not.
+        capability: The token that was missing, when applicable.
+        limit: ``(name, observed_value)`` tuple when a numeric limit was exceeded. The threshold
+            itself lives in :attr:`CompilerCapabilities.limits`.
     """
 
     severity: Literal["error"]
@@ -363,18 +315,12 @@ class Diagnostic:
 
 @runtime_checkable
 class Predicate(Protocol):
-    """Per-node validation predicate.
+    """Per-node validation predicate — called once per visited AST node during ``validate()``.
 
-    Called once per visited AST node during :func:`qprogram.validation.validate`,
-    with a :class:`ValidationContext` carrying cross-op data-flow facts. Returns
-    an iterable of :class:`Diagnostic` — empty when the predicate has nothing
-    to say about this node.
-
-    The motivating example: a predicate that flags an :class:`~qprogram.operations.Wait`
-    whose ``duration`` is a :class:`Variable` bound by an arbitrary-sweep
-    :class:`~qprogram.blocks.Loop`. The predicate needs ``ctx`` to discover
-    the binding loop and its sweep kind — facts a per-node ``required_capabilities``
-    call cannot see in isolation.
+    Receives a :class:`ValidationContext` with cross-op data-flow facts. Returns zero or more
+    :class:`Diagnostic` objects. Motivating example: flagging a :class:`Wait` whose ``duration`` is
+    bound by an arbitrary-sweep :class:`Loop` — a fact a per-node ``required_capabilities`` call
+    can't see in isolation.
     """
 
     def __call__(
@@ -390,14 +336,9 @@ SweepKind = Literal["linear", "arbitrary", "averaged"]
 class ValidationContext:
     """Read-only view of program-wide data-flow facts, built once per ``validate()`` call.
 
-    Predicates use the queries here to answer "in *this* AST, is X legal?"
-    without re-walking the tree. The context is materialised by
-    :func:`qprogram.validation.validate` from a single pass over ``program.body``
-    and then passed to every predicate; predicates must not mutate it.
-
-    The current surface covers the cases this design targets. New queries
-    are added here (not on a wider object) so predicate authors have a
-    single, discoverable interface.
+    Predicates use the queries here to answer "in *this* AST, is X legal?" without re-walking the
+    tree. New queries are added here so predicate authors have a single, discoverable surface;
+    predicates must treat the context as immutable.
     """
 
     def __init__(  # noqa: PLR0913  # all-keyword constructor for a small data carrier
@@ -418,50 +359,44 @@ class ValidationContext:
         self._measurement_returns: dict[str, tuple[str, ...]] = dict(measurement_returns or {})
 
     def sweep_kind_of(self, var: Variable) -> SweepKind | None:
-        """Return how ``var`` is bound, or ``None`` if not bound by any loop.
+        """Return how ``var`` is loop-bound.
 
-        - ``"linear"`` — bound by a :class:`~qprogram.blocks.ForLoop`.
-        - ``"arbitrary"`` — bound by a :class:`~qprogram.blocks.Loop`
-          (numpy-array-driven).
-        - ``"averaged"`` — currently unused; reserved for variables that
-          are averaged-over rather than swept.
-        - ``None`` — variable is not bound by any loop in the program
-          (e.g. set externally, or unused inside any loop).
+        Returns:
+            ``"linear"`` for :class:`ForLoop`, ``"arbitrary"`` for :class:`Loop`, ``"averaged"`` for
+            future reserve, or ``None`` if not loop-bound (set externally or unused).
         """
         return self._sweep_kinds.get(var)
 
     def binding_loop_of(self, var: Variable) -> Block | None:
-        """Return the loop block that binds ``var``, or ``None``."""
+        """Return the loop block that binds ``var``, or ``None`` if it has no binding."""
         return self._variable_bindings.get(var)
 
     @property
     def max_loop_nesting(self) -> int:
-        """Deepest nested-loop count observed in the program (inclusive of Parallel headers)."""
+        """Deepest nested-loop count observed in the program (Parallel headers counted)."""
         return self._max_loop_nesting
 
     @property
     def max_parallel_arity(self) -> int:
-        """Largest number of loops in any single :class:`~qprogram.blocks.Parallel` block."""
+        """Largest ``len(parallel.loops)`` observed across any :class:`Parallel` block."""
         return self._max_parallel_arity
 
     @property
     def measurement_count(self) -> int:
-        """Total :class:`~qprogram.operations.operation.MeasurementOperation` instances in the program."""
+        """Total number of :class:`MeasurementOperation` instances in the program."""
         return self._measurement_count
 
     def measurement_returns(self, name: str) -> tuple[str, ...] | None:
-        """Return the ``returns`` tuple of the measurement with this name.
+        """Return the ``returns`` tuple of the named measurement, or ``None`` if it doesn't exist.
 
-        ``None`` if no measurement with that name exists in the program.
-        Predicates use this to check that a referenced measurement
-        actually requested the data shape they care about (e.g. that a
-        ``handle.state`` reference's measurement requested
-        ``"state"`` classification).
+        Predicates use this to check that a referenced measurement requested the data shape they
+        care about — e.g. that a ``handle.state`` reference's source measurement requested
+        ``"state"`` classification.
         """
         return self._measurement_returns.get(name)
 
     def known_measurement_names(self) -> set[str]:
-        """Set of every measurement name in the program."""
+        """Return the set of every measurement name in the program."""
         return set(self._measurement_returns)
 
 
@@ -472,16 +407,22 @@ class ValidationContext:
 
 @dataclass(frozen=True)
 class Profile:
-    """A named bundle of capabilities, limits, and predicates.
+    """A named, versioned bundle of capabilities, limits, and predicates.
 
-    Vendors register one or more profiles via :func:`register_profile`.
-    Profiles can extend others by name — capabilities and predicates from
-    parent profiles accumulate; limits inherit and may be overridden by
-    the child.
+    Vendors register one or more profiles via :func:`register_profile`. Profiles may :attr:`extends`
+    another by name — capabilities and predicates accumulate (parent → child), limits inherit and may
+    be overridden by the child.
 
-    The ``vendor_versions`` field is informational: it records which
-    vendor extension versions this profile was designed for, mirroring
-    the existing ``.qp`` ``require <vendor> <version>`` line.
+    Attributes:
+        name: Unique profile name (e.g. ``"myvendor-default-v1"``).
+        version: Profile version as ``(major, minor, patch)``.
+        extends: Name of a parent profile, or ``None``.
+        capabilities: Set of capability tokens this profile advertises.
+        limits: Numeric thresholds; the validator silently ignores unrecognised keys so future
+            limits can be declared without breaking older validators.
+        predicates: Tuple of :class:`Predicate` callables.
+        vendor_versions: Informational record of which vendor extension versions this profile was
+            designed for; mirrors the ``.qp`` ``require <vendor> <version>`` line.
     """
 
     name: str
@@ -498,17 +439,20 @@ class Profile:
 
 @dataclass(frozen=True)
 class CompilerCapabilities:
-    """The descriptor a :class:`PlatformProtocol` exposes via ``.capabilities``.
+    """The capability descriptor that :class:`PlatformProtocol` exposes via ``.capabilities``.
 
-    Materialized by :meth:`from_profile`, which walks the profile's
-    ``extends`` chain and merges capabilities/predicates (union, in
-    parent→child order) and limits (later overrides earlier, so the leaf
-    profile's value wins). A live device can also pass
-    ``limit_overrides=`` to tighten any merged limit at construction time.
+    Materialized by :meth:`from_profile`, which walks ``extends`` and merges parent → child:
+    capabilities/predicates union, limits replace. A live device may pass ``limit_overrides=`` to
+    further tighten any limit. The same object is what the validator consumes and what users
+    introspect — there is no separate "advertised vs. enforced" surface.
 
-    This is the single object the validator consumes and that users
-    introspect. There is no separate "what is advertised" vs "what is
-    enforced" surface — same object, both sides.
+    Attributes:
+        profile: Name of the source profile.
+        version: Source profile version.
+        capabilities: Merged set of capability tokens.
+        limits: Merged numeric limits.
+        predicates: Merged tuple of :class:`Predicate` callables.
+        vendor_versions: Merged vendor-extension version expectations.
     """
 
     profile: str
@@ -530,16 +474,20 @@ class CompilerCapabilities:
         limit_overrides: Mapping[str, float] | None = None,
         extra_predicates: tuple[Predicate, ...] = (),
     ) -> CompilerCapabilities:
-        """Resolve a registered profile (walking ``extends``) into a capability descriptor.
+        """Resolve a registered profile and merge it into a capability descriptor.
 
-        ``limit_overrides`` — typically supplied by a concrete device that
-        knows its hardware is tighter than the profile defaults — replaces
-        the corresponding merged-limit values element-wise.
+        Args:
+            profile_name: Name of a profile previously passed to :func:`register_profile`.
+            limit_overrides: Per-limit replacements for the merged values — typically supplied by a
+                device that knows its hardware is tighter than the profile defaults.
+            extra_predicates: Site-specific predicates run on top of the profile's. Useful for
+                rack-level constraints that don't belong in the vendor-shipped profile.
 
-        ``extra_predicates`` — additional predicates the device wants to
-        run on top of the profile's. Useful for site-specific constraints
-        (e.g. "this rack's instrument F can't do op X concurrently with
-        op Y") that don't belong in the vendor-shipped profile.
+        Returns:
+            The materialised :class:`CompilerCapabilities`.
+
+        Raises:
+            KeyError: If ``profile_name`` is not registered.
         """
         profile = resolve_profile(profile_name)
         chain = _profile_chain(profile)
@@ -572,11 +520,13 @@ PROFILE_REGISTRY: dict[str, Profile] = {}
 
 
 def register_profile(profile: Profile) -> None:
-    """Register a profile by name.
+    """Register a profile in :data:`PROFILE_REGISTRY` under its name.
 
-    Raises :class:`ValueError` on duplicate registration (idempotent
-    re-registration of the same Profile object is allowed, so import-time
-    side-effect modules that load twice don't crash).
+    Idempotent for the *same* Profile object — useful for import-time side-effect modules that may
+    load twice. Re-registering a different profile under an existing name raises.
+
+    Raises:
+        ValueError: If a different profile is already registered under ``profile.name``.
     """
     existing = PROFILE_REGISTRY.get(profile.name)
     if existing is profile:
@@ -588,7 +538,11 @@ def register_profile(profile: Profile) -> None:
 
 
 def resolve_profile(name: str) -> Profile:
-    """Look up a profile by name; raise :class:`KeyError` when missing."""
+    """Look up a profile by name.
+
+    Raises:
+        KeyError: If ``name`` is not registered. The message lists the currently-known names.
+    """
     if name not in PROFILE_REGISTRY:
         available = ", ".join(sorted(PROFILE_REGISTRY)) or "(none registered)"
         msg = f"Unknown profile {name!r}. Available: {available}"
@@ -617,7 +571,7 @@ def _profile_chain(profile: Profile) -> list[Profile]:
 # ---------------------------------------------------------------------------
 
 
-# Callable typedef for users authoring predicates without importing Protocol.
+# Callable alias for users authoring predicates without pulling Protocol into scope.
 PredicateFn = Callable[["Operation | Block", "ValidationContext"], Iterable[Diagnostic]]
 
 

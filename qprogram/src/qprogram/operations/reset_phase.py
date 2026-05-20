@@ -4,7 +4,11 @@ from qprogram.operations.operation import Operation
 
 
 class ResetPhase(Operation):
-    """Reset NCO phase to zero."""
+    """Reset the NCO phase on a bus to zero.
+
+    Args:
+        bus: Bus whose oscillator phase to reset.
+    """
 
     def __init__(self, bus: str) -> None:
         self.bus = bus

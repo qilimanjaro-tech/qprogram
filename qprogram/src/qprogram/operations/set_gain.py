@@ -9,7 +9,12 @@ if TYPE_CHECKING:
 
 
 class SetGain(Operation):
-    """Set output gain."""
+    """Set the output gain on a bus.
+
+    Args:
+        bus: Bus whose output gain to set.
+        gain: New gain. Accepts an :class:`~qprogram.Expression` for sweeps.
+    """
 
     def __init__(self, bus: str, gain: float | Expression) -> None:
         self.bus = bus

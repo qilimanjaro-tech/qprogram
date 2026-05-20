@@ -11,7 +11,13 @@ if TYPE_CHECKING:
 
 
 class Arbitrary(Waveform):
-    """User-provided sample array."""
+    """Waveform defined by a user-provided 1-D sample array.
+
+    The ``resolution`` argument to :meth:`envelope` is ignored — the samples are taken as-is, one per ns.
+
+    Args:
+        samples: 1-D sequence (list, tuple, or ``np.ndarray``) of sample values.
+    """
 
     def __init__(self, samples: Sequence[float] | np.ndarray) -> None:
         self.samples = np.asarray(samples)

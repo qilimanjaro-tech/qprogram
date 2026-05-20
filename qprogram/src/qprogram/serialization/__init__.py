@@ -1,15 +1,10 @@
 """``.qp`` serialization layer.
 
-Importing this package activates the full dispatch table: built-in waveforms,
-core operations, control-flow blocks, and sweep generators all register
-themselves with :mod:`qprogram.serialization.registry`. After that, the
-:class:`~qprogram.serialization.writer._Writer` and parser walk programs by
-looking up specs in those registries rather than by hard-coded keyword
-branches.
+Importing this package activates the registry-driven dispatch: built-in waveforms, operations,
+blocks, and sweep generators register themselves with :mod:`qprogram.serialization.registry`.
 
-The lazy ``__getattr__`` for ``loads``, ``load``, and ``ParseError`` is kept
-to avoid the import cycle between the parser (which needs ``QProgram`` to
-construct loaded programs) and the rest of the package.
+The lazy ``__getattr__`` for ``loads`` / ``load`` / ``ParseError`` breaks the import cycle between
+the parser (which constructs :class:`QProgram` instances) and the rest of the package.
 """
 
 from qprogram.serialization import _specs as _core_specs
@@ -26,8 +21,7 @@ from qprogram.serialization.registry import (
 )
 from qprogram.serialization.writer import dumps, save
 
-# Populate the operation/block/sweep-generator registries with the built-ins
-# defined in :mod:`_specs`. Idempotent; safe to call again if needed.
+# Idempotent — registers the built-in operation, block, and sweep-generator specs from :mod:`_specs`.
 _core_specs._register_core_specs()  # noqa: SLF001
 
 __all__ = [

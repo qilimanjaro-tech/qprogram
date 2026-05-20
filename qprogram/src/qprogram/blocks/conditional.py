@@ -1,23 +1,7 @@
 """Multi-armed conditional block.
 
-A :class:`Conditional` represents a chain of ``if``/``elif``/``else`` arms
-in source order. Each arm carries a condition :class:`Expression` (today
-restricted by :meth:`QProgram.if_` to a :class:`Comparison` against an
-``int`` literal — see the v1 scope on the spec) and a body :class:`Block`.
-The optional terminal ``else`` body lives in :attr:`else_body`.
-
-Unlike :class:`~qprogram.blocks.Block`/``Average``/``ForLoop``/``Loop``,
-``Conditional`` does **not** use the inherited ``_elements`` list. The
-generic ``_elements`` would conflate "arm body content" with "no-op other
-children", which is meaningless for a conditional. :meth:`append` raises;
-the only way to populate a conditional is through the
-:meth:`QProgram.if_` / :meth:`elif_` / :meth:`else_` builder, which
-appends into the appropriate arm body.
-
-Introspection (:meth:`walk`, :meth:`variables`, :meth:`buses`,
-:meth:`waveforms`) traverses the arms in order, then the else body.
-Each arm's condition expression contributes its variables (and capability
-tokens) to the parent program.
+A :class:`Conditional` represents a chain of ``if`` / ``elif`` / ``else`` arms in source order. Built via
+:meth:`QProgram.if_` / :meth:`elif_` / :meth:`else_` — never instantiated directly.
 """
 
 from __future__ import annotations
@@ -36,9 +20,16 @@ if TYPE_CHECKING:
 
 
 class Conditional(Block):
-    """Multi-armed conditional with optional else.
+    """A chain of ``if`` / ``elif`` / ``else`` arms.
 
-    See module docstring for the design notes.
+    Why this doesn't reuse the inherited ``_elements`` list: arms each carry an independent body and a
+    condition expression, so a single ordered list would conflate "arm body" with "shared body" — there
+    is no shared body in a conditional. :meth:`append` therefore raises; populate via the builder
+    methods on :class:`~qprogram.QProgram`.
+
+    Attributes:
+        arms: List of ``(condition, body)`` pairs, in source order.
+        else_body: Optional terminal ``else`` body.
     """
 
     def __init__(self) -> None:
@@ -47,6 +38,11 @@ class Conditional(Block):
         self.else_body: Block | None = None
 
     def append(self, element: Block | Operation) -> None:  # noqa: ARG002
+        """Disabled — populate via :meth:`QProgram.if_` / :meth:`elif_` / :meth:`else_` instead.
+
+        Raises:
+            ValidationError: Always.
+        """
         msg = (
             "Cannot append directly to a Conditional. "
             "Use the arm body returned by program.if_() / elif_() / else_() instead."
@@ -54,7 +50,6 @@ class Conditional(Block):
         raise ValidationError(msg)
 
     def walk(self) -> Iterator[Block | Operation]:
-        """Yield self, then each arm body in order, then else_body (if any)."""
         yield self
         for _, body in self.arms:
             yield from body.walk()
@@ -62,7 +57,6 @@ class Conditional(Block):
             yield from self.else_body.walk()
 
     def variables(self) -> set[Variable]:
-        """Union of variables across each condition and each arm body's contents."""
         out: set[Variable] = set()
         for cond, body in self.arms:
             out |= cond.variables() | body.variables()
@@ -71,7 +65,6 @@ class Conditional(Block):
         return out
 
     def buses(self) -> set[str]:
-        """Union of bus references across arm bodies and the else body."""
         out: set[str] = set()
         for _, body in self.arms:
             out |= body.buses()
@@ -80,7 +73,6 @@ class Conditional(Block):
         return out
 
     def waveforms(self) -> set[Waveform | IQWaveform | str]:
-        """Union of waveform references across arm bodies and the else body."""
         out: set[Waveform | IQWaveform | str] = set()
         for _, body in self.arms:
             out |= body.waveforms()
@@ -89,13 +81,6 @@ class Conditional(Block):
         return out
 
     def required_capabilities(self) -> set[str]:
-        """Tokens needed by *this* block alone.
-
-        ``block.conditional`` for the construct itself, plus the
-        expression tokens of every arm condition. Children's tokens are
-        not unioned here — the validator walks the AST and visits each
-        child separately.
-        """
         from qprogram.protocol import expression_tokens  # noqa: PLC0415
 
         caps = {"block.conditional"}

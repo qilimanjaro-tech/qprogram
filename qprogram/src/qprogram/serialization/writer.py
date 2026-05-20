@@ -1,25 +1,12 @@
-"""Serializer for the ``.qp`` file format.
+"""Writer for the ``.qp`` file format.
 
-The writer is intentionally thin: it walks the QProgram AST and dispatches
-each node to the appropriate spec callback from
-:mod:`qprogram.serialization.registry`. The hard-coded ``isinstance`` ladders
-that used to enumerate every core operation and block keyword are gone — the
-writer is now agnostic to the concrete set of operations, blocks, and sweep
-generators in scope.
+Walks the QProgram AST and dispatches each node to the registry's spec callbacks; no hard-coded
+``isinstance`` ladder over operation or block keywords. The instance's ``serialize_*`` and
+``var_ident`` methods form the *write context* — the duck-typed surface every callback in
+:mod:`_specs` and every vendor extension's ``serialize`` consumes.
 
-State carried on the instance:
-
-- ``_var_idents`` — per-variable identifier table. Variable ids are already
-  unique within a program (the API rejects duplicates), so the map is
-  effectively an identity function today, but the indirection is kept in
-  place: future tooling that wants to rename variables on emit (e.g. to
-  shorten them) has a single hook to do so without touching the rest of
-  the writer.
-
-The instance methods called ``serialize_*`` and ``var_ident`` are the public
-interface used by registered callbacks. They form the *write context* — a
-duck-typed protocol consumed by every callback in :mod:`_specs` and by every
-vendor extension that registers a custom ``serialize`` function.
+The ``_var_idents`` table is effectively an identity function today (Variable ids are unique within
+a program), but the indirection gives future tooling a single hook for emit-time variable renaming.
 """
 
 from __future__ import annotations
@@ -66,12 +53,24 @@ FORMAT_VERSION = "1.0"
 
 
 def dumps(program: QProgram) -> str:
-    """Serialize a QProgram to ``.qp`` format string."""
+    """Serialise a :class:`QProgram` to a ``.qp``-format string.
+
+    Args:
+        program: Program to serialise.
+
+    Returns:
+        The full ``.qp`` text (header, metadata, schema, body).
+    """
     return _Writer(program).dump()
 
 
 def save(program: QProgram, path: str) -> None:
-    """Save a QProgram to a ``.qp`` file."""
+    """Serialise ``program`` and write the result to ``path``.
+
+    Args:
+        program: Program to serialise.
+        path: Destination file path.
+    """
     with Path(path).open("w") as f:
         f.write(dumps(program))
 

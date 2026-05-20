@@ -7,7 +7,14 @@ from qprogram.waveforms.waveform import IQWaveform, Waveform
 
 
 class Play(Operation):
-    """Play a waveform on a bus."""
+    """Play a waveform on a bus.
+
+    Args:
+        bus: Bus to play on.
+        waveform: Either a concrete :class:`~qprogram.waveforms.Waveform` /
+            :class:`~qprogram.waveforms.IQWaveform`, or a string alias to be resolved later by
+            :meth:`QProgram.with_waveforms`.
+    """
 
     WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ("waveform",)
 

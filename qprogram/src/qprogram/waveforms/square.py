@@ -7,7 +7,12 @@ from qprogram.waveforms.waveform import Waveform
 
 
 class Square(Waveform):
-    """Constant amplitude rectangular pulse."""
+    """Constant-amplitude rectangular pulse.
+
+    Args:
+        amplitude: Pulse amplitude. Accepts an :class:`~qprogram.Expression` to be swept by an enclosing loop.
+        duration: Pulse duration in nanoseconds. Accepts an :class:`~qprogram.Expression`.
+    """
 
     def __init__(self, amplitude: float | Expression, duration: int | Expression) -> None:
         self.amplitude = amplitude

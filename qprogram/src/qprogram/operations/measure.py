@@ -14,21 +14,17 @@ if TYPE_CHECKING:
 class Measure(MeasurementOperation):
     """Play a readout pulse and acquire the result.
 
-    ``returns`` is the canonical tuple of return-type tokens for this
-    measurement. The default ``("iq",)`` matches the historical behaviour
-    of returning in-phase / quadrature data. ``"raw"`` requests the raw
-    ADC trace alongside; ``"state"`` requests a classified outcome
-    (required when the program references ``handle.state`` in a
-    conditional). Platforms decide which tokens they recognise.
-
-    ``handle`` is the *canonical*
-    :class:`~qprogram.MeasurementHandle` — the same Python instance the
-    user got back from :meth:`QProgram.measure`, the same instance every
-    :class:`~qprogram.MeasurementRef` inside a conditional points at,
-    and the same instance returned by
-    :meth:`~qprogram.QProgram.measurement_handles`. The runtime writes
-    per-measurement values onto this handle once and every reader sees
-    them.
+    Args:
+        bus: Readout bus (must have ``acquires=True``).
+        waveform: Readout pulse — concrete :class:`~qprogram.waveforms.IQWaveform` or a string alias.
+        weights: Integration weights — concrete :class:`~qprogram.waveforms.IQWaveform` or a string alias.
+        handle: The canonical :class:`~qprogram.MeasurementHandle` for this measurement. The same Python
+            instance is returned to user code, referenced by any :class:`~qprogram.MeasurementRef` in
+            conditionals, and listed by :meth:`QProgram.measurement_handles` — the runtime writes
+            per-measurement values onto this single object and every reader sees them.
+        returns: Tuple of return-type tokens. Default ``("iq",)``. ``"raw"`` requests the raw ADC trace,
+            ``"state"`` requests a classified outcome (required when the program references
+            ``handle.state`` in a conditional). Platforms decide which tokens they recognise.
     """
 
     WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ("waveform", "weights")

@@ -7,7 +7,19 @@ from qprogram.waveforms.waveform import IQWaveform, Waveform
 
 
 class IQDrag(IQWaveform):
-    """DRAG pulse: Gaussian I + GaussianDragCorrection Q."""
+    """DRAG (Derivative Removal by Adiabatic Gate) pulse.
+
+    The I channel carries a :class:`Gaussian`; the Q channel carries the derivative correction
+    (:class:`GaussianDragCorrection`) scaled by ``drag_coefficient``. Suppresses leakage to the |2⟩ state
+    during single-qubit rotations on weakly-anharmonic transmons.
+
+    Args:
+        amplitude: Peak amplitude of the I-channel Gaussian. Accepts an :class:`~qprogram.Expression`.
+        duration: Pulse duration in nanoseconds. Accepts an :class:`~qprogram.Expression`.
+        num_sigmas: Window width of the I-channel Gaussian in standard deviations.
+        drag_coefficient: Calibration parameter setting Q-channel weight. Typically a small (<0.5) value
+            tuned per qubit.
+    """
 
     def __init__(
         self,

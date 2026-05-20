@@ -9,7 +9,14 @@ if TYPE_CHECKING:
 
 
 class ForLoop(Block):
-    """Parametric loop: start, stop, step."""
+    """Linear sweep block: iterate ``variable`` from ``start`` to ``stop`` in increments of ``step``.
+
+    Args:
+        variable: The :class:`~qprogram.Variable` rebound on each iteration.
+        start: First value of the sweep (inclusive).
+        stop: Final value of the sweep (inclusive).
+        step: Increment between consecutive iterations.
+    """
 
     def __init__(self, variable: Variable, start: float, stop: float, step: float) -> None:
         super().__init__()
@@ -19,7 +26,6 @@ class ForLoop(Block):
         self.step = step
 
     def variables(self) -> set[Variable]:
-        """Include the loop-counter variable on top of the children's vars."""
         return super().variables() | {self.variable}
 
     def required_capabilities(self) -> set[str]:

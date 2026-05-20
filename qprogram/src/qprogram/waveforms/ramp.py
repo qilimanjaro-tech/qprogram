@@ -7,7 +7,13 @@ from qprogram.waveforms.waveform import Waveform
 
 
 class Ramp(Waveform):
-    """Linear interpolation between two amplitudes."""
+    """Linearly-interpolated ramp between two amplitudes.
+
+    Args:
+        from_amplitude: Starting amplitude. Accepts an :class:`~qprogram.Expression`.
+        to_amplitude: Ending amplitude. Accepts an :class:`~qprogram.Expression`.
+        duration: Ramp duration in nanoseconds. Accepts an :class:`~qprogram.Expression`.
+    """
 
     def __init__(
         self,

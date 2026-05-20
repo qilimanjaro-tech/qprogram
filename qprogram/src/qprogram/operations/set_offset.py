@@ -9,7 +9,13 @@ if TYPE_CHECKING:
 
 
 class SetOffset(Operation):
-    """Set DC offset on one or both signal paths."""
+    """Set DC offset on one or both signal paths of a bus.
+
+    Args:
+        bus: Bus whose DC offset to set.
+        offset_path0: Offset on path 0 (the only path for single-channel buses, I for IQ buses).
+        offset_path1: Offset on path 1 (Q for IQ buses). ``None`` leaves the path's offset unchanged.
+    """
 
     def __init__(
         self,

@@ -1,3 +1,9 @@
+"""Abstract bases for waveform types.
+
+Waveforms are conceptually immutable values; once a waveform has been used as a ``set`` / ``dict`` key or
+otherwise hashed, do not mutate its attributes.
+"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -10,21 +16,11 @@ if TYPE_CHECKING:
 
 
 class _StructuralEqMixin:
-    """Provides structural ``__eq__`` / ``__hash__`` based on ``vars(self)``.
+    """Structural ``__eq__`` / ``__hash__`` over ``vars(self)``.
 
-    Mixed into the :class:`Waveform` and :class:`IQWaveform` bases so every
-    waveform subclass compares structurally without per-class boilerplate.
-    Two waveform instances are equal iff they are of the same concrete
-    class and their public+private attribute values compare equal under
-    :func:`qprogram._structural.ast_eq` — which means symbolic parameter
-    references (``Variable``, ``Constant``, …) flow through with their
-    own equality semantics, ``numpy`` arrays compare elementwise, and
-    nested waveforms (e.g. :class:`IQPair`) recurse.
-
-    Mutation contract: once a waveform has been used as a ``set`` /
-    ``dict`` key or otherwise hashed, do not mutate its attributes.
-    Waveforms are conceptually values; the codebase never mutates them
-    after construction.
+    Why this is a mixin: symbolic parameter references (``Variable``, ``Constant``) and ``numpy`` arrays
+    do not compose under Python's default identity equality, so every waveform subclass would need
+    bespoke ``__eq__`` otherwise. Using ``ast_eq`` makes nested waveforms (``IQPair``) recurse correctly.
     """
 
     def __eq__(self, other: object) -> bool:
@@ -38,33 +34,40 @@ class _StructuralEqMixin:
 
 
 class Waveform(_StructuralEqMixin, ABC):
-    """Abstract base for single-channel waveforms."""
+    """Abstract base for single-channel (real-valued) waveforms."""
 
     @abstractmethod
     def envelope(self, resolution: int = 1) -> np.ndarray:
-        """Returns the pulse amplitude for each time step."""
+        """Return the pulse envelope sampled at ``resolution``-ns steps.
+
+        Args:
+            resolution: Sample period in nanoseconds. ``1`` returns one sample per ns.
+
+        Returns:
+            A 1-D float array of length ``duration / resolution``.
+        """
         ...
 
     @abstractmethod
     def get_duration(self) -> int:
-        """Duration in nanoseconds."""
+        """Return the pulse duration in nanoseconds."""
         ...
 
 
 class IQWaveform(_StructuralEqMixin, ABC):
-    """Abstract base for IQ (two-channel) waveforms."""
+    """Abstract base for IQ (two-channel, complex-valued) waveforms."""
 
     @abstractmethod
     def get_I(self) -> Waveform:
-        """In-phase component."""
+        """Return the in-phase component as a single-channel :class:`Waveform`."""
         ...
 
     @abstractmethod
     def get_Q(self) -> Waveform:
-        """Quadrature component."""
+        """Return the quadrature component as a single-channel :class:`Waveform`."""
         ...
 
     @abstractmethod
     def get_duration(self) -> int:
-        """Duration in nanoseconds."""
+        """Return the pulse duration in nanoseconds."""
         ...

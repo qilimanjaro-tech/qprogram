@@ -9,7 +9,12 @@ if TYPE_CHECKING:
 
 
 class SetPhase(Operation):
-    """Set NCO phase (radians)."""
+    """Set the NCO phase on a bus.
+
+    Args:
+        bus: Bus whose oscillator phase to set.
+        phase: Phase in radians. Accepts an :class:`~qprogram.Expression`.
+    """
 
     def __init__(self, bus: str, phase: float | Expression) -> None:
         self.bus = bus

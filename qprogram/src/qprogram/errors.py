@@ -1,30 +1,13 @@
 """QProgram exception hierarchy.
 
-Every error that originates inside QProgram — at construction time in the
-core library, at parse time when loading a ``.qp`` file, or at compile /
-execution time inside a platform — is a subclass of
-:class:`QProgramError`. User code can catch the right level of granularity:
+Every error that originates inside QProgram (core construction, ``.qp`` parsing, or platform compile /
+execution) is a subclass of :class:`QProgramError`. User code catches at the granularity it needs:
+``except QProgramError`` for "anything QProgram", ``except ValidationError`` for construction-time
+issues, ``except ParseError`` for ``.qp`` files, or one of the platform-side classes (``HardwareError``,
+``CompilationError``, ...) for runtime failures.
 
-- ``except QProgramError``      — anything QProgram raised.
-- ``except ValidationError``    — construction-time validation failed.
-- ``except ParseError``         — couldn't parse a ``.qp`` file.
-- ``except WaveformResolutionError`` (etc.) — one specific failure mode.
-
-The platform-side classes (``UnsupportedOperationError``,
-``BusNotAvailableError``, ``WaveformResolutionError``, ``CompilationError``,
-``HardwareError``) are *defined* here but not raised by core QProgram itself.
-They are the contract concrete platforms (vendor backends, …) use
-when reporting errors back to the user, so a single ``except
-CompilationError`` works uniformly across every backend.
-
-Two construction-time subclasses (:class:`InvalidVariableIdError`,
-:class:`UnassignedVariableError`) also subclass :class:`ValueError`. They
-historically lived in :mod:`qprogram.variable` and predate this hierarchy;
-keeping the :class:`ValueError` parent lets existing ``except ValueError``
-code keep working for those specific exceptions. The bare ``ValueError`` /
-``TypeError`` raises that previously came from the core's validation helpers
-are now :class:`ValidationError` only — pre-1.0 we don't shim a second
-parent onto the base class.
+The platform-side classes are *defined* here but never raised by core QProgram — they are the contract
+that concrete platforms use so a single ``except`` works uniformly across every backend.
 """
 
 from __future__ import annotations
@@ -43,8 +26,7 @@ if TYPE_CHECKING:
 class QProgramError(Exception):
     """Root of the QProgram exception hierarchy.
 
-    Catch this if you want to know "QProgram raised something" without
-    caring why; prefer a more specific subclass when you do care.
+    Catch this for "QProgram raised something"; prefer a more specific subclass when you do care why.
     """
 
 
@@ -56,34 +38,28 @@ class QProgramError(Exception):
 class ValidationError(QProgramError):
     """Construction-time validation failed.
 
-    Raised by core QProgram code when a program is being assembled and an
-    operation rejects its arguments — e.g. an IQ waveform on a single-channel
-    bus, a ``measure()`` on a bus that doesn't acquire, two variables with
-    the same id in one program, or a name collision on
-    :class:`~qprogram.MeasurementHandle` allocation.
+    Raised when a program is being assembled and an operation rejects its arguments — e.g. an IQ
+    waveform on a single-channel bus, a ``measure()`` on a bus without ADC, duplicate variable ids, or
+    a measurement-handle name collision.
 
-    Two existing subclasses also extend :class:`ValueError` for legacy
-    reasons (see :class:`InvalidVariableIdError`,
-    :class:`UnassignedVariableError`). The base ``ValidationError`` does not
-    extend ``ValueError`` itself, so plain ``except ValueError`` is no
-    longer a catch-all for QProgram's construction validation; use
-    ``except ValidationError`` (or ``except QProgramError``) instead.
+    Why this does not also extend :class:`ValueError`: plain ``except ValueError`` is no longer a
+    catch-all for QProgram's construction validation. Two legacy subclasses
+    (:class:`InvalidVariableIdError`, :class:`UnassignedVariableError`) still inherit :class:`ValueError`
+    for back-compat with code predating this hierarchy.
     """
 
 
 class InvalidVariableIdError(ValidationError, ValueError):
-    """Variable id failed validation.
+    """Variable id failed validation, either on pattern or because it is reserved.
 
-    Two failure modes share this exception class:
+    Why this also subclasses :class:`ValueError`: back-compat with code that predates the QProgram
+    exception hierarchy and catches ``ValueError`` for invalid identifiers.
 
-    - **Pattern**: ``id`` doesn't match ``[A-Za-z_][A-Za-z0-9_]*``.
-    - **Reserved**: ``id`` matches the pattern but is one of the
-      :data:`~qprogram.RESERVED_KEYWORDS` reserved for future syntax
-      (``if``, ``while``, ``repeat``, …). Use :attr:`reserved` to
-      distinguish at catch time.
-
-    Subclasses :class:`ValueError` for back-compat with code that
-    predates the QProgram exception hierarchy.
+    Args:
+        id: The offending identifier.
+        reserved: ``True`` if ``id`` matches the identifier pattern but is one of
+            :data:`~qprogram.RESERVED_KEYWORDS`; ``False`` for an outright pattern violation. Available
+            at catch-time as :attr:`reserved`.
     """
 
     def __init__(self, id: str, *, reserved: bool = False) -> None:  # noqa: A002
@@ -107,11 +83,13 @@ class InvalidVariableIdError(ValidationError, ValueError):
 
 
 class UnassignedVariableError(ValidationError, ValueError):
-    """Expression contains a Variable whose value isn't bound.
+    """An :class:`Expression` was evaluated while it still references unbound :class:`Variable` s.
 
-    Raised by ``Expression.evaluate_or_raise()``. Subclasses
-    :class:`ValueError` for back-compat with code that predates the
-    QProgram exception hierarchy.
+    Raised by :meth:`Expression.evaluate_or_raise`. Subclasses :class:`ValueError` for back-compat.
+
+    Attributes:
+        expression: The expression that failed to evaluate.
+        free_variables: The set of unbound variables that caused the failure.
     """
 
     def __init__(self, expression: Expression) -> None:
@@ -127,51 +105,45 @@ class UnassignedVariableError(ValidationError, ValueError):
 # Platform-side error contracts
 # ---------------------------------------------------------------------------
 #
-# Core QProgram does not raise these — they are the agreed-on exception
-# classes concrete platforms (vendor backends, …)
-# raise back to users. Defining them in core gives every platform a single
-# import path and lets user code write one ``except`` per failure mode.
+# Core QProgram does not raise these; concrete platforms (vendor backends) raise them so user code can
+# write one ``except`` per failure mode regardless of which backend is in use.
 
 
 class UnsupportedOperationError(QProgramError):
-    """Platform-side: operation not implementable on this backend.
+    """Platform-side: the backend cannot lower an operation to its hardware.
 
-    Raised by a platform when the program contains an operation it cannot
-    lower to its hardware (e.g., a vendor op the backend doesn't
-    implement, or a control-flow construct the compiler can't realise).
+    Typical causes: a vendor op the backend doesn't implement, or a control-flow construct outside
+    the platform's supported feature set.
     """
 
 
 class BusNotAvailableError(QProgramError):
-    """Platform-side: program references a bus this backend doesn't expose.
+    """Platform-side: the program references a bus this backend doesn't expose.
 
-    Distinct from :class:`ValidationError` — the program is structurally
-    well-formed, just incompatible with this particular platform.
+    The program is structurally well-formed; it's just incompatible with this particular platform.
+    Use :class:`ValidationError` for construction-time bus issues.
     """
 
 
 class WaveformResolutionError(QProgramError):
-    """Platform-side: a string waveform alias remained unresolved at execution.
+    """Platform-side: a string waveform alias remained unresolved at execution time.
 
-    Typically means the user forgot to wire the alias through
-    :meth:`~qprogram.QProgram.with_waveforms` (or the calibration library
-    handing waveforms to the platform omitted it).
+    Typically the user forgot to wire the alias through :meth:`QProgram.with_waveforms` or the
+    calibration library handing waveforms to the platform omitted it.
     """
 
 
 class CompilationError(QProgramError):
     """Platform-side: the lowered representation failed to compile.
 
-    Use this for backend-internal failures that aren't categorised by the
-    other platform-side errors (timing constraints, resource
-    over-allocation, code-generation bugs, etc.).
+    Catch-all for backend-internal failures that don't fit the other platform errors (timing
+    constraints, resource over-allocation, code-generation bugs).
     """
 
 
 class HardwareError(QProgramError):
-    """Platform-side: an instrument-level runtime failure occurred.
+    """Platform-side: an instrument-level runtime failure surfaced during execution.
 
-    Use this for anything that surfaces *during* execution rather than at
-    compile/validate time (driver errors, SCPI failures, lost trigger
-    pulses, etc.).
+    Covers driver errors, SCPI failures, lost trigger pulses, and anything else surfacing *during*
+    execution rather than at compile or validate time.
     """

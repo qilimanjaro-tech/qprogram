@@ -6,7 +6,11 @@ from qprogram.waveforms.waveform import Waveform
 
 
 class Chained(Waveform):
-    """Sequential concatenation of waveforms."""
+    """Single-channel waveform built by concatenating other single-channel waveforms in time.
+
+    Args:
+        waveforms: Waveforms to play back-to-back, in order.
+    """
 
     def __init__(self, waveforms: list[Waveform]) -> None:
         self.waveforms = waveforms

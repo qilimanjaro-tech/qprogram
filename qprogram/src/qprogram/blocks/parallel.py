@@ -14,15 +14,15 @@ if TYPE_CHECKING:
 
 
 class Parallel(Block):
-    """Run multiple loops concurrently. Created via the | operator on loop contexts.
+    """Compose multiple loops to advance their iterators in lockstep, sharing one body.
 
-    A :class:`Parallel` has a small structural quirk: its **loop headers**
-    (the ``ForLoop`` / ``Loop`` instances composed via ``|``) live in
-    ``self.loops`` rather than in ``self._elements``. The body operations
-    that run under all those loops jointly live in ``_elements`` as usual.
-    The introspection overrides below thread the loops back into the union
-    so analyzers see the bound loop variables and the headers themselves
-    when walking.
+    Created via the ``|`` operator on loop contexts (``with for_loop(a, ...) | for_loop(b, ...) as p:``).
+    Note the structural quirk: composed loop headers live on ``self.loops``, *not* in ``self._elements``.
+    Body operations live in ``_elements`` as usual. The introspection overrides below thread loop
+    variables back into the unioned views so analyzers see them.
+
+    Args:
+        loops: The :class:`ForLoop` / :class:`Loop` instances to advance in lockstep.
     """
 
     def __init__(self, loops: Iterable[ForLoop | Loop]) -> None:
@@ -30,14 +30,12 @@ class Parallel(Block):
         self.loops: list[ForLoop | Loop] = list(loops)
 
     def variables(self) -> set[Variable]:
-        """Include each composed loop's bound variable plus child variables."""
         out = super().variables()
         for lp in self.loops:
             out |= lp.variables()
         return out
 
     def walk(self) -> Iterator[Block | Operation]:
-        """Yield self, each composed loop header (as a leaf), then body children."""
         yield self
         for lp in self.loops:
             yield from lp.walk()

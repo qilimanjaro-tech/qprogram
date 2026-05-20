@@ -9,7 +9,19 @@ from qprogram.waveforms.waveform import Waveform
 
 
 class FlatTop(Waveform):
-    """Square pulse with smoothed (erf) edges."""
+    """Rectangular pulse with erf-smoothed rising and falling edges.
+
+    Useful for fast-acting flat pulses where instantaneous square edges would inject high-frequency content
+    outside the control electronics' bandwidth.
+
+    Args:
+        amplitude: Pulse amplitude. Accepts an :class:`~qprogram.Expression`.
+        duration: Total pulse duration in nanoseconds (including the smoothed edges). Accepts an
+            :class:`~qprogram.Expression`.
+        smooth_duration: Length of each edge (rise and fall) in nanoseconds. Accepts an
+            :class:`~qprogram.Expression`.
+        buffer: Optional padding added on both sides of the pulse in nanoseconds.
+    """
 
     def __init__(
         self,

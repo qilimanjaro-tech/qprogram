@@ -7,7 +7,17 @@ from qprogram.waveforms.gaussian import Gaussian
 
 
 class GaussianDragCorrection(Gaussian):
-    """Derivative of Gaussian (DRAG Q component)."""
+    """Derivative-of-Gaussian envelope used as the Q-channel of a DRAG pulse.
+
+    On its own, this waveform is rarely emitted directly; it is the Q-channel partner produced by
+    :class:`~qprogram.waveforms.IQDrag.get_Q`.
+
+    Args:
+        amplitude: Peak amplitude of the underlying Gaussian. Accepts an :class:`~qprogram.Expression`.
+        duration: Pulse duration in nanoseconds. Accepts an :class:`~qprogram.Expression`.
+        num_sigmas: Window width in standard deviations.
+        drag_coefficient: Multiplicative scale applied to the derivative term.
+    """
 
     def __init__(
         self,

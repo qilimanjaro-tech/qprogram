@@ -15,41 +15,31 @@ if TYPE_CHECKING:
 class PlatformProtocol(ABC):
     """Abstract interface that execution platforms must implement.
 
-    The protocol covers two orthogonal duties:
-
-    1. **Resource discovery** — :meth:`get_bus_schema`, :meth:`get_buses`,
-       :meth:`get_parameters`, :meth:`get_global_parameters`. These answer
-       "what knobs / wires does this hardware expose right now?"
-    2. **Capability + execution** — :attr:`capabilities` and :meth:`validate`
-       answer "which features of the QProgram DSL does this backend
-       support?"; :meth:`execute` runs the program.
-
-    A typical :meth:`execute` implementation calls :meth:`validate` first
-    and raises :class:`~qprogram.UnsupportedOperationError` on any
-    diagnostic, then lowers the program. Concrete platforms are not
-    required to do so — the contract is documented, not enforced in this
-    base — but skipping it means users hit cryptic compiler errors instead
-    of structured diagnostics.
+    Splits into resource discovery (``get_*``) and capability + execution (:attr:`capabilities`,
+    :meth:`validate`, :meth:`execute`). The convention is that :meth:`execute` calls :meth:`validate`
+    first and raises :class:`~qprogram.UnsupportedOperationError` on any diagnostic — concrete platforms
+    aren't forced to follow it, but skipping the check means cryptic compiler errors in place of
+    structured diagnostics.
     """
 
     @abstractmethod
     def get_bus_schema(self) -> BusSchema:
-        """Return the bus schema for this platform/chip."""
+        """Return the :class:`~qprogram.BusSchema` for this platform's chip."""
         ...
 
     @abstractmethod
     def get_buses(self) -> list[str]:
-        """Return available bus names."""
+        """Return the names of every bus this platform exposes."""
         ...
 
     @abstractmethod
     def get_parameters(self, bus: str) -> list[str]:
-        """Return supported parameter names for a bus."""
+        """Return the parameter names supported on ``bus``."""
         ...
 
     @abstractmethod
     def get_global_parameters(self) -> list[str]:
-        """Return supported global parameter names."""
+        """Return the parameter names that are not bound to any specific bus."""
         ...
 
     @property
@@ -58,20 +48,22 @@ class PlatformProtocol(ABC):
         """Return the capability descriptor for this platform.
 
         Built from a registered :class:`~qprogram.protocol.Profile` (see
-        :meth:`CompilerCapabilities.from_profile`), optionally with a
-        concrete device's tighter ``limit_overrides``. Users introspect
-        this to know what the platform supports; the validator consumes
-        the same object.
+        :meth:`CompilerCapabilities.from_profile`), optionally with device-specific ``limit_overrides``.
+        Users introspect this to know what the platform supports; the validator consumes the same object.
         """
         ...
 
     def validate(self, qprogram: QProgram) -> list[Diagnostic]:
-        """Run capability validation against this platform's capabilities.
+        """Validate a program against this platform's capabilities.
 
-        Default implementation delegates to
-        :func:`qprogram.validation.validate`. Platforms may override to
-        prepend device-specific predicates or to short-circuit on the
-        first error — most won't need to.
+        Default delegates to :func:`qprogram.validation.validate`. Platforms may override to prepend
+        device-specific predicates or short-circuit on the first error.
+
+        Args:
+            qprogram: Program to validate.
+
+        Returns:
+            List of diagnostics; empty when the program is fully supported.
         """
         from qprogram.validation import validate as _validate  # noqa: PLC0415
 
@@ -79,10 +71,17 @@ class PlatformProtocol(ABC):
 
     @abstractmethod
     def execute(self, qprogram: QProgram, **kwargs) -> QProgramResult:
-        """Execute a QProgram and return results."""
+        """Execute a program and return its results."""
         ...
 
     def stream(self, qprogram: QProgram, **kwargs) -> Iterator[QProgramResult]:
-        """Execute and yield partial results. Optional - raises NotImplementedError by default."""
+        """Execute and yield partial results as they become available.
+
+        Optional — the default raises :exc:`NotImplementedError`. Platforms that don't support
+        streaming can leave this alone.
+
+        Raises:
+            NotImplementedError: Always, in the default implementation.
+        """
         msg = "Streaming not supported by this platform"
         raise NotImplementedError(msg)

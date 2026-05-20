@@ -15,20 +15,22 @@ if TYPE_CHECKING:
 class VendorNamespace:
     """Base class for vendor operation namespaces.
 
-    Vendors subclass this and add typed methods that instantiate
-    Operation subclasses and append them to the program.
+    Vendors subclass this and add typed methods that construct :class:`Operation` instances and append
+    them to the program via :meth:`_append` (or :meth:`_append_measurement` for measurement ops).
     """
 
     def __init__(self, program: QProgram) -> None:
         self._program = program
 
     def _append(self, operation: Operation) -> None:
-        """Append an operation to the program's active block.
+        """Append a vendor operation to the program's active block.
 
-        Before appending, any BusRef-typed attributes on the operation are
-        run through ``QProgram._validate_bus`` so vendor ops can't sneak in a
-        bus from a different schema. Plain-string attributes are ignored
-        (they aren't buses) and BusRefs without metadata pass through.
+        :class:`~qprogram.BusRef` attributes (and lists thereof) are run through
+        :meth:`QProgram._validate_bus` so vendor ops can't sneak in a bus from a different schema.
+        Plain-string attributes are not validated.
+
+        Args:
+            operation: The vendor operation instance to append.
         """
         for value in vars(operation).values():
             if isinstance(value, BusRef):
@@ -47,32 +49,31 @@ class VendorNamespace:
         name: str | None = None,
         **kwargs: Any,
     ) -> MeasurementHandle:
-        """Append a measurement-producing vendor operation and return its handle.
+        """Allocate a handle, build a vendor measurement op, append it, and return the handle.
 
-        Allocates a measurement name from the program (sharing the per-qubit
-        counter with core ``QProgram.measure`` so handles never collide),
-        constructs the operation with that name plus the supplied attribute
-        kwargs, runs the same bus validation as :meth:`_append`, and
-        returns a fresh :class:`MeasurementHandle`.
+        Shares the per-qubit name counter with :meth:`QProgram.measure` so vendor and core measurements
+        on the same bus never collide. Vendor measurement methods call this in place of
+        :meth:`_append` so users receive a usable :class:`MeasurementHandle`.
 
-        Vendor authors implementing a measurement op call this instead of
-        :meth:`_append` and return its result, e.g.::
+        Example:
+            ```python
+            def acquire(self, bus, weights, *, name=None):
+                return self._append_measurement(Acquire, bus=bus, weights=weights, name=name)
+            ```
 
-            def acquire(self, bus, weights, save_adc=False, *, name=None):
-                return self._append_measurement(
-                    Acquire,
-                    bus=bus,
-                    weights=weights,
-                    save_adc=save_adc,
-                    name=name,
-                )
+        Args:
+            op_cls: The concrete :class:`MeasurementOperation` subclass to instantiate.
+            bus: Bus the measurement runs on.
+            name: Optional explicit handle name; auto-allocated when omitted.
+            **kwargs: Remaining keyword arguments forwarded to ``op_cls(...)``.
+
+        Returns:
+            The freshly-allocated :class:`MeasurementHandle`.
         """
         allocated = self._program._allocate_measurement_name(bus, requested=name)  # noqa: SLF001
         handle = MeasurementHandle(allocated)
-        # ``MeasurementOperation`` is a marker base; concrete subclasses
-        # always accept ``bus`` and ``handle`` plus per-class kwargs.
-        # Static analysers can't see that through the type variable — fall
-        # back to ``Callable[..., MeasurementOperation]`` at the call site.
+        # MeasurementOperation is a marker base — the cast lets the dynamic constructor go through
+        # without ty falling back to the empty object.__init__ signature.
         factory = cast("Callable[..., MeasurementOperation]", op_cls)
         op = factory(bus=bus, handle=handle, **kwargs)
         self._append(op)

@@ -13,7 +13,16 @@ if TYPE_CHECKING:
 
 
 class Loop(Block):
-    """Loop over an arbitrary array of values."""
+    """Arbitrary-sweep block: iterate ``variable`` through the given sequence of values.
+
+    Use this when the sweep points don't fit a linear ``start/stop/step`` pattern (log scales, calibrated
+    points, etc.). For linear sweeps prefer :class:`ForLoop` — some platforms can compile linear sweeps
+    more efficiently.
+
+    Args:
+        variable: The :class:`~qprogram.Variable` rebound on each iteration.
+        values: Sequence of values to iterate through. Anything ``np.asarray`` accepts.
+    """
 
     def __init__(self, variable: Variable, values: npt.ArrayLike) -> None:
         super().__init__()
@@ -21,7 +30,6 @@ class Loop(Block):
         self.values = np.asarray(values)
 
     def variables(self) -> set[Variable]:
-        """Include the loop-counter variable on top of the children's vars."""
         return super().variables() | {self.variable}
 
     def required_capabilities(self) -> set[str]:

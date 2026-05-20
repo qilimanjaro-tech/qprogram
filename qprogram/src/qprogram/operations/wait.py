@@ -9,7 +9,12 @@ if TYPE_CHECKING:
 
 
 class Wait(Operation):
-    """Idle for a given duration (ns)."""
+    """Idle on ``bus`` for ``duration`` nanoseconds.
+
+    Args:
+        bus: Bus to idle on.
+        duration: Wait duration in nanoseconds. Accepts an :class:`~qprogram.Expression` for sweeps.
+    """
 
     def __init__(self, bus: str, duration: int | Expression) -> None:
         self.bus = bus

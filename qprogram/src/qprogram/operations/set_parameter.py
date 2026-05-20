@@ -9,10 +9,16 @@ if TYPE_CHECKING:
 
 
 class SetParameter(Operation):
-    """Set a platform parameter (string-based, not Enum).
+    """Set a platform-defined parameter by string name.
 
-    Operates on a platform-defined ``alias`` rather than a bus; declares
-    :attr:`BUS_ATTRS` as empty so :meth:`Operation.buses` correctly skips it.
+    Used for parameters that aren't naturally tied to a bus (e.g. an instrument's clock rate). Targets a
+    platform-defined ``alias`` rather than a bus, so :attr:`BUS_ATTRS` is empty.
+
+    Args:
+        alias: Platform-defined identifier for the target.
+        parameter: Name of the parameter to set.
+        value: New value. Accepts an :class:`~qprogram.Expression` for sweeps.
+        channel_id: Optional channel index when the alias has multiple channels.
     """
 
     BUS_ATTRS: ClassVar[tuple[str, ...]] = ()

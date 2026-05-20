@@ -4,7 +4,18 @@ from qprogram.waveforms.waveform import IQWaveform, Waveform
 
 
 class IQPair(IQWaveform):
-    """Pairs two single-channel waveforms as I and Q."""
+    """Compose two :class:`Waveform` instances into an :class:`IQWaveform`.
+
+    Useful when the desired I and Q envelopes don't fit one of the named DRAG-style classes — for example,
+    a square-on-I, zero-on-Q readout pulse.
+
+    Args:
+        I: In-phase channel.
+        Q: Quadrature channel. Must have the same duration as ``I``.
+
+    Raises:
+        TypeError: If either argument is not a :class:`Waveform` instance.
+    """
 
     def __init__(self, I: Waveform, Q: Waveform) -> None:
         if not isinstance(I, Waveform) or not isinstance(Q, Waveform):

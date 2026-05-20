@@ -7,7 +7,14 @@ from qprogram.waveforms.waveform import Waveform
 
 
 class Gaussian(Waveform):
-    """Gaussian-shaped pulse."""
+    """Gaussian-shaped pulse, peaked at the midpoint of the duration window.
+
+    Args:
+        amplitude: Peak amplitude. Accepts an :class:`~qprogram.Expression`.
+        duration: Pulse duration in nanoseconds. Accepts an :class:`~qprogram.Expression`.
+        num_sigmas: Window width in standard deviations. Larger values produce a narrower peak inside the same
+            duration window. Accepts an :class:`~qprogram.Expression`.
+    """
 
     def __init__(
         self,

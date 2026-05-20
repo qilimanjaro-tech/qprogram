@@ -1,26 +1,13 @@
 """Capability validation for QProgram.
 
-A single :func:`validate` entry point: walks the program AST once, builds a
-:class:`ValidationContext` of cross-op data-flow facts, then emits a
-:class:`Diagnostic` list covering three categories of issue:
+A single :func:`validate` entry point walks the program AST once, builds a
+:class:`~qprogram.ValidationContext` of cross-op data-flow facts, and emits a
+:class:`~qprogram.Diagnostic` list covering missing capabilities, limit violations, and
+predicate failures.
 
-1. **Missing capabilities** — an :class:`Operation` or :class:`Block` whose
-   :meth:`required_capabilities` includes a token not in the target's
-   capability set.
-
-2. **Limit violations** — a numeric threshold the program exceeds (loop
-   nesting too deep, too many measurements, wait shorter than
-   ``min_wait_duration_ns``, ...).
-
-3. **Predicate failures** — anything raised by the predicates the target's
-   profile or device registered. Predicates see the :class:`ValidationContext`
-   and so can reason about cross-op data flow (the motivating example:
-   "arbitrary sweep is fine at a waveform parameter but not at :class:`Wait.duration`").
-
-The validator never raises on a failing diagnostic — it returns the whole
-list so the caller can decide. A platform's :meth:`PlatformProtocol.execute`
-is expected to call :func:`validate` and raise
-:class:`~qprogram.UnsupportedOperationError` when the list is non-empty.
+The validator never raises — callers decide what to do with a non-empty diagnostic list. A typical
+:meth:`PlatformProtocol.execute` calls :func:`validate` and raises
+:class:`~qprogram.UnsupportedOperationError` when the list isn't empty.
 """
 
 from __future__ import annotations
@@ -56,12 +43,20 @@ if TYPE_CHECKING:
 
 
 def validate(qprogram: QProgram, caps: CompilerCapabilities) -> list[Diagnostic]:
-    """Run capability validation. Returns the (possibly empty) diagnostic list.
+    """Run capability validation against ``caps`` and return the diagnostic list.
 
-    The traversal is a single pre-order walk via :meth:`Block.walk`. The
-    pre-pass builds the :class:`ValidationContext` (variable→loop
-    bindings, sweep kinds, max nesting depth, parallel arity, measurement
-    count) so the main pass is data-flow-aware without re-walking.
+    One pre-pass builds the :class:`ValidationContext` (variable bindings, sweep kinds, max nesting,
+    parallel arity, measurement count); the main pass is a single pre-order walk via
+    :meth:`Block.walk` checking required capabilities and running predicates. Whole-program limits
+    and Conditional classification are checked after the walk.
+
+    Args:
+        qprogram: Program to validate.
+        caps: Capability descriptor (usually built from a profile via
+            :meth:`CompilerCapabilities.from_profile`).
+
+    Returns:
+        Possibly-empty list of diagnostics in declaration order.
     """
     ctx = _build_context(qprogram)
     diagnostics: list[Diagnostic] = []
@@ -107,22 +102,11 @@ def validate(qprogram: QProgram, caps: CompilerCapabilities) -> list[Diagnostic]
 
 
 def _build_context(qprogram: QProgram) -> ValidationContext:
-    """Walk the program once to gather data-flow facts.
+    """Walk the program once to gather the cross-op data-flow facts predicates need.
 
-    Computes:
-
-    - ``variable_bindings``: each :class:`Variable` mapped to the
-      :class:`Block` that binds it (the innermost enclosing ``ForLoop`` /
-      ``Loop``, or one of the headers in an enclosing :class:`Parallel`).
-    - ``sweep_kinds``: each bound variable mapped to ``"linear"`` (``ForLoop``)
-      or ``"arbitrary"`` (``Loop``). Variables not bound by any loop have
-      no entry.
-    - ``max_loop_nesting``: deepest concurrent loop count, counting
-      ``ForLoop``, ``Loop``, and ``Parallel`` as one level each (a
-      ``Parallel`` containing two for-loops still counts as one nesting
-      level — the depth is about how many sweeps wrap a leaf operation).
-    - ``max_parallel_arity``: largest ``len(parallel.loops)`` seen.
-    - ``measurement_count``: total :class:`MeasurementOperation` nodes.
+    Why max_loop_nesting counts Parallel as one level: depth measures how many sweeps wrap a leaf
+    operation, not how many sweep variables exist — a parallel composing two for-loops still
+    contributes one nesting level.
     """
     variable_bindings: dict[Variable, Block] = {}
     sweep_kinds: dict[Variable, SweepKind] = {}
@@ -194,12 +178,10 @@ def _check_limits(
     ctx: ValidationContext,
     limits: Mapping[str, float],
 ) -> list[Diagnostic]:
-    """Per-known-limit checks. Returns one Diagnostic per violation.
+    """Check each known limit and emit one :class:`Diagnostic` per violation.
 
-    Unknown keys in ``limits`` are silently ignored — vendors are allowed
-    to declare future limits that the in-tree validator doesn't yet
-    enforce; they just don't fire. This keeps profile authors and the
-    validator decoupled.
+    Why unknown keys are silently ignored: vendors may declare forward-looking limits that the
+    in-tree validator doesn't yet enforce — this keeps profile authors and the validator decoupled.
     """
     diagnostics: list[Diagnostic] = []
 
@@ -265,11 +247,7 @@ def _check_limits(
 
 
 def _iter_measurement_refs(expr: Expression) -> Iterator[MeasurementRef]:
-    """Yield every :class:`MeasurementRef` reachable from ``expr``.
-
-    Walks the expression AST recursively. Used by the classification
-    check to inspect each conditional arm's condition.
-    """
+    """Yield every :class:`MeasurementRef` reachable from ``expr`` via recursive descent."""
     if isinstance(expr, MeasurementRef):
         yield expr
         return
@@ -294,20 +272,14 @@ def _check_conditional_classification(
     qprogram: QProgram,
     ctx: ValidationContext,
 ) -> list[Diagnostic]:
-    """Validate every :class:`Conditional` arm condition.
+    """Validate :class:`Conditional` arm conditions — profile-independent.
 
-    Two checks, both universal (not profile-dependent):
+    Emits two diagnostic codes:
 
-    - ``unknown-measurement`` — the condition references a measurement
-      handle whose name doesn't match any measurement op in the program.
-      Usually means the user wrote raw
-      ``MeasurementRef(MeasurementHandle("typo"), "state")`` instead of
-      going through ``measure(...)``'s return value.
-
-    - ``missing-classification`` — the condition references
-      ``handle.state`` but the measurement's ``returns`` does not
-      include ``"state"``. Without classification, there is no state
-      value to compare against.
+    - ``unknown-measurement`` — the condition references a handle whose name doesn't match any
+      measurement in the program (usually a raw ``MeasurementRef`` built outside ``measure(...)``).
+    - ``missing-classification`` — the condition references ``handle.state`` but the source
+      measurement's ``returns`` doesn't include ``"state"``.
     """
     diagnostics: list[Diagnostic] = []
     known = ctx.known_measurement_names()

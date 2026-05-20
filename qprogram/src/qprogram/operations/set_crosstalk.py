@@ -9,10 +9,12 @@ if TYPE_CHECKING:
 
 
 class SetCrosstalk(Operation):
-    """Apply a crosstalk correction matrix.
+    """Install a program-wide crosstalk correction matrix.
 
-    The matrix is a program-wide setting (not per-bus); declares
-    :attr:`BUS_ATTRS` as empty.
+    The matrix is a global setting rather than a per-bus property, so :attr:`BUS_ATTRS` is empty.
+
+    Args:
+        crosstalk: The correction matrix to apply.
     """
 
     BUS_ATTRS: ClassVar[tuple[str, ...]] = ()

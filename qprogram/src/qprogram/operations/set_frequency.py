@@ -9,7 +9,12 @@ if TYPE_CHECKING:
 
 
 class SetFrequency(Operation):
-    """Set NCO/oscillator frequency (Hz)."""
+    """Set the NCO / oscillator frequency on a bus.
+
+    Args:
+        bus: Bus whose oscillator to retune.
+        frequency: New frequency in Hz. Accepts an :class:`~qprogram.Expression` for sweeps.
+    """
 
     def __init__(self, bus: str, frequency: float | Expression) -> None:
         self.bus = bus

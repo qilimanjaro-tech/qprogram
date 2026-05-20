@@ -9,12 +9,15 @@ if TYPE_CHECKING:
 
 
 class GetParameter(Operation):
-    """Read a platform parameter into a variable.
+    """Read a platform-defined parameter into a :class:`~qprogram.Variable` at runtime.
 
-    Operates on a platform-defined ``alias`` rather than a bus; declares
-    :attr:`BUS_ATTRS` as empty so :meth:`Operation.buses` correctly skips it.
-    The result variable is captured into :attr:`variable` and surfaces
-    through the default :meth:`Operation.variables` walker.
+    Operates on a platform-defined ``alias`` rather than a bus, so :attr:`BUS_ATTRS` is empty.
+
+    Args:
+        variable: Destination :class:`~qprogram.Variable` for the read value.
+        alias: Platform-defined identifier for the target.
+        parameter: Name of the parameter to read.
+        channel_id: Optional channel index when the alias has multiple channels.
     """
 
     BUS_ATTRS: ClassVar[tuple[str, ...]] = ()

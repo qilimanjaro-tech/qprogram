@@ -1,36 +1,16 @@
 """Default and special-case serialize/parse callbacks for the ``.qp`` format.
 
-This module is the bridge between the registry (which only stores spec
-metadata) and the concrete operation/block/sweep classes. It provides:
+Bridges the registry's spec metadata to the concrete operation, block, and sweep classes. Exports
+signature-driven default callbacks for the majority of operations plus the few special-case callbacks
+(``sync`` variadic, ``get_parameter`` arrow, ``set_crosstalk`` stub) and the built-in sweep
+generators (``range``, ``values``, ``file``).
 
-- :func:`default_serialize_operation` and :func:`default_parse_operation` —
-  signature-driven callbacks that work for the majority of operations.
-  Required parameters of ``__init__`` are serialized positionally, optional
-  parameters whose current value differs from their default are serialized as
-  ``key=value`` kwargs.
-
-- Special-case callbacks for operations whose surface syntax doesn't fit the
-  default pattern: :func:`sync_*` (variadic, no positional/kwarg shape),
-  :func:`get_parameter_*` (``-> ident`` assignment arrow),
-  :func:`set_crosstalk_*` (the crosstalk matrix is not yet serialized;
-  current behaviour is a literal stub).
-
-- Header callbacks for blocks whose header carries data (``average <n>``).
-
-- Sweep generator callbacks for ``range(...)``, the ``[...]`` literal
-  (registered under the name ``values``), and ``file("path")``.
-
-All registrations live in :func:`_register_core_specs`, which is invoked
-once from ``qprogram.serialization.__init__`` so that importing the
-serialization package activates the entire dispatch table.
-
-The ``ctx: Any`` parameter on every callback is a duck-typed handle to the
-writer or parser; the methods used are listed informally in each call site.
-A formal :class:`typing.Protocol` is plausible future work but would expand
-the API surface without changing the runtime contract.
+The ``ctx`` parameter on every callback is the writer or parser instance, duck-typed to a small
+surface; a formal :class:`typing.Protocol` is plausible future work but doesn't change the runtime
+contract.
 """
-# Ruff: callback ``ctx`` arguments are intentionally type-erased (the writer
-# and parser pass themselves; callbacks rely on a small duck-typed surface).
+# Ruff: callback ``ctx`` arguments are intentionally ``Any`` — the writer and parser pass themselves
+# and callbacks rely on a small duck-typed surface.
 # ruff: noqa: ANN401
 
 from __future__ import annotations
@@ -77,15 +57,20 @@ if TYPE_CHECKING:
 
 
 def default_serialize_operation(op: Operation, spec: OperationSpec, ctx: Any) -> str:
-    """Signature-driven serializer.
+    """Signature-driven serializer used by most operations.
 
-    Walks ``__init__``'s parameters. Required parameters (no default) are
-    emitted positionally in declaration order. Optional parameters are
-    emitted as ``name=value`` kwargs only when their current attribute value
-    differs from the parameter default. Parameters with no corresponding
-    attribute on the instance are silently skipped — this lets ``__init__``
-    accept a kwarg that the body doesn't bother to store (rare; mainly a
-    safety net against existing inconsistencies).
+    Walks ``__init__``'s parameters: required ones (no default) emit positionally in declaration
+    order; optional ones emit as ``name=value`` only when the stored value differs from the
+    parameter default. Parameters with no corresponding attribute on the instance are silently
+    skipped, allowing ``__init__`` to accept a kwarg the body doesn't bother to store.
+
+    Args:
+        op: Operation instance to serialise.
+        spec: The :class:`OperationSpec` describing ``op``.
+        ctx: Writer instance — exposes ``serialize_bus``, ``serialize_value``, etc.
+
+    Returns:
+        The serialised body of the line (the keyword prefix is added by the caller).
     """
     sig = inspect.signature(spec.cls.__init__)
     params = list(sig.parameters.values())[1:]  # skip self
@@ -103,14 +88,19 @@ def default_serialize_operation(op: Operation, spec: OperationSpec, ctx: Any) ->
 
 
 def default_parse_operation(spec: OperationSpec, tokens: list[str], ctx: Any) -> Operation:
-    """Signature-driven parser.
+    """Signature-driven parser used by most operations.
 
-    Splits tokens into positional and kwargs (a token is a kwarg iff it
-    contains ``=`` outside of any parenthesised group and outside of leading
-    quotes). Positional tokens are bound by index to the corresponding
-    parameter name from the constructor signature; the result is passed as
-    ``**final`` so the operation is always constructed via keyword arguments
-    and ordering issues are avoided.
+    A token is a kwarg iff it contains ``=`` outside any parenthesised group and outside leading
+    quotes. Positional tokens bind by index to the constructor signature; the operation is always
+    constructed via ``**kwargs`` so positional ordering can't drift.
+
+    Args:
+        spec: The :class:`OperationSpec` describing the target class.
+        tokens: Tokens of the operation body (the leading keyword has been consumed).
+        ctx: Parser instance — exposes ``parse_value``, ``get_or_create_handle``, etc.
+
+    Returns:
+        A freshly-constructed :class:`Operation` instance.
     """
     sig = inspect.signature(spec.cls.__init__)
     params = list(sig.parameters.values())[1:]
@@ -134,20 +124,15 @@ def default_parse_operation(spec: OperationSpec, tokens: list[str], ctx: Any) ->
 
 
 def make_measurement_op_parse(cls: type[Operation]) -> Callable[[list[str], Any], Operation]:
-    """Build a parse callback for :class:`MeasurementOperation` subclasses.
+    """Build a parse callback for a :class:`MeasurementOperation` subclass.
 
-    The returned callback is identical to :func:`default_parse_operation`
-    *except* that it converts the ``handle`` parameter from the
-    name-string token to the canonical
-    :class:`~qprogram.MeasurementHandle` via
-    ``ctx.get_or_create_handle``. That way every measurement op
-    produced by the parser shares its handle instance with any
-    :class:`~qprogram.MeasurementRef` that later references the same
-    name — a single Python object per measurement, for the whole
-    loaded program.
+    The returned callback mirrors :func:`default_parse_operation` but resolves the ``handle``
+    parameter from its name token to the canonical :class:`~qprogram.MeasurementHandle` via
+    ``ctx.get_or_create_handle``. This is what lets every measurement op and every
+    :class:`MeasurementRef` referring to the same name share one Python instance after a ``.qp``
+    load.
 
-    Vendor measurement ops register with this factory the same way
-    core ``measure`` does::
+    Vendor measurement ops register with this factory the same way ``measure`` does::
 
         register_vendor_operation(
             "myvendor",
@@ -155,6 +140,12 @@ def make_measurement_op_parse(cls: type[Operation]) -> Callable[[list[str], Any]
             Acquire,
             parse=make_measurement_op_parse(Acquire),
         )
+
+    Args:
+        cls: The :class:`MeasurementOperation` subclass to build the parser for.
+
+    Returns:
+        A signature-driven parse callback ready for :func:`register_vendor_operation`.
     """
 
     def parse(tokens: list[str], ctx: Any) -> Operation:
@@ -184,13 +175,11 @@ def make_measurement_op_parse(cls: type[Operation]) -> Callable[[list[str], Any]
 
 
 def _looks_like_kwarg(tok: str) -> bool:
-    """Return ``True`` if a single token is a ``key=value`` pair.
+    """Return ``True`` if ``tok`` looks like a ``key=value`` pair.
 
-    A token counts as a kwarg if it contains an ``=`` that is *not* inside a
-    quoted string and *not* inside parentheses. Concretely: split on the first
-    ``=`` and require the prefix to be an unquoted identifier-shaped chunk
-    with no ``(``. This rules out ``Gaussian(amplitude=0.5)`` (paren in
-    prefix) and ``"key=value"`` (starts with a quote).
+    A kwarg is a token containing ``=`` outside any quoted string and outside any parentheses — i.e.
+    the prefix up to the first ``=`` is an unquoted identifier with no ``(``. This rules out
+    ``Gaussian(amplitude=0.5)`` (paren in prefix) and ``"key=value"`` (leading quote).
     """
     if "=" not in tok or tok.startswith('"'):
         return False
@@ -204,26 +193,24 @@ def _looks_like_kwarg(tok: str) -> bool:
 
 
 def sync_serialize(op: Sync, ctx: Any) -> str:
-    """``sync`` (no buses) or ``sync <bus> [<bus> ...]`` (variadic positional)."""
+    """Serialise as ``sync`` (no buses) or ``sync <bus> [<bus> ...]``."""
     if op.targets:
         return "sync " + " ".join(ctx.serialize_bus(b) for b in op.targets)
     return "sync"
 
 
 def sync_parse(tokens: list[str], ctx: Any) -> Sync:
-    """All remaining tokens are bus references; empty list means sync-all."""
+    """Parse ``sync`` body: all tokens are buses, empty means sync-all."""
     if not tokens:
         return Sync(targets=None)
     return Sync(targets=[ctx.parse_value(tok) for tok in tokens])
 
 
 def get_parameter_serialize(op: GetParameter, ctx: Any) -> str:
-    """``get_parameter "alias" "param" [channel_id=N] -> <ident>``.
+    """Serialise as ``get_parameter "alias" "param" [channel_id=N] -> <ident>``.
 
-    The result variable's identifier appears after the ``->`` arrow rather
-    than as a positional or kwarg of the operation; this matches the visual
-    convention that ``get_parameter`` produces a value the rest of the
-    program can refer to.
+    The result variable appears after the ``->`` arrow rather than as a positional or kwarg —
+    matches the visual convention that ``get_parameter`` *produces* a value.
     """
     extras = f" channel_id={op.channel_id}" if op.channel_id is not None else ""
     ident = ctx.var_ident(op.variable)
@@ -235,9 +222,8 @@ def get_parameter_serialize(op: GetParameter, ctx: Any) -> str:
 def get_parameter_parse(tokens: list[str], ctx: Any) -> GetParameter:
     """Inverse of :func:`get_parameter_serialize`.
 
-    Splits on the ``->`` arrow token; the right side is the target variable
-    identifier (auto-declared if not already known), the left side is the
-    standard ``alias parameter [kwargs]`` layout.
+    Splits on the ``->`` token; right side is the target variable identifier (auto-declared if new),
+    left side is the standard ``alias parameter [kwargs]`` layout.
     """
     arrow_idx = next((i for i, t in enumerate(tokens) if t == "->"), None)
     if arrow_idx is None or arrow_idx + 1 >= len(tokens):
@@ -265,12 +251,12 @@ def get_parameter_parse(tokens: list[str], ctx: Any) -> GetParameter:
 
 
 def set_crosstalk_serialize(op: SetCrosstalk, ctx: Any) -> str:  # noqa: ARG001
-    """Stub form ``set_crosstalk crosstalk`` — matrix content is not serialized yet."""
+    """Serialise as the stub ``set_crosstalk crosstalk`` — matrix content is not serialised yet."""
     return "set_crosstalk crosstalk"
 
 
 def set_crosstalk_parse(tokens: list[str], ctx: Any) -> SetCrosstalk:  # noqa: ARG001
-    """Construct an empty :class:`CrosstalkMatrix` — matches the writer stub."""
+    """Parse to a :class:`SetCrosstalk` wrapping an empty matrix — matches the writer stub."""
     return SetCrosstalk(crosstalk=CrosstalkMatrix())
 
 
@@ -280,12 +266,16 @@ def set_crosstalk_parse(tokens: list[str], ctx: Any) -> SetCrosstalk:  # noqa: A
 
 
 def average_serialize_header(block: Average, ctx: Any) -> str:  # noqa: ARG001
-    """``average <shots>``."""
+    """Serialise as ``average <shots>``."""
     return f"average {block.shots}"
 
 
 def average_parse_header(tokens: list[str], ctx: Any) -> Average:
-    """Single positional integer: the shot count."""
+    """Parse ``average <shots>`` — single positional integer.
+
+    Raises:
+        ParseError: If ``shots`` is missing or non-integer.
+    """
     if not tokens:
         msg = "average requires a shot count"
         raise ctx.parse_error(msg)
@@ -303,7 +293,7 @@ def average_parse_header(tokens: list[str], ctx: Any) -> Average:
 
 
 def range_parse(var: Variable, args_text: str, ctx: Any) -> ForLoop:
-    """``range(start, stop[, step])`` — produces a :class:`ForLoop`."""
+    """Parse ``range(start, stop[, step])`` into a :class:`ForLoop`."""
     parts = [_parse_number(a.strip()) for a in args_text.split(",")]
     if len(parts) == 2:
         return ForLoop(variable=var, start=parts[0], stop=parts[1], step=1)
@@ -314,17 +304,17 @@ def range_parse(var: Variable, args_text: str, ctx: Any) -> ForLoop:
 
 
 def range_write(loop: ForLoop, ctx: Any) -> str:
+    """Serialise a :class:`ForLoop` as ``range(start, stop, step)``."""
     return (
         f"range({ctx.serialize_value(loop.start)}, {ctx.serialize_value(loop.stop)}, {ctx.serialize_value(loop.step)})"
     )
 
 
 def values_parse(var: Variable, args_text: str, ctx: Any) -> Loop:  # noqa: ARG001
-    """``[v0, v1, ...]`` literal — produces a :class:`Loop`.
+    """Parse a ``[v0, v1, ...]`` literal into a :class:`Loop`.
 
-    ``args_text`` is passed in with the surrounding brackets so this stays
-    self-contained; we strip them here. The values must be numeric — symbolic
-    expressions are not allowed in the array literal at parse time.
+    ``args_text`` arrives with the brackets so the helper stays self-contained. Values must be
+    numeric literals — symbolic expressions aren't allowed inside array literals at parse time.
     """
     inner = args_text.strip().removeprefix("[").removesuffix("]")
     values = np.array([_parse_number(v.strip()) for v in inner.split(",") if v.strip()])
@@ -332,6 +322,7 @@ def values_parse(var: Variable, args_text: str, ctx: Any) -> Loop:  # noqa: ARG0
 
 
 def values_write(loop: Loop, ctx: Any) -> str:
+    """Serialise a :class:`Loop` as a ``[v0, v1, ...]`` literal; truncate after 50 values."""
     items = ", ".join(ctx.serialize_value(v) for v in loop.values[:50])
     if len(loop.values) > 50:
         items += ", ..."
@@ -339,12 +330,10 @@ def values_write(loop: Loop, ctx: Any) -> str:
 
 
 def file_parse(var: Variable, args_text: str, ctx: Any) -> Loop:  # noqa: ARG001
-    """``file("path.npy")`` — loads via :func:`numpy.load` into a :class:`Loop`.
+    """Parse ``file("path.npy")`` by loading via :func:`numpy.load` into a :class:`Loop`.
 
-    Parse-only: the loaded values become inline data on the AST, and the
-    writer round-trips through the ``values`` generator rather than retaining
-    the file path. If file-path retention becomes important, store the path
-    on the :class:`Loop` and register a write callback here.
+    Parse-only — values inline onto the AST and the writer round-trips through ``values``. If a use
+    case for retaining the path lands, store it on :class:`Loop` and register a write callback.
     """
     path = args_text.strip().strip('"')
     values = np.load(path)
@@ -357,10 +346,10 @@ def file_parse(var: Variable, args_text: str, ctx: Any) -> Loop:  # noqa: ARG001
 
 
 def _parse_number(s: str) -> int | float:
-    """Parse a numeric literal, preserving int vs float distinction.
+    """Parse a numeric literal preserving ``int`` vs ``float``.
 
-    Mirrors the original parser helper so that round-trips don't promote
-    integer sweep bounds to floats (which would visibly change the file).
+    Why this preserves the distinction: round-tripping must not silently promote integer sweep bounds
+    to floats — that would visibly change the rewritten ``.qp`` file.
     """
     s = s.strip()
     val = float(s)
@@ -377,11 +366,10 @@ def _parse_number(s: str) -> int | float:
 def _register_core_specs() -> None:
     """Register all core operations, blocks, and sweep generators.
 
-    Invoked once from :mod:`qprogram.serialization.__init__` on package
-    import. Idempotent: re-registering overwrites prior entries.
+    Invoked once from :mod:`qprogram.serialization.__init__` at import time. Idempotent —
+    re-registering overwrites prior entries.
     """
-    # Core operations — default callbacks for the regular shapes,
-    # explicit callbacks for the three special-form ops.
+    # Default callbacks handle the regular shapes; explicit callbacks for the special-form ops.
     register_operation("play", Play)
     register_operation("measure", Measure, parse=make_measurement_op_parse(Measure))
     register_operation("wait", Wait)

@@ -32,6 +32,8 @@ import numpy as np
 
 from qprogram.blocks.block import Block
 from qprogram.blocks.conditional import Conditional
+from qprogram.blocks.for_loop import ForLoop
+from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
 from qprogram.buses import BusNaming, BusRef
 from qprogram.operations.operation import Operation
@@ -271,6 +273,10 @@ class _Writer:
             return f"# unknown sweep block: {type(loop).__name__}"
         # Every registered loop block has a ``variable`` attribute; this is
         # the contract for participating in the ``for var in ...`` grammar.
+        # ``Block`` itself doesn't declare it, so narrow via the concrete
+        # loop block subclasses that do.
+        if not isinstance(loop, (ForLoop, Loop)):
+            return f"# unknown sweep block: {type(loop).__name__}"
         var = loop.variable
         var_ident = self._var_idents[var.id]
         gen_text = gen_spec.write(loop, self)
@@ -343,7 +349,7 @@ class _Writer:
             return f"where({cond}, {then}, {else_})"
         # Tuple of strings → single quoted, comma-joined token. The only
         # current producer is ``Measure.returns`` / ``Acquire.returns``;
-        # any other tuple shape (e.g. ``BusRef.index = (0, 1)``) carries
+        # any other tuple shape (e.g. ``BusRef.idx = (0, 1)``) carries
         # non-string elements and falls through to the generic path. The
         # explicit list comprehension narrows the element type so
         # ``str.join`` is statically resolvable.
@@ -360,15 +366,17 @@ class _Writer:
     def serialize_bus(self, bus: object) -> str:
         """Render a bus argument: path form if schema-backed, quoted string otherwise."""
         if self._program.schema is not None and isinstance(bus, BusRef) and bus.element and bus.kind:
-            idx = bus.index
+            idx = bus.idx
             idx_str = ",".join(str(i) for i in idx) if isinstance(idx, tuple) else str(idx)
             return f"{bus.element}[{idx_str}].{bus.kind}"
         return f'"{_escape_str(str(bus))}"'
 
     def serialize_waveform(self, wf: object) -> str:
         """Emit a waveform constructor call, mirroring the class name and public attrs."""
+        from qprogram.waveforms.arbitrary import Arbitrary  # noqa: PLC0415
+
         cls_name = type(wf).__name__
-        if cls_name == "Arbitrary" and hasattr(wf, "samples"):
+        if isinstance(wf, Arbitrary):
             samples = wf.samples
             items = ", ".join(str(v) for v in samples[:20])
             if len(samples) > 20:

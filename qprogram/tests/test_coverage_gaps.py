@@ -7,6 +7,8 @@ serialize paths, and a couple of registry edge conditions.
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pytest
 
@@ -45,7 +47,7 @@ def test_qprogram_unknown_attribute_via_getattr():
 
 def test_serialization_unknown_attribute_via_getattr():
     with pytest.raises(AttributeError, match="has no attribute"):
-        serialization.nonexistent_thing
+        serialization.nonexistent_thing  # noqa: B018
 
 
 def test_serialization_lazy_loads():
@@ -134,7 +136,7 @@ def test_serialize_waveform_skips_private_attrs():
 
     p = qp.QProgram(label="x")
     wf = Square(0.5, 100)
-    wf._private = "should be skipped"
+    object.__setattr__(wf, "_private", "should be skipped")
     w = _Writer(p)
     w._allocate_var_idents()
     text = w.serialize_waveform(wf)
@@ -149,6 +151,7 @@ def test_serialize_waveform_skips_private_attrs():
 def test_default_parse_operation_skips_empty_tokens():
 
     spec = get_operation_spec(None, "reset_phase")
+    assert spec is not None
     parser = _Parser("#!QProgram 1.0\nbody:\n")
     parser._parse_header()
     op = default_parse_operation(spec, ['"bus"', "  ", ""], parser)
@@ -167,7 +170,7 @@ def test_typed_element_accessor_repr():
 def test_validate_bus_with_metadata_less_busref():
     """A BusRef constructed manually without element/kind passes through validation."""
 
-    ref = BusRef("anything", element="", index=0, kind="", channel="IQ", acquires=False)
+    ref = BusRef("anything", element="", idx=0, kind="", channel="IQ", acquires=False)
     p = qp.QProgram()
     # Should not raise: opaque/manually-constructed BusRefs skip validation.
     p._validate_bus(ref)
@@ -176,7 +179,7 @@ def test_validate_bus_with_metadata_less_busref():
 def test_validate_bus_without_recorded_schema():
     """A BusRef with element/kind but schema=None is deferred to other validators."""
 
-    ref = BusRef("q0/drive", element="q", index=0, kind="drive", channel="IQ", acquires=False, schema=None)
+    ref = BusRef("q0/drive", element="q", idx=0, kind="drive", channel="IQ", acquires=False, schema=None)
     p = qp.QProgram()
     p._validate_bus(ref)  # no exception
 
@@ -236,7 +239,10 @@ def test_vendor_append_skips_non_bus_attrs():
     qp.QProgram.register_vendor("mixedns", _NS)
     try:
         p = qp.QProgram()
-        p.mixedns.mixed("bus", "some label", 42)
+        # ``.mixedns`` is resolved through the dynamic vendor-namespace
+        # registry, so static type-checkers can't see ``.mixed``.
+        ns = cast("_NS", p.mixedns)
+        ns.mixed("bus", "some label", 42)
         # No raise — non-BusRef str/int attributes are ignored by _validate.
         assert len(p.body.elements) == 1
     finally:
@@ -258,7 +264,8 @@ def test_vendor_append_list_with_non_busref_skipped():
     try:
         p = qp.QProgram()
         # A list of plain strings — _validate_bus is never called for any.
-        p.plainlistns.list_op(["a", "b", "c"])
+        ns = cast("_NS", p.plainlistns)
+        ns.list_op(["a", "b", "c"])
         assert len(p.body.elements) == 1
     finally:
         qp.QProgram._vendor_registry.pop("plainlistns", None)
@@ -291,7 +298,7 @@ def test_operation_variables_skips_private_attrs():
     """``Operation.variables`` should walk only public attrs, never `_x`."""
 
     op = Wait("bus", Variable("v"))
-    op._private_var = Variable("private")
+    object.__setattr__(op, "_private_var", Variable("private"))
     found = op.variables()
     # The private one shouldn't be picked up.
     assert {v.id for v in found} == {"v"}

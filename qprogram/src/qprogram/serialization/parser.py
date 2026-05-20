@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import numpy as np
 
@@ -47,7 +47,14 @@ from qprogram.variable import _ID_RE, MeasurementRef
 if TYPE_CHECKING:
     from qprogram.blocks.block import Block
     from qprogram.operations.operation import Operation
-    from qprogram.variable import Variable
+    from qprogram.variable import (
+        BinaryOperator,
+        ComparisonOperator,
+        Expression,
+        LogicalBinaryOperator,
+        UnaryOperator,
+        Variable,
+    )
 
 FORMAT_VERSION = "1.0"
 
@@ -87,6 +94,14 @@ _BUS_PATH_RE = re.compile(r"^(\w+)\[(\d+(?:,\d+)*)\]\.(\w+)$")
 _ELEMENT_HEADER_RE = re.compile(r"^element\s+(\w+)\s*:\s*$")
 _BUS_LINE_RE = re.compile(r"^(\w+)\s+info=(\S+)\s*$")
 _FOR_HEADER_RE = re.compile(r"^for\s+(\w+)\s+in\s+(.*)$")
+
+# Operator alphabets — frozen sets so membership checks act as the
+# accept/reject gates for the ``cast`` calls in :meth:`_parse_paren_expression`.
+# Kept in lockstep with the ``Literal`` operator types in :mod:`qprogram.variable`.
+_UNARY_OPS: frozenset[str] = frozenset({"+", "-"})
+_BINARY_OPS: frozenset[str] = frozenset({"+", "-", "*", "/"})
+_COMPARISON_OPS: frozenset[str] = frozenset({"==", "!=", "<", "<=", ">", ">="})
+_LOGICAL_BINARY_OPS: frozenset[str] = frozenset({"and", "or"})
 
 
 # ---------------------------------------------------------------------------
@@ -537,17 +552,19 @@ class _Parser:
 
     def _parse_loop_or_parallel(self, parent: Block, header: str, min_indent: int) -> None:
         loop_parts = [p.strip() for p in header.split("|")]
-        loops = [self._parse_for_header(p) for p in loop_parts]
         # Every built-in sweep generator produces a ForLoop or Loop, but the
         # registry is open — defensively narrow before constructing Parallel,
         # which is the only block whose AST shape requires that constraint.
-        for lp in loops:
+        loops: list[ForLoop | Loop] = []
+        for part in loop_parts:
+            lp = self._parse_for_header(part)
             if not isinstance(lp, (ForLoop, Loop)):
                 msg = (
                     f"sweep generator produced a {type(lp).__name__}; only "
                     f"ForLoop and Loop can compose under `|` (parallel)"
                 )
                 raise ParseError(msg, self._pos + 1)
+            loops.append(lp)
         block: Block = loops[0] if len(loops) == 1 else Parallel(loops=loops)
         parent.append(block)
         self._pos += 1
@@ -701,7 +718,7 @@ class _Parser:
         """Build a :class:`ParseError` tagged with the current line number."""
         return ParseError(message, self._pos + 1)
 
-    def _parse_paren_expression(self, tok: str) -> object:
+    def _parse_paren_expression(self, tok: str) -> Expression:
         """Parse a parenthesised symbolic expression token.
 
         Round-trips the parenthesised forms emitted by the writer:
@@ -749,10 +766,9 @@ class _Parser:
         # Arithmetic unary — writer emits ``(-x)`` / ``(+x)`` with no space.
         if len(tokens) == 1:
             single = tokens[0]
-            if single.startswith(("+", "-")) and len(single) > 1:
-                op_char = single[0]
+            if len(single) > 1 and single[0] in _UNARY_OPS:
                 operand = _to_expression(self.parse_value(single[1:].strip()))
-                return UnaryOp(op_char, operand)
+                return UnaryOp(cast("UnaryOperator", single[0]), operand)
             msg = f"could not parse expression: {tok!r}"
             raise ParseError(msg, self._pos + 1)
 
@@ -760,12 +776,12 @@ class _Parser:
             left_tok, op_tok, right_tok = tokens
             left = _to_expression(self.parse_value(left_tok))
             right = _to_expression(self.parse_value(right_tok))
-            if op_tok in {"+", "-", "*", "/"}:
-                return BinaryOp(op_tok, left, right)
-            if op_tok in {"==", "!=", "<", "<=", ">", ">="}:
-                return Comparison(op_tok, left, right)
-            if op_tok in {"and", "or"}:
-                return LogicalBinaryOp(op_tok, left, right)
+            if op_tok in _BINARY_OPS:
+                return BinaryOp(cast("BinaryOperator", op_tok), left, right)
+            if op_tok in _COMPARISON_OPS:
+                return Comparison(cast("ComparisonOperator", op_tok), left, right)
+            if op_tok in _LOGICAL_BINARY_OPS:
+                return LogicalBinaryOp(cast("LogicalBinaryOperator", op_tok), left, right)
             msg = f"unknown operator {op_tok!r} in expression {tok!r}"
             raise ParseError(msg, self._pos + 1)
 
@@ -786,8 +802,8 @@ class _Parser:
         name = tok[:paren_idx]
         args_text = tok[paren_idx + 1 : tok.rindex(")")]
         if name in _MATH_FUNCTIONS:
-            args = [_to_expression(self.parse_value(part.strip())) for part in _split_args(args_text)]
-            return MathFunc(name, tuple(args))
+            args = tuple(_to_expression(self.parse_value(part.strip())) for part in _split_args(args_text))
+            return MathFunc(name, args)
         if name == "where":
             parts = [_to_expression(self.parse_value(part.strip())) for part in _split_args(args_text)]
             if len(parts) != 3:
@@ -879,13 +895,13 @@ def _parse_number(s: str) -> int | float:
     return val
 
 
-def _to_expression(value: object) -> object:
+def _to_expression(value: object) -> Expression:
     """Promote a parsed value into an :class:`Expression`-compatible operand.
 
     Numbers become :class:`Constant`; variables and expression nodes pass
     through. Anything else (a bus string, say) reaches here only as a result
-    of malformed input — pass it through and let the AST constructor
-    complain.
+    of malformed input — raise so the caller surfaces a clean error instead
+    of a downstream ``TypeError`` from the AST constructor.
     """
     from qprogram.variable import Constant, Expression  # noqa: PLC0415
 
@@ -893,7 +909,8 @@ def _to_expression(value: object) -> object:
         return value
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return Constant(value)
-    return value
+    msg = f"cannot use {value!r} ({type(value).__name__}) as an expression operand"
+    raise ParseError(msg)
 
 
 def _tokenize(line: str) -> list[str]:

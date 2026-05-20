@@ -17,6 +17,8 @@ Covers:
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from qprogram import QProgram, ValidationError, dumps, loads, validate
@@ -28,6 +30,7 @@ from qprogram.variable import (
     UNASSIGNED,
     Comparison,
     Constant,
+    Expression,
     MeasurementRef,
     _HandleFieldAccess,
     eq,
@@ -38,6 +41,16 @@ from qprogram.waveforms import IQPair, Square
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _assert_comparison(expr: object) -> Comparison:
+    assert isinstance(expr, Comparison)
+    return expr
+
+
+def _assert_constant(expr: object) -> Constant:
+    assert isinstance(expr, Constant)
+    return expr
 
 
 def _readout_wf() -> IQPair:
@@ -282,10 +295,12 @@ def test_if_elif_elif_else_chain() -> None:
     with p.else_():
         p.sync()
     cond = p.body.elements[-1]
+    assert isinstance(cond, Conditional)
     assert len(cond.arms) == 3
     assert cond.else_body is not None
-    assert [op.op for op, _ in cond.arms] == ["==", "==", "=="]
-    assert [op.right.value for op, _ in cond.arms] == [0, 1, 2]
+    arms = [(_assert_comparison(op), body) for op, body in cond.arms]
+    assert [op.op for op, _ in arms] == ["==", "==", "=="]
+    assert [_assert_constant(op.right).value for op, _ in arms] == [0, 1, 2]
 
 
 def test_nested_conditionals() -> None:
@@ -357,7 +372,10 @@ def test_multiple_else_raises() -> None:
 
 def test_if_rejects_non_comparison_condition() -> None:
     p = QProgram()
-    with pytest.raises(ValidationError, match=r"if_\(\) expects"), p.if_(42):
+    # ``42`` is intentionally the wrong type — the validator must reject it.
+    # ``cast`` smuggles the literal past the static signature so the runtime
+    # check is the thing under test rather than the type checker.
+    with pytest.raises(ValidationError, match=r"if_\(\) expects"), p.if_(cast("Expression", 42)):
         pass
 
 
@@ -468,9 +486,10 @@ def test_if_accepts_constant_on_left() -> None:
     m = _measure_with_state(p)
     # Yoda is deliberate: Python falls back to the proxy's __eq__, which
     # builds a Comparison instead of a bool. Static type-checkers infer
-    # `bool` for `0 == m.state` and complain about the if_ argument; that
-    # mismatch is exactly the runtime trick we're exercising.
-    with p.if_(0 == m.state):
+    # `bool` for `0 == m.state`; ``cast`` records that the runtime value is
+    # the Comparison we're exercising.
+    condition = cast("Expression", 0 == m.state)  # noqa: SIM300
+    with p.if_(condition):
         p.play("drive_q0", "a")
 
 
@@ -497,7 +516,7 @@ def test_if_rejects_float_constant() -> None:
 def test_if_error_message_mentions_handle_state() -> None:
     """The error message guides the user to the right shape."""
     p = QProgram()
-    with pytest.raises(ValidationError, match=r"handle\.state == 0"), p.if_(42):
+    with pytest.raises(ValidationError, match=r"handle\.state == 0"), p.if_(cast("Expression", 42)):
         pass
 
 
@@ -512,6 +531,7 @@ def test_chain_inside_loop_body() -> None:
         with p.elif_(m.state == 1):
             p.play("drive_q0", "b")
     loop_block = p.body.elements[-1]
+    assert isinstance(loop_block, Block)
     cond = loop_block.elements[-1]
     assert isinstance(cond, Conditional)
     assert len(cond.arms) == 2

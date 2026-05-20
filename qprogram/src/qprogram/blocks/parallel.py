@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from qprogram.blocks.block import Block
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
 
     from qprogram.blocks.for_loop import ForLoop
     from qprogram.blocks.loop import Loop
@@ -25,9 +25,9 @@ class Parallel(Block):
     when walking.
     """
 
-    def __init__(self, loops: list[ForLoop | Loop]) -> None:
+    def __init__(self, loops: Iterable[ForLoop | Loop]) -> None:
         super().__init__()
-        self.loops = loops
+        self.loops: list[ForLoop | Loop] = list(loops)
 
     def variables(self) -> set[Variable]:
         """Include each composed loop's bound variable plus child variables."""

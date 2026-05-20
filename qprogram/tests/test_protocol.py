@@ -39,8 +39,10 @@ from qprogram.waveforms import IQDrag, IQPair, Square
 def test_diagnostic_is_frozen_dataclass() -> None:
     d = Diagnostic(severity="error", code="x", message="m")
     assert dataclasses.is_dataclass(d)
+    # ``setattr`` is the type-system-friendly way to exercise the freeze: the
+    # static checkers see read-only properties and reject ``d.code = "y"``.
     with pytest.raises(dataclasses.FrozenInstanceError):
-        d.code = "y"
+        setattr(d, "code", "y")  # noqa: B010
 
 
 def test_diagnostic_str_includes_severity_code_message() -> None:

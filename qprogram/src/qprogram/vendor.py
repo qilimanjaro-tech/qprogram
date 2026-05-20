@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from qprogram.buses import BusRef
 from qprogram.result import MeasurementHandle
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from qprogram.operations.operation import MeasurementOperation, Operation
     from qprogram.qprogram import QProgram
 
@@ -69,9 +71,9 @@ class VendorNamespace:
         handle = MeasurementHandle(allocated)
         # ``MeasurementOperation`` is a marker base; concrete subclasses
         # always accept ``bus`` and ``handle`` plus per-class kwargs.
-        # Static analysers can't see that through the type variable — a
-        # Protocol with a generic constructor would, but it's more
-        # machinery than this single call site warrants.
-        op = op_cls(bus=bus, handle=handle, **kwargs)
+        # Static analysers can't see that through the type variable — fall
+        # back to ``Callable[..., MeasurementOperation]`` at the call site.
+        factory = cast("Callable[..., MeasurementOperation]", op_cls)
+        op = factory(bus=bus, handle=handle, **kwargs)
         self._append(op)
         return handle

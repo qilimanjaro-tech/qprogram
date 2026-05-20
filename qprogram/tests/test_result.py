@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -59,14 +61,18 @@ def test_handle_empty_name_raises():
 
 
 def test_handle_non_string_name_raises():
+    # The literal ``42`` is intentionally the wrong type to exercise the
+    # runtime check; ``cast`` smuggles it past the static signature.
     with pytest.raises(ValidationError):
-        MeasurementHandle(42)
+        MeasurementHandle(cast("str", 42))
 
 
 def test_handle_uses_slots():
     h = MeasurementHandle("a")
     with pytest.raises(AttributeError):
-        h.extra = "x"
+        # ``setattr`` lets the static checker see the slot-defined surface
+        # while still exercising the runtime ``__slots__`` rejection.
+        setattr(h, "extra", "x")  # noqa: B010
 
 
 # ---------------------------------------------------------------------------

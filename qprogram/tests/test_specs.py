@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 import numpy as np
 import pytest
 
@@ -12,7 +14,7 @@ from qprogram import (
     Variable,
 )
 from qprogram.blocks import Average, ForLoop, Loop
-from qprogram.operations import GetParameter, SetCrosstalk, Sync
+from qprogram.operations import GetParameter, ResetPhase, SetCrosstalk, SetFrequency, SetParameter, Sync
 from qprogram.serialization._specs import (
     average_parse_header,
     average_serialize_header,
@@ -33,6 +35,11 @@ from qprogram.serialization._specs import (
 from qprogram.serialization.parser import _Parser
 from qprogram.serialization.registry import get_operation_spec
 from qprogram.serialization.writer import _Writer
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from qprogram.operations.operation import Operation
 
 
 def _writer() -> _Writer:
@@ -58,7 +65,8 @@ def _parser(body: str = "") -> _Parser:
 
 def test_default_serialize_operation_required_positional():
     spec = get_operation_spec(None, "play")
-    op = spec.cls("bus", "wf")
+    assert spec is not None
+    op = cast("Callable[..., Operation]", spec.cls)("bus", "wf")
     text = default_serialize_operation(op, spec, _writer())
     assert text.startswith("play")
     assert '"bus"' in text
@@ -69,35 +77,45 @@ def test_default_serialize_operation_optional_kwarg_skipped_at_default():
     """When an optional parameter is at its default, the serializer omits it."""
     # Measure.save_adc is gone; returns=("iq",) is the default.
     spec = get_operation_spec(None, "measure")
-    op = spec.cls("bus", "wf", "weights", handle=MeasurementHandle("m0"))
+    assert spec is not None
+    op = cast("Callable[..., Operation]", spec.cls)("bus", "wf", "weights", handle=MeasurementHandle("m0"))
     text = default_serialize_operation(op, spec, _writer())
     assert "returns=" not in text
 
 
 def test_default_serialize_operation_optional_kwarg_emitted_when_non_default():
     spec = get_operation_spec(None, "measure")
-    op = spec.cls("bus", "wf", "weights", handle=MeasurementHandle("m0"), returns=("iq", "raw"))
+    assert spec is not None
+    op = cast("Callable[..., Operation]", spec.cls)(
+        "bus", "wf", "weights", handle=MeasurementHandle("m0"), returns=("iq", "raw")
+    )
     text = default_serialize_operation(op, spec, _writer())
     assert 'returns="iq,raw"' in text
 
 
 def test_default_parse_operation_positional():
     spec = get_operation_spec(None, "set_frequency")
+    assert spec is not None
     op = default_parse_operation(spec, ['"bus"', "5000000000.0"], _parser())
+    assert isinstance(op, SetFrequency)
     assert op.bus == "bus"
     assert op.frequency == 5e9
 
 
 def test_default_parse_operation_kwarg():
     spec = get_operation_spec(None, "set_parameter")
+    assert spec is not None
     op = default_parse_operation(spec, ['"a"', '"p"', "5.0", "channel_id=3"], _parser())
+    assert isinstance(op, SetParameter)
     assert op.channel_id == 3
 
 
 def test_default_parse_operation_extra_positional_ignored():
     """Tokens past the signature length are silently dropped (pre-1.0 leniency)."""
     spec = get_operation_spec(None, "reset_phase")
+    assert spec is not None
     op = default_parse_operation(spec, ['"bus"', "garbage"], _parser())
+    assert isinstance(op, ResetPhase)
     assert op.bus == "bus"
 
 

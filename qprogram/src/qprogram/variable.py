@@ -50,7 +50,7 @@ from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, ClassVar, Final, Literal, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal, Self
 
 # InvalidVariableIdError and UnassignedVariableError live on the QProgram
 # exception hierarchy in :mod:`qprogram.errors`. They are re-exported here
@@ -405,7 +405,7 @@ class MeasurementRef(Expression):
         self.field: str = field
 
     def evaluate(self) -> int | float | _UnassignedType:
-        return self.handle._value_for(self.field)  # noqa: SLF001  # ty:ignore[unresolved-attribute]  # pyright: ignore[reportAttributeAccessIssue]
+        return self.handle._value_for(self.field)  # noqa: SLF001
 
     def variables(self) -> set[Variable]:
         # A MeasurementRef is its own kind of binding, distinct from
@@ -473,10 +473,17 @@ class _HandleFieldAccess:
         )
         raise TypeError(msg)
 
-    def __eq__(self, other: object) -> Comparison:
+    # The return type is annotated ``Any`` rather than ``Comparison`` because
+    # ``object.__eq__`` returns ``bool`` and the override must be LSP-compatible.
+    # The runtime behaviour is unchanged: ``handle.state == 1`` builds a
+    # :class:`Comparison`. ``Any`` is the standard escape hatch the typing
+    # community settled on for this DSL pattern (cf. SQLAlchemy columns,
+    # numpy arrays). The ANN401 noqa is targeted at this contract — flagging
+    # ``Any`` elsewhere stays valuable.
+    def __eq__(self, other: object) -> Any:  # noqa: ANN401
         return self._comparison("==", other)
 
-    def __ne__(self, other: object) -> Comparison:
+    def __ne__(self, other: object) -> Any:  # noqa: ANN401
         return self._comparison("!=", other)
 
     __hash__ = None

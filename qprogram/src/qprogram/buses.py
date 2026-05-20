@@ -35,7 +35,7 @@ class BusRef(str):
 
     Attributes:
         element: Element name (e.g. "q", "coupler").
-        index: Element index (e.g. 0, (0, 1)).
+        idx: Element index (e.g. 0, (0, 1)).
         kind: Bus kind name (e.g. "drive", "flux", "readout").
         channel: ``"single"`` for real-valued waveforms, ``"IQ"`` for complex I/Q.
         acquires: Whether this bus has an ADC and supports ``measure()`` operations.
@@ -50,11 +50,11 @@ class BusRef(str):
     # Declare slots so a ``str`` subclass can still carry these attributes.
     # An empty ``__slots__ = ()`` would forbid attribute assignment entirely
     # (str has no __dict__). The slot descriptors double as static type
-    # annotations for tooling, though ``index`` is also a method on ``str``
-    # so we declare it via ``__init__`` instead to avoid an override warning.
-    __slots__ = ("acquires", "channel", "element", "index", "kind", "schema")
+    # annotations for tooling.
+    __slots__ = ("acquires", "channel", "element", "idx", "kind", "schema")
 
     element: str
+    idx: int | tuple[int, ...]
     kind: str
     channel: ChannelType
     acquires: bool
@@ -64,7 +64,7 @@ class BusRef(str):
         cls,
         value: str,
         element: str,
-        index: int | tuple[int, ...],
+        idx: int | tuple[int, ...],
         kind: str,
         channel: ChannelType,
         acquires: bool,
@@ -72,14 +72,16 @@ class BusRef(str):
     ) -> Self:
         instance = super().__new__(cls, value)
         instance.element = element
-        instance.index = index
+        instance.idx = idx
         instance.kind = kind
         instance.channel = channel
         instance.acquires = acquires
         instance.schema = schema
         return instance
 
-    def __reduce__(self) -> tuple[type[Self], tuple[str, str, int | tuple[int, ...], str, ChannelType, bool, BusSchema | None]]:
+    def __reduce__(
+        self,
+    ) -> tuple[type[Self], tuple[str, str, int | tuple[int, ...], str, ChannelType, bool, BusSchema | None]]:
         """Reconstruction recipe for ``pickle`` and ``copy.deepcopy``.
 
         The default ``str.__reduce_ex__`` only supplies the string value to
@@ -88,7 +90,7 @@ class BusRef(str):
         the deepcopied BusRef points to the *deepcopied* schema instance
         (the memo dict shares the same copy across BusRefs).
         """
-        return (type(self), (str(self), self.element, self.index, self.kind, self.channel, self.acquires, self.schema))
+        return (type(self), (str(self), self.element, self.idx, self.kind, self.channel, self.acquires, self.schema))
 
 
 class BusNaming:
@@ -158,7 +160,7 @@ class _DynamicElementAccessor:
         return BusRef(
             raw,
             element=self._schema.name,
-            index=self._index,
+            idx=self._index,
             kind=kind,
             channel=channel,
             acquires=acquires,
@@ -204,7 +206,7 @@ class _TypedElementAccessor:
         return BusRef(
             raw,
             element=self._element,
-            index=self._index,
+            idx=self._index,
             kind=kind,
             channel=channel,
             acquires=acquires,

@@ -47,7 +47,6 @@ if TYPE_CHECKING:
     from qprogram.blocks.block import Block
     from qprogram.operations.operation import Operation
     from qprogram.variable import Variable
-    from qprogram.waveforms.waveform import IQWaveform, Waveform
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +227,7 @@ def _register_builtin_waveform_tokens() -> None:
     )
 
 
-def waveform_token(wf: Waveform | IQWaveform | str) -> str | None:
+def waveform_token(wf: object) -> str | None:
     """Return the canonical token for a waveform value, or ``None``.
 
     - String aliases return ``None`` — callers add ``waveform.alias`` directly.
@@ -238,6 +237,12 @@ def waveform_token(wf: Waveform | IQWaveform | str) -> str | None:
       (``waveform.single`` / ``waveform.iq``) come from
       :meth:`required_capabilities` directly using ``isinstance`` checks,
       so they remain present even for unregistered classes.
+
+    The parameter is annotated ``object`` because the dispatch is purely
+    class-keyed: any instance whose ``type(...)`` is in the registry returns
+    a token, and the typical callers pass a ``Waveform`` / ``IQWaveform``
+    instance or a string alias. A vendor adding its own waveform class
+    registers and queries here without inheriting from the base classes.
     """
     _register_builtin_waveform_tokens()
     if isinstance(wf, str):

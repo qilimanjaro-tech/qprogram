@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
-from collections.abc import Sequence
 
 from qprogram.waveforms.waveform import Waveform
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 class Arbitrary(Waveform):

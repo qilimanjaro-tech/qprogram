@@ -47,6 +47,7 @@ def test_core_operations_registered():
 
 def test_operation_qualified_name_no_vendor():
     spec = get_operation_spec(None, "play")
+    assert spec is not None
     assert spec.qualified_name == "play"
 
 
@@ -277,17 +278,19 @@ def test_register_waveform_decorator():
 
 def test_block_spec_frozen():
     spec = BlockSpec(name="test", cls=Block)
+    # ``setattr`` lets the static checkers see the read-only property and
+    # still lets us exercise the runtime freeze.
     with pytest.raises(FrozenInstanceError):
-        spec.name = "x"
+        setattr(spec, "name", "x")  # noqa: B010
 
 
 def test_operation_spec_frozen():
     spec = OperationSpec(name="play", vendor=None, cls=Play)
     with pytest.raises(FrozenInstanceError):
-        spec.name = "x"
+        setattr(spec, "name", "x")  # noqa: B010
 
 
 def test_sweep_generator_spec_frozen():
     spec = SweepGeneratorSpec(name="r", block_cls=ForLoop, parse=lambda *_a: None)
     with pytest.raises(FrozenInstanceError):
-        spec.name = "x"
+        setattr(spec, "name", "x")  # noqa: B010

@@ -511,6 +511,7 @@ def test_with_bus_mapping_handles_sync_list():
     p.sync(["a", "b", "c"])
     mapped = p.with_bus_mapping({"a": "X", "c": "Z"})
     sync_op = mapped.body.elements[0]
+    assert isinstance(sync_op, Sync)
     assert sync_op.targets == ["X", "b", "Z"]
 
 
@@ -527,6 +528,8 @@ def test_with_waveforms_replaces_aliases():
     # Concrete waveforms now live on the AST.
     play_op = resolved.body.elements[0]
     measure_op = resolved.body.elements[1]
+    assert isinstance(play_op, Play)
+    assert isinstance(measure_op, Measure)
     assert play_op.waveform is pi
     assert measure_op.waveform is readout
     assert measure_op.weights is weights
@@ -536,7 +539,9 @@ def test_with_waveforms_preserves_unmapped_aliases():
     p = QProgram()
     p.play("bus", "pi_pulse")
     resolved = p.with_waveforms({"unrelated": Gaussian(0.5, 40, 2.5)})
-    assert resolved.body.elements[0].waveform == "pi_pulse"
+    play_op = resolved.body.elements[0]
+    assert isinstance(play_op, Play)
+    assert play_op.waveform == "pi_pulse"
 
 
 def test_with_waveforms_nested_inside_block():
@@ -546,7 +551,12 @@ def test_with_waveforms_nested_inside_block():
         p.play("bus", "pi_pulse")
     pi = Gaussian(0.5, 40, 2.5)
     resolved = p.with_waveforms({"pi_pulse": pi})
-    deepest_op = resolved.body.elements[0].elements[0].elements[0]
+    avg = resolved.body.elements[0]
+    assert isinstance(avg, Block)
+    for_loop = avg.elements[0]
+    assert isinstance(for_loop, Block)
+    deepest_op = for_loop.elements[0]
+    assert isinstance(deepest_op, Play)
     assert deepest_op.waveform is pi
 
 

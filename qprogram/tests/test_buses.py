@@ -60,7 +60,7 @@ def test_busref_is_str_subclass():
 def test_busref_metadata_attrs():
     ref = BusRef("q0/readout", "q", 0, "readout", "IQ", acquires=True)
     assert ref.element == "q"
-    assert ref.index == 0
+    assert ref.idx == 0
     assert ref.kind == "readout"
     assert ref.channel == "IQ"
     assert ref.acquires is True
@@ -69,7 +69,7 @@ def test_busref_metadata_attrs():
 
 def test_busref_tuple_index():
     ref = BusRef("c0_1/flux", "c", (0, 1), "flux", "single", acquires=False)
-    assert ref.index == (0, 1)
+    assert ref.idx == (0, 1)
 
 
 def test_busref_deepcopy_preserves_metadata():
@@ -78,7 +78,7 @@ def test_busref_deepcopy_preserves_metadata():
     copied = copy.deepcopy(ref)
     assert str(copied) == str(ref)
     assert copied.element == ref.element
-    assert copied.index == ref.index
+    assert copied.idx == ref.idx
     assert copied.kind == ref.kind
 
 

@@ -30,7 +30,7 @@ from qprogram.operations.operation import (
     _collect_variables,
     normalize_returns,
 )
-from qprogram.waveforms import Gaussian, Square
+from qprogram.waveforms import Gaussian, IQPair, Square
 
 # ---------------------------------------------------------------------------
 # Operation base — class-level conventions
@@ -220,7 +220,7 @@ def test_wait_no_variables_with_literal():
 
 def test_measure_variables_from_waveform_and_weights():
     v = Variable("amp")
-    wf = Gaussian(amplitude=v, duration=2000, num_sigmas=2.5)
+    wf = IQPair(I=Gaussian(amplitude=v, duration=2000, num_sigmas=2.5), Q=Square(0.0, 2000))
     op = Measure("bus", wf, "w", handle=MeasurementHandle("m0"))
     assert v in op.variables()
 

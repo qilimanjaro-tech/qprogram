@@ -164,6 +164,7 @@ def test_parse_arg_true_false():
 
 def test_parse_arg_list_literal():
     result = _parse_arg("[1, 2, 3]")
+    assert isinstance(result, np.ndarray)
     assert np.array_equal(result, np.array([1, 2, 3]))
 
 
@@ -199,9 +200,11 @@ def test_to_expression_wraps_int():
     assert result.value == 5
 
 
-def test_to_expression_passes_through_unknown_type():
-    # Non-numeric, non-expression — passes through unchanged.
-    assert _to_expression("anything") == "anything"
+def test_to_expression_raises_on_unknown_type():
+    # Non-numeric, non-expression — surface a clean ParseError instead of
+    # deferring the failure to the AST constructor.
+    with pytest.raises(ParseError, match="expression operand"):
+        _to_expression("anything")
 
 
 # ---------------------------------------------------------------------------
@@ -893,7 +896,7 @@ def test_loads_resolves_bus_path_against_schema():
     op = p.body.elements[0]
     assert isinstance(op.bus, BusRef)
     assert op.bus.element == "q"
-    assert op.bus.index == 0
+    assert op.bus.idx == 0
     assert op.bus.kind == "drive"
 
 
@@ -903,7 +906,7 @@ def test_loads_bus_path_tuple_index():
 
     op = p.body.elements[0]
     assert isinstance(op.bus, BusRef)
-    assert op.bus.index == (0, 1)
+    assert op.bus.idx == (0, 1)
 
 
 def test_loads_invalid_bus_path_raises():

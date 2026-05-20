@@ -37,14 +37,12 @@ bus = q[0].readout
 bus                # "q0/readout"
 isinstance(bus, str)
 bus.element        # "q"
-bus.index          # 0
+bus.idx            # 0
 bus.kind           # "readout"
 bus.channel        # "IQ"
 bus.acquires       # True
 ```
 
-`BusRef.index` shadows the inherited `str.index()` method. If you need to do
-a substring search, do `str(bus).index("...")` first.
 
 ## Built-in presets
 

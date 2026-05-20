@@ -7,13 +7,15 @@ import numpy as np
 from qprogram.blocks.block import Block
 
 if TYPE_CHECKING:
+    import numpy.typing as npt
+
     from qprogram.variable import Variable
 
 
 class Loop(Block):
     """Loop over an arbitrary array of values."""
 
-    def __init__(self, variable: Variable, values: np.ndarray) -> None:
+    def __init__(self, variable: Variable, values: npt.ArrayLike) -> None:
         super().__init__()
         self.variable = variable
         self.values = np.asarray(values)

@@ -49,8 +49,16 @@ class BusRef(str):
 
     # Declare slots so a ``str`` subclass can still carry these attributes.
     # An empty ``__slots__ = ()`` would forbid attribute assignment entirely
-    # (str has no __dict__).
+    # (str has no __dict__). The slot descriptors double as static type
+    # annotations for tooling, though ``index`` is also a method on ``str``
+    # so we declare it via ``__init__`` instead to avoid an override warning.
     __slots__ = ("acquires", "channel", "element", "index", "kind", "schema")
+
+    element: str
+    kind: str
+    channel: ChannelType
+    acquires: bool
+    schema: BusSchema | None
 
     def __new__(  # noqa: PLR0913  flat constructor — six metadata fields plus the str value
         cls,
@@ -71,18 +79,16 @@ class BusRef(str):
         instance.schema = schema
         return instance
 
-    def __getnewargs__(  # ty:ignore[invalid-method-override]
-        self,
-    ) -> tuple[str, str, int | tuple[int, ...], str, ChannelType, bool, BusSchema | None]:
-        """Reconstruction args for ``pickle`` and ``copy.deepcopy``.
+    def __reduce__(self) -> tuple[type[Self], tuple[str, str, int | tuple[int, ...], str, ChannelType, bool, BusSchema | None]]:
+        """Reconstruction recipe for ``pickle`` and ``copy.deepcopy``.
 
-        ``str.__reduce_ex__`` only supplies the string value to ``__new__`` by
-        default, which would fail here because our ``__new__`` requires the
-        metadata fields too. ``schema`` flows through the same path so the
-        deepcopied BusRef points to the *deepcopied* schema instance (the
-        memo dict shares the same copy across BusRefs).
+        The default ``str.__reduce_ex__`` only supplies the string value to
+        ``__new__``, which would fail here because our ``__new__`` requires
+        the metadata fields too. ``schema`` flows through the same path so
+        the deepcopied BusRef points to the *deepcopied* schema instance
+        (the memo dict shares the same copy across BusRefs).
         """
-        return (str(self), self.element, self.index, self.kind, self.channel, self.acquires, self.schema)  # ty:ignore[invalid-return-type, unresolved-attribute]
+        return (type(self), (str(self), self.element, self.index, self.kind, self.channel, self.acquires, self.schema))
 
 
 class BusNaming:

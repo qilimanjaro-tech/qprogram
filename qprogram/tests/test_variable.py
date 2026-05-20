@@ -108,7 +108,7 @@ def test_variable_value_starts_unassigned():
 def test_variable_set_value_and_reset():
     v = Variable("freq")
     v.set_value(5e9)
-    assert v.value == 5e9
+    assert math.isclose(v.evaluate_or_raise(), 5e9, rel_tol=1e-09, abs_tol=1e-09)
     v.reset()
     assert v.value is UNASSIGNED
 
@@ -179,7 +179,7 @@ def test_constant_int():
 
 def test_constant_float():
     c = Constant(3.14)
-    assert c.value == 3.14
+    assert math.isclose(c.value, 3.14, rel_tol=1e-09, abs_tol=1e-09)
 
 
 @pytest.mark.parametrize("bad", [True, False, "5", None, [1]])
@@ -379,7 +379,7 @@ def test_comparison_variables():
 def test_comparison_invalid_op_raises():
     v = Variable("x")
     with pytest.raises(ValueError, match="Comparison op must be"):
-        Comparison("??", v, Constant(1))
+        Comparison("??", v, Constant(1))  # ty:ignore[invalid-argument-type]
 
 
 def test_comparison_structural_equality():
@@ -480,13 +480,13 @@ def test_logical_not_unassigned():
 
 def test_logical_and_returns_notimplemented_for_non_expression():
     v = Variable("x")
-    result = v.__and__("not an expression")
+    result = v.__and__("not an expression")  # ty:ignore[invalid-argument-type]
     assert result is NotImplemented
 
 
 def test_logical_or_returns_notimplemented_for_non_expression():
     v = Variable("x")
-    result = v.__or__("not an expression")
+    result = v.__or__("not an expression")  # ty:ignore[invalid-argument-type]
     assert result is NotImplemented
 
 
@@ -494,23 +494,23 @@ def test_logical_binary_op_invalid_op():
     v = Variable("x")
     w = Variable("y")
     with pytest.raises(ValueError, match="LogicalBinaryOp op must be"):
-        LogicalBinaryOp("xor", v, w)
+        LogicalBinaryOp("xor", v, w)  # ty:ignore[invalid-argument-type]
 
 
 def test_logical_binary_op_rejects_non_expression():
     with pytest.raises(TypeError, match="must be an Expression"):
-        LogicalBinaryOp("and", 1, Variable("x"))
+        LogicalBinaryOp("and", 1, Variable("x"))  # ty:ignore[invalid-argument-type]
 
 
 def test_logical_binary_op_message_mentions_eq_helper_for_bool():
     # The error message specifically helps users who wrote `var == lit`.
     with pytest.raises(TypeError, match=r"qprogram\.eq"):
-        LogicalBinaryOp("and", True, Variable("x"))
+        LogicalBinaryOp("and", True, Variable("x"))  # ty:ignore[invalid-argument-type]  # noqa: FBT003
 
 
 def test_logical_not_rejects_non_expression():
     with pytest.raises(TypeError, match="must be an Expression"):
-        LogicalNot("not an expression")
+        LogicalNot("not an expression")  # ty:ignore[invalid-argument-type]
 
 
 def test_logical_binary_op_variables():
@@ -586,7 +586,7 @@ def test_math_func_unassigned():
 
 def test_math_func_with_literal():
     expr = sin(0.0)
-    assert math.isclose(expr.evaluate(), 0.0, abs_tol=1e-10)
+    assert math.isclose(expr.evaluate_or_raise(), 0.0, abs_tol=1e-10)
 
 
 def test_abs_via_builtin():
@@ -710,7 +710,7 @@ def test_where_chosen_branch_only_evaluated():
 
 def test_where_rejects_non_expression_condition():
     with pytest.raises(TypeError, match="must be an Expression"):
-        Where(True, Constant(1), Constant(2))
+        Where(True, Constant(1), Constant(2))  # ty:ignore[invalid-argument-type]  # noqa: FBT003
 
 
 def test_where_helper_wraps_literal_branches():
@@ -755,13 +755,13 @@ def test_where_unequal_other_type():
 def test_expression_bool_raises():
     v = Variable("x")
     with pytest.raises(TypeError, match="no truth value"):
-        bool(v < 5)
+        _ = bool(v < 5)
 
 
 def test_expression_bool_message_points_to_where():
     v = Variable("x")
     with pytest.raises(TypeError, match="where"):
-        bool(v < 5)
+        _ = bool(v < 5)
 
 
 def test_expression_in_if_raises():
@@ -770,7 +770,7 @@ def test_expression_in_if_raises():
 
     def _bool_in_if() -> None:
         if v < 5:
-            pass
+            ...
 
     with pytest.raises(TypeError):
         _bool_in_if()

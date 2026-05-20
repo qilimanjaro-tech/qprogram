@@ -39,7 +39,7 @@ class MeasurementHandle:
     - At construction time, the name is auto-assigned (``q0_m0``, ``c0_1_m0``,
       ``m0`` for raw-string buses, …) or user-supplied via ``name=``.
     - The name is emitted into the ``.qp`` file as part of the ``measure``
-      / ``qblox.acquire`` / … line, so :func:`qprogram.loads` reconstructs
+      / ``<vendor>.<op>`` / … line, so :func:`qprogram.loads` reconstructs
       the same name.
     - At result-retrieval time, ``QProgramResult.get(handle)`` looks up the
       measurement by name.

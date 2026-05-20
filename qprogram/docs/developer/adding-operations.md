@@ -148,8 +148,7 @@ _BASE_TOKENS: frozenset[str] = frozenset({
 ```
 
 If a vendor profile should support this operation, add the token to that
-profile's `capabilities` frozenset. For example,
-`qprogram-qblox/src/qprogram_qblox/profiles.py`:
+profile's `capabilities` frozenset. For example, in the vendor package's `profiles.py`:
 
 ```python
 _CORE_OPS = frozenset({

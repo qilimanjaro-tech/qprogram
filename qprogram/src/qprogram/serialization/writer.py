@@ -271,7 +271,7 @@ class _Writer:
             return f"# unknown sweep block: {type(loop).__name__}"
         # Every registered loop block has a ``variable`` attribute; this is
         # the contract for participating in the ``for var in ...`` grammar.
-        var = loop.variable  # type: ignore[attr-defined]
+        var = loop.variable
         var_ident = self._var_idents[var.id]
         gen_text = gen_spec.write(loop, self)
         return f"for {var_ident} in {gen_text}"
@@ -369,7 +369,7 @@ class _Writer:
         """Emit a waveform constructor call, mirroring the class name and public attrs."""
         cls_name = type(wf).__name__
         if cls_name == "Arbitrary" and hasattr(wf, "samples"):
-            samples = wf.samples  # type: ignore[attr-defined]
+            samples = wf.samples
             items = ", ".join(str(v) for v in samples[:20])
             if len(samples) > 20:
                 items += ", ..."

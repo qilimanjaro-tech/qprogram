@@ -259,12 +259,12 @@ class Expression(ABC):
         # operators dispatch dynamically; rejecting non-Expression operands
         # at the binding site beats a confusing failure later in the AST.
         if not isinstance(other, Expression):  # pyright: ignore[reportUnnecessaryIsInstance]
-            return NotImplemented  # type: ignore[return-value]
+            return NotImplemented
         return LogicalBinaryOp("and", self, other)
 
     def __or__(self, other: Expression) -> LogicalBinaryOp:
         if not isinstance(other, Expression):  # pyright: ignore[reportUnnecessaryIsInstance]
-            return NotImplemented  # type: ignore[return-value]
+            return NotImplemented
         return LogicalBinaryOp("or", self, other)
 
     def __invert__(self) -> LogicalNot:
@@ -473,13 +473,13 @@ class _HandleFieldAccess:
         )
         raise TypeError(msg)
 
-    def __eq__(self, other: object) -> Comparison:  # type: ignore[override]  # pyright: ignore[reportIncompatibleMethodOverride]
+    def __eq__(self, other: object) -> Comparison:
         return self._comparison("==", other)
 
-    def __ne__(self, other: object) -> Comparison:  # type: ignore[override]  # pyright: ignore[reportIncompatibleMethodOverride]
+    def __ne__(self, other: object) -> Comparison:
         return self._comparison("!=", other)
 
-    __hash__ = None  # type: ignore[assignment]  # not hashable; throwaway proxy
+    __hash__ = None
 
     def __repr__(self) -> str:
         return f"_HandleFieldAccess({self._handle.name!r}, {self._field!r})"

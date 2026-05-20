@@ -197,8 +197,8 @@ do (testing, transformations), `qprogram.operations.*` exposes every one.
 A few things are intentionally out of scope today:
 
 - **Conditional execution** based on measurement outcomes is on the roadmap
-  but does not exist in the core. Vendor extensions can supply it (the Qblox
-  `active_reset` op is one example).
+  but does not exist in the core. Vendor extensions can supply it (an
+  `active_reset` op shipped by a vendor package is one example).
 - **Mid-circuit classification** is similarly platform-specific.
 - **`if`, `while`, `repeat`, ...** are reserved keywords for future syntax.
   See [Reserved keywords](../reference/reserved.md).

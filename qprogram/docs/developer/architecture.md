@@ -35,11 +35,11 @@ qprogram/
 ```
 
 Alongside `qprogram/` in the parent repository is `.specs/`, which holds
-the authoritative design specs (`qprogram-dsl.md`,
-`qp-file-format.md`), and `qprogram-qblox/`, a proof-of-concept vendor
-extension that the developer guide references as the working template.
-That extension lives in its own `uv` project with its own `pyproject.toml`,
-depending on `qprogram` as an editable path source.
+the authoritative design specs (`qprogram-dsl.md`, `qp-file-format.md`).
+A vendor extension lives in its own `uv` project with its own
+`pyproject.toml`, depending on `qprogram` as an editable path source; the
+in-tree `tests/_dummy_vendor.py` exercises the full activation pattern
+for the test suite.
 
 ## The AST builder
 
@@ -139,8 +139,8 @@ A vendor extension plugs in three ways, each orthogonal.
 lazily instantiates and caches a namespace on the instance.
 
 ```python
-QProgram.register_vendor("qblox", QbloxNamespace)
-program.qblox          # works on any QProgram, even the base class
+QProgram.register_vendor("myvendor", MyVendorNamespace)
+program.myvendor       # works on any QProgram, even the base class
 ```
 
 ### 2. Typed mixin
@@ -149,12 +149,12 @@ For IDE autocomplete, each vendor package ships a mixin with one
 `@property`:
 
 ```python
-class QbloxMixin:
+class MyVendorMixin:
     @property
-    def qblox(self) -> QbloxNamespace: ...
+    def myvendor(self) -> MyVendorNamespace: ...
 ```
 
-`qprogram_qblox.QProgram = type("QProgram", (QbloxMixin, BaseQProgram), {})`
+`qprogram_myvendor.QProgram = type("QProgram", (MyVendorMixin, BaseQProgram), {})`
 pre-combines the mixin so end users do not have to. Multiple vendors
 compose with multiple inheritance.
 
@@ -233,7 +233,7 @@ A summary that maps the moving parts to file locations.
 | A new core operation                     | `operations/<name>.py` (subclass `Operation`), export in `operations/__init__.py`, add a `QProgram.<verb>` method, implement `required_capabilities()`. The serializer auto-handles it; see [Adding operations](adding-operations.md). |
 | A new waveform                           | `waveforms/<name>.py` (subclass `Waveform` or `IQWaveform`), register in `serialization/registry._register_builtins`, register a class→token mapping in `protocol._register_builtin_waveform_tokens`. See [Adding waveforms](adding-waveforms.md). |
 | A new vendor operation                   | Inside the vendor package: new `Operation` subclass with `required_capabilities()`, a typed method on the `VendorNamespace`, one `register_vendor_operation` call, the vendor token in the profile's capability set. No core changes. |
-| A new vendor (whole namespace)            | A new package depending on `qprogram`. Copy `qprogram-qblox` as the template. Ships a profile bundle. |
+| A new vendor (whole namespace)            | A new package depending on `qprogram`. Mirror the four-step activation pattern (namespace, version, operations, profile); the in-tree `tests/_dummy_vendor.py` is a working reference. |
 | A new capability token                    | Edit `protocol._BASE_TOKENS` (core) or call `register_capability_tokens` from a vendor package. See [Capability protocol internals](capability-protocol.md). |
 | A new profile bundle                      | Create a `Profile` in the vendor package's `profiles.py`. Register via `register_profile(profile)` from the vendor `__init__.py`. |
 | A new block kind                         | `blocks/<name>.py`. Will need a parser entry and a writer header callback; pre-1.0 these are not yet pluggable. |

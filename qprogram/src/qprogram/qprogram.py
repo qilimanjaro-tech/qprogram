@@ -61,7 +61,7 @@ class _LoopContext:
         self._program._block_stack.append(block)
         return block
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self._program._block_stack.pop()
 
 
@@ -77,7 +77,7 @@ class _AverageContext:
         self._program._block_stack.append(self._block)
         return self._block
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self._program._block_stack.pop()
 
 
@@ -93,7 +93,7 @@ class _BlockContext:
         self._program._block_stack.append(self._block)
         return self._block
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self._program._block_stack.pop()
 
 
@@ -124,7 +124,7 @@ class _IfContext:
         self._program._block_stack.append(self._arm_body)
         return self._conditional
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self._program._block_stack.pop()
 
 
@@ -159,7 +159,7 @@ class _ElifContext:
         self._program._block_stack.append(self._arm_body)
         return self._conditional
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self._program._block_stack.pop()
         # _pending_conditional stays set so a following elif_ / else_ can grab it.
 
@@ -194,7 +194,7 @@ class _ElseContext:
         self._program._block_stack.append(self._else_body)
         return self._conditional
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self._program._block_stack.pop()
         # else_ terminates the chain — no more elif_/else_ may follow.
         self._program._pending_conditional = None

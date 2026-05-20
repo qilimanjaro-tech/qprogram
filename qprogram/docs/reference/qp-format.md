@@ -29,8 +29,8 @@ the format itself. Parsers reject unsupported versions.
 If the body uses vendor operations, every vendor needs a `require` line:
 
 ```
-require qblox 0.1
-require qdac 1.2
+require myvendor 0.1
+require othervendor 1.2
 ```
 
 The parser validates each line against the installed extension:
@@ -282,12 +282,12 @@ Vendor operations use dot notation. The vendor must appear in a `require`
 line:
 
 ```
-require qblox 0.1
+require myvendor 0.1
 
 body:
-  qblox.acquire "readout_q0" "weights" name="q0/readout/m0"
-  qblox.set_markers "drive_q0" "0001"
-  qblox.active_reset "readout_q0" "readout" "weights" "drive_q0" "pi_pulse" trigger_address=1
+  myvendor.acquire "readout_q0" "weights" name="q0/readout/m0"
+  myvendor.set_markers "drive_q0" "0001"
+  myvendor.active_reset "readout_q0" "readout" "weights" "drive_q0" "pi_pulse" trigger_address=1
 ```
 
 The same parsing rules apply: positional args first, optional kwargs as
@@ -408,6 +408,6 @@ versions add operations, waveforms, control-flow constructs, or sections in
 backward-compatible ways. Major version bumps are reserved for breaking
 changes. An older parser refuses to read a higher major version.
 
-Vendor protocol versions (`require qblox 0.1`) are independent: they
+Vendor protocol versions (`require myvendor 0.1`) are independent: they
 describe the vendor's operation set, not the file format. The vendor
 extension registers its own version on import.

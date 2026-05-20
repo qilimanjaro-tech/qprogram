@@ -20,8 +20,7 @@ that the writer uses to look up the wire name from an operation instance.
 
 All four are populated at import time. `qprogram` calls
 `_register_builtins()` for core operations and built-in waveforms;
-`qprogram_qblox` and other vendor packages call `register_vendor_operation`
-on their own import.
+vendor packages call `register_vendor_operation` on their own import.
 
 ## Operation specs
 

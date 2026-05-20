@@ -45,7 +45,7 @@ def test_qprogram_unknown_attribute_via_getattr():
 
 def test_serialization_unknown_attribute_via_getattr():
     with pytest.raises(AttributeError, match="has no attribute"):
-        serialization.nonexistent_thing  # type: ignore[attr-defined]  # noqa: B018
+        serialization.nonexistent_thing
 
 
 def test_serialization_lazy_loads():
@@ -134,7 +134,7 @@ def test_serialize_waveform_skips_private_attrs():
 
     p = qp.QProgram(label="x")
     wf = Square(0.5, 100)
-    wf._private = "should be skipped"  # type: ignore[attr-defined]
+    wf._private = "should be skipped"
     w = _Writer(p)
     w._allocate_var_idents()
     text = w.serialize_waveform(wf)
@@ -151,7 +151,7 @@ def test_default_parse_operation_skips_empty_tokens():
     spec = get_operation_spec(None, "reset_phase")
     parser = _Parser("#!QProgram 1.0\nbody:\n")
     parser._parse_header()
-    op = default_parse_operation(spec, ['"bus"', "  ", ""], parser)  # type: ignore[arg-type]
+    op = default_parse_operation(spec, ['"bus"', "  ", ""], parser)
     assert getattr(op, "bus") == "bus"  # noqa: B009
 
 
@@ -236,7 +236,7 @@ def test_vendor_append_skips_non_bus_attrs():
     qp.QProgram.register_vendor("mixedns", _NS)
     try:
         p = qp.QProgram()
-        p.mixedns.mixed("bus", "some label", 42)  # type: ignore[attr-defined]
+        p.mixedns.mixed("bus", "some label", 42)
         # No raise — non-BusRef str/int attributes are ignored by _validate.
         assert len(p.body.elements) == 1
     finally:
@@ -258,7 +258,7 @@ def test_vendor_append_list_with_non_busref_skipped():
     try:
         p = qp.QProgram()
         # A list of plain strings — _validate_bus is never called for any.
-        p.plainlistns.list_op(["a", "b", "c"])  # type: ignore[attr-defined]
+        p.plainlistns.list_op(["a", "b", "c"])
         assert len(p.body.elements) == 1
     finally:
         qp.QProgram._vendor_registry.pop("plainlistns", None)
@@ -291,7 +291,7 @@ def test_operation_variables_skips_private_attrs():
     """``Operation.variables`` should walk only public attrs, never `_x`."""
 
     op = Wait("bus", Variable("v"))
-    op._private_var = Variable("private")  # type: ignore[attr-defined]
+    op._private_var = Variable("private")
     found = op.variables()
     # The private one shouldn't be picked up.
     assert {v.id for v in found} == {"v"}
@@ -373,12 +373,11 @@ def test_parse_constructor_args_skips_blank_entries():
     assert kw == {}
 
 
-def test_get_operation_vendor_name_for_vendor_op():
+def test_get_operation_vendor_name_for_vendor_op(dummy_vendor):  # noqa: ARG001
     """For a registered vendor op, returns the (vendor, name) tuple."""
-    import qprogram_qblox  # noqa: F401, PLC0415  # conditional vendor import
-    from qprogram_qblox.operations import Acquire  # noqa: PLC0415  # conditional vendor import
+    from _dummy_vendor import DummyAcquire  # noqa: PLC0415
 
-    assert get_operation_vendor_name(Acquire) == ("qblox", "acquire")
+    assert get_operation_vendor_name(DummyAcquire) == ("dummy", "acquire")
 
 
 def test_writer_serialize_numpy_integer():
@@ -465,20 +464,18 @@ def test_parser_stripped_past_end_returns_empty():
     assert parser._stripped() == ""
 
 
-def test_parser_require_malformed_version_raises():
+def test_parser_require_malformed_version_raises(dummy_vendor):  # noqa: ARG001
     """``_check_vendor_compat`` re-raises a ParseError when version parse fails."""
-    import qprogram_qblox  # noqa: F401, PLC0415  # conditional vendor import
-
     # Force a malformed installed version.
-    original = registry._vendor_versions.get("qblox")
-    registry._vendor_versions["qblox"] = "not-a-version"
+    original = registry._vendor_versions.get("dummy")
+    registry._vendor_versions["dummy"] = "not-a-version"
     try:
-        text = "#!QProgram 1.0\n\nrequire qblox 0.1\n\nbody:\n"
+        text = "#!QProgram 1.0\n\nrequire dummy 0.1\n\nbody:\n"
         with pytest.raises(qp.ParseError):
             qp.loads(text)
     finally:
         if original is not None:
-            registry._vendor_versions["qblox"] = original
+            registry._vendor_versions["dummy"] = original
 
 
 def test_parser_blank_line_inside_nested_block():
@@ -535,15 +532,15 @@ def test_parser_blank_lines_in_inline_schema():
         "body:\n"
     )
     p = qp.loads(text)
-    assert "q" in p.schema.elements  # type: ignore[union-attr]
-    assert "c" in p.schema.elements  # type: ignore[union-attr]
+    assert "q" in p.schema.elements
+    assert "c" in p.schema.elements
 
 
 def test_parser_blank_lines_in_element_bus_list():
     """The element-bus inline parser tolerates blank lines."""
     text = "#!QProgram 1.0\n\nschema:\n  element q:\n    drive info=IQ\n\n    readout info=IQ+acquires\n\nbody:\n"
     p = qp.loads(text)
-    assert set(p.schema.elements["q"].buses.keys()) == {"drive", "readout"}  # type: ignore[union-attr]
+    assert set(p.schema.elements["q"].buses.keys()) == {"drive", "readout"}
 
 
 def test_writer_serialize_math_func_args_recursive():

@@ -379,7 +379,7 @@ def test_comparison_variables():
 def test_comparison_invalid_op_raises():
     v = Variable("x")
     with pytest.raises(ValueError, match="Comparison op must be"):
-        Comparison("??", v, Constant(1))  # type: ignore[arg-type]
+        Comparison("??", v, Constant(1))
 
 
 def test_comparison_structural_equality():
@@ -480,13 +480,13 @@ def test_logical_not_unassigned():
 
 def test_logical_and_returns_notimplemented_for_non_expression():
     v = Variable("x")
-    result = v.__and__("not an expression")  # type: ignore[arg-type]
+    result = v.__and__("not an expression")
     assert result is NotImplemented
 
 
 def test_logical_or_returns_notimplemented_for_non_expression():
     v = Variable("x")
-    result = v.__or__("not an expression")  # type: ignore[arg-type]
+    result = v.__or__("not an expression")
     assert result is NotImplemented
 
 
@@ -494,23 +494,23 @@ def test_logical_binary_op_invalid_op():
     v = Variable("x")
     w = Variable("y")
     with pytest.raises(ValueError, match="LogicalBinaryOp op must be"):
-        LogicalBinaryOp("xor", v, w)  # type: ignore[arg-type]
+        LogicalBinaryOp("xor", v, w)
 
 
 def test_logical_binary_op_rejects_non_expression():
     with pytest.raises(TypeError, match="must be an Expression"):
-        LogicalBinaryOp("and", 1, Variable("x"))  # type: ignore[arg-type]
+        LogicalBinaryOp("and", 1, Variable("x"))
 
 
 def test_logical_binary_op_message_mentions_eq_helper_for_bool():
     # The error message specifically helps users who wrote `var == lit`.
     with pytest.raises(TypeError, match=r"qprogram\.eq"):
-        LogicalBinaryOp("and", True, Variable("x"))  # type: ignore[arg-type]  # noqa: FBT003
+        LogicalBinaryOp("and", True, Variable("x"))
 
 
 def test_logical_not_rejects_non_expression():
     with pytest.raises(TypeError, match="must be an Expression"):
-        LogicalNot("not an expression")  # type: ignore[arg-type]
+        LogicalNot("not an expression")
 
 
 def test_logical_binary_op_variables():
@@ -710,7 +710,7 @@ def test_where_chosen_branch_only_evaluated():
 
 def test_where_rejects_non_expression_condition():
     with pytest.raises(TypeError, match="must be an Expression"):
-        Where(True, Constant(1), Constant(2))  # type: ignore[arg-type]  # noqa: FBT003
+        Where(True, Constant(1), Constant(2))
 
 
 def test_where_helper_wraps_literal_branches():
@@ -830,4 +830,4 @@ def test_wrap_rejects_other_types(bad):
 def test_expression_is_abstract():
     # Can't instantiate the abstract base.
     with pytest.raises(TypeError):
-        Expression()  # type: ignore[abstract]
+        Expression()

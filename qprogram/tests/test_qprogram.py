@@ -265,7 +265,7 @@ def test_set_crosstalk_appends(empty_program):
 
 
 def test_play_iq_waveform_on_iq_bus_ok(schema_program, iq_pulse):
-    schema_program.play(schema_program.schema.q[0].drive, iq_pulse)  # type: ignore[union-attr]
+    schema_program.play(schema_program.schema.q[0].drive, iq_pulse)
 
 
 def test_play_iq_waveform_on_single_bus_raises(flux_tunable_schema):
@@ -287,16 +287,16 @@ def test_play_iq_waveform_on_flux_raises(flux_tunable_schema):
 
 def test_play_with_string_waveform_skips_channel_validation(schema_program):
     # String aliases bypass validation — they could be anything.
-    schema_program.play(schema_program.schema.q[0].drive, "any_alias")  # type: ignore[union-attr]
+    schema_program.play(schema_program.schema.q[0].drive, "any_alias")
 
 
 def test_measure_on_non_acquire_bus_raises(schema_program):
     with pytest.raises(ValidationError, match=r"acquisition|acquires"):
-        schema_program.measure(schema_program.schema.q[0].drive, "wf", "w")  # type: ignore[union-attr]
+        schema_program.measure(schema_program.schema.q[0].drive, "wf", "w")
 
 
 def test_measure_on_readout_ok(schema_program, iq_pair_pulse):
-    schema_program.measure(schema_program.schema.q[0].readout, iq_pair_pulse, iq_pair_pulse)  # type: ignore[union-attr]
+    schema_program.measure(schema_program.schema.q[0].readout, iq_pair_pulse, iq_pair_pulse)
 
 
 def test_bus_from_different_schema_raises():
@@ -434,9 +434,9 @@ def test_block_context_class():
 
 def test_measurement_naming_per_bus(schema_program):
     schema = schema_program.schema
-    m_q0_first = schema_program.measure(schema.q[0].readout, "r", "w")  # type: ignore[union-attr]
-    m_q1_first = schema_program.measure(schema.q[1].readout, "r", "w")  # type: ignore[union-attr]
-    m_q0_second = schema_program.measure(schema.q[0].readout, "r", "w")  # type: ignore[union-attr]
+    m_q0_first = schema_program.measure(schema.q[0].readout, "r", "w")
+    m_q1_first = schema_program.measure(schema.q[1].readout, "r", "w")
+    m_q0_second = schema_program.measure(schema.q[0].readout, "r", "w")
     assert m_q0_first.name == "q0/readout/m0"
     assert m_q1_first.name == "q1/readout/m0"
     assert m_q0_second.name == "q0/readout/m1"
@@ -448,8 +448,8 @@ def test_measurement_raw_string_bus_fallback(empty_program):
 
 
 def test_measurement_handles_returns_handles(schema_program):
-    schema_program.measure(schema_program.schema.q[0].readout, "r", "w")  # type: ignore[union-attr]
-    schema_program.measure(schema_program.schema.q[1].readout, "r", "w")  # type: ignore[union-attr]
+    schema_program.measure(schema_program.schema.q[0].readout, "r", "w")
+    schema_program.measure(schema_program.schema.q[1].readout, "r", "w")
     handles = schema_program.measurement_handles()
     assert len(handles) == 2
     assert all(isinstance(h, MeasurementHandle) for h in handles)
@@ -457,30 +457,30 @@ def test_measurement_handles_returns_handles(schema_program):
 
 def test_measurement_handles_in_declaration_order(schema_program):
     schema = schema_program.schema
-    schema_program.measure(schema.q[1].readout, "r", "w")  # type: ignore[union-attr]
-    schema_program.measure(schema.q[0].readout, "r", "w")  # type: ignore[union-attr]
-    schema_program.measure(schema.q[1].readout, "r", "w")  # type: ignore[union-attr]
+    schema_program.measure(schema.q[1].readout, "r", "w")
+    schema_program.measure(schema.q[0].readout, "r", "w")
+    schema_program.measure(schema.q[1].readout, "r", "w")
     handles = schema_program.measurement_handles()
     assert [h.name for h in handles] == ["q1/readout/m0", "q0/readout/m0", "q1/readout/m1"]
 
 
 def test_measurement_name_collision_raises(schema_program):
-    schema_program.measure(schema_program.schema.q[0].readout, "r", "w", name="rabi")  # type: ignore[union-attr]
+    schema_program.measure(schema_program.schema.q[0].readout, "r", "w", name="rabi")
     with pytest.raises(ValidationError, match="already used"):
-        schema_program.measure(schema_program.schema.q[0].readout, "r", "w", name="rabi")  # type: ignore[union-attr]
+        schema_program.measure(schema_program.schema.q[0].readout, "r", "w", name="rabi")
 
 
 def test_measurement_name_empty_raises(schema_program):
     with pytest.raises(ValidationError, match="non-empty"):
-        schema_program.measure(schema_program.schema.q[0].readout, "r", "w", name="")  # type: ignore[union-attr]
+        schema_program.measure(schema_program.schema.q[0].readout, "r", "w", name="")
 
 
 def test_allocate_measurement_name_finds_first_free(schema_program):
     schema = schema_program.schema
     # Manually take m0 and m2; the next auto-allocation should pick m1.
-    schema_program.measure(schema.q[0].readout, "r", "w", name="q0/readout/m0")  # type: ignore[union-attr]
-    schema_program.measure(schema.q[0].readout, "r", "w", name="q0/readout/m2")  # type: ignore[union-attr]
-    next_handle = schema_program.measure(schema.q[0].readout, "r", "w")  # type: ignore[union-attr]
+    schema_program.measure(schema.q[0].readout, "r", "w", name="q0/readout/m0")
+    schema_program.measure(schema.q[0].readout, "r", "w", name="q0/readout/m2")
+    next_handle = schema_program.measure(schema.q[0].readout, "r", "w")
     assert next_handle.name == "q0/readout/m1"
 
 

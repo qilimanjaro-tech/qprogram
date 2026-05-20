@@ -61,14 +61,14 @@ def test_round_trip_with_dynamic_schema(dynamic_schema):
 
 def test_round_trip_with_coupled_schema(coupled_schema):
     p = QProgram(schema=coupled_schema)
-    p.set_offset(coupled_schema.c[0, 1].flux, 0.5)  # type: ignore[union-attr]
+    p.set_offset(coupled_schema.c[0, 1].flux, 0.5)
     _assert_byte_stable(p)
 
 
 def test_round_trip_with_fluxonium_schema(fluxonium_schema):
     p = QProgram(schema=fluxonium_schema)
-    p.set_offset(fluxonium_schema.q[0].flux_x, 0.1)  # type: ignore[union-attr]
-    p.set_offset(fluxonium_schema.q[0].flux_z, 0.2)  # type: ignore[union-attr]
+    p.set_offset(fluxonium_schema.q[0].flux_x, 0.1)
+    p.set_offset(fluxonium_schema.q[0].flux_z, 0.2)
     _assert_byte_stable(p)
 
 
@@ -277,13 +277,12 @@ def test_round_trip_with_with_waveforms():
     _assert_byte_stable(resolved)
 
 
-def test_round_trip_with_qblox_vendor(transmon_schema):
-    import qprogram_qblox  # noqa: F401, PLC0415  # conditional vendor import
-    from qprogram_qblox import QProgram as QbloxQProgram  # noqa: PLC0415  # conditional vendor import
+def test_round_trip_with_vendor(transmon_schema, dummy_vendor):  # noqa: ARG001
+    from _dummy_vendor import DummyQProgram  # noqa: PLC0415
 
-    p = QbloxQProgram(schema=transmon_schema)
-    p.qblox.set_markers(transmon_schema.q[0].drive, "0001")
-    p.qblox.set_trigger(transmon_schema.q[0].drive, duration=100, position="end")
-    p.qblox.wait_trigger(transmon_schema.q[0].drive, duration=1000, port=1)
-    p.qblox.acquire(transmon_schema.q[0].readout, "w", returns="iq,raw")
+    p = DummyQProgram(schema=transmon_schema)
+    p.dummy.set_markers(transmon_schema.q[0].drive, "0001")
+    p.dummy.set_trigger(transmon_schema.q[0].drive, duration=100, position="end")
+    p.dummy.wait_trigger(transmon_schema.q[0].drive, duration=1000, port=1)
+    p.dummy.acquire(transmon_schema.q[0].readout, "w", returns="iq,raw")
     _assert_byte_stable(p)

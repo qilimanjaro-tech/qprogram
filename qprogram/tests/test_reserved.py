@@ -109,7 +109,7 @@ def test_core_not_in_keyword_set():
     assert "core" not in RESERVED_KEYWORDS
 
 
-@pytest.mark.parametrize("name", ["qblox", "qmm", "quantum_machines", "qdac", "my_vendor"])
+@pytest.mark.parametrize("name", ["dummy", "qmm", "quantum_machines", "qdac", "my_vendor"])
 def test_non_reserved_vendor_names(name):
     assert is_reserved_vendor(name) is False
 

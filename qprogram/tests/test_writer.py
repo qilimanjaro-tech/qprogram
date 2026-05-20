@@ -587,14 +587,13 @@ def test_save_writes_to_file(tmp_path, rabi_program):
 # ---------------------------------------------------------------------------
 
 
-def test_dumps_includes_require_when_vendor_used():
-    import qprogram_qblox  # noqa: F401, PLC0415  # conditional vendor import
-    from qprogram_qblox import QProgram as QbloxQProgram  # noqa: PLC0415  # conditional vendor import
+def test_dumps_includes_require_when_vendor_used(dummy_vendor):  # noqa: ARG001
+    from _dummy_vendor import DummyQProgram  # noqa: PLC0415
 
-    p = QbloxQProgram()
-    p.qblox.set_markers("bus", "0001")
+    p = DummyQProgram()
+    p.dummy.set_markers("bus", "0001")
     text = dumps(p)
-    assert "require qblox" in text
+    assert "require dummy" in text
 
 
 def test_dumps_no_require_for_core_only_program():

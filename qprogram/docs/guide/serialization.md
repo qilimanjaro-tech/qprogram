@@ -80,7 +80,7 @@ the top:
 ```
 #!QProgram 1.0
 
-require qblox 0.1
+require myvendor 0.1
 ```
 
 The parser checks:
@@ -157,12 +157,12 @@ See [Adding waveforms](../developer/adding-waveforms.md).
 Vendor ops use dot notation:
 
 ```
-require qblox 0.1
+require myvendor 0.1
 
 body:
-  qblox.acquire "readout_q0" "weights" name="q0/readout/m0"
-  qblox.set_markers "drive_q0" "0001"
-  qblox.active_reset "readout_q0" "readout" "weights" "drive_q0" "pi_pulse" trigger_address=1
+  myvendor.acquire "readout_q0" "weights" name="q0/readout/m0"
+  myvendor.set_markers "drive_q0" "0001"
+  myvendor.active_reset "readout_q0" "readout" "weights" "drive_q0" "pi_pulse" trigger_address=1
 ```
 
 Vendor operation serialisation is generic. Anything registered with

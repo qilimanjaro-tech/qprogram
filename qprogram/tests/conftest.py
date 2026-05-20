@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+import _dummy_vendor
 import numpy as np
 import pytest
 
 from qprogram import QProgram, Variable
 from qprogram.buses import BusNaming, BusSchema
 from qprogram.waveforms import Gaussian, IQDrag, IQPair, Square
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 @pytest.fixture
@@ -113,3 +119,16 @@ def rabi_program(transmon_schema: BusSchema) -> QProgram:
 def array_values() -> np.ndarray:
     """A small numeric array suitable for Loop.values."""
     return np.array([0.0, 0.1, 0.3, 0.5, 0.7, 1.0])
+
+
+@pytest.fixture
+def dummy_vendor() -> Iterator[None]:
+    """Activate the in-tree dummy vendor for one test, then tear it down.
+
+    See :mod:`tests._dummy_vendor` for what gets registered.
+    """
+    _dummy_vendor.activate()
+    try:
+        yield
+    finally:
+        _dummy_vendor.deactivate()

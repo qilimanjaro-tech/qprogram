@@ -236,11 +236,8 @@ def test_loads_empty_program():
 # ---------------------------------------------------------------------------
 
 
-def test_loads_with_vendor_require():
-    # qblox is registered by qprogram_qblox, version 0.0.0 or later.
-    import qprogram_qblox  # noqa: F401, PLC0415  # conditional vendor import
-
-    text = "#!QProgram 1.0\n\nrequire qblox 0.0\n\nbody:\n"
+def test_loads_with_vendor_require(dummy_vendor):  # noqa: ARG001
+    text = "#!QProgram 1.0\n\nrequire dummy 0.0\n\nbody:\n"
     p = loads(text)
     assert p is not None
 
@@ -251,24 +248,20 @@ def test_loads_unknown_vendor_require_raises():
         loads(text)
 
 
-def test_loads_require_malformed_raises():
-    text = "#!QProgram 1.0\n\nrequire qblox\n\nbody:\n"
+def test_loads_require_malformed_raises(dummy_vendor):  # noqa: ARG001
+    text = "#!QProgram 1.0\n\nrequire dummy\n\nbody:\n"
     with pytest.raises(ParseError, match="must specify a version"):
         loads(text)
 
 
-def test_loads_require_major_mismatch_raises():
-    import qprogram_qblox  # noqa: F401, PLC0415  # conditional vendor import
-
-    text = "#!QProgram 1.0\n\nrequire qblox 99.0\n\nbody:\n"
+def test_loads_require_major_mismatch_raises(dummy_vendor):  # noqa: ARG001
+    text = "#!QProgram 1.0\n\nrequire dummy 99.0\n\nbody:\n"
     with pytest.raises(ParseError, match="major versions must match"):
         loads(text)
 
 
-def test_loads_require_minor_too_old_raises():
-    import qprogram_qblox  # noqa: F401, PLC0415  # conditional vendor import
-
-    text = "#!QProgram 1.0\n\nrequire qblox 0.99\n\nbody:\n"
+def test_loads_require_minor_too_old_raises(dummy_vendor):  # noqa: ARG001
+    text = "#!QProgram 1.0\n\nrequire dummy 0.99\n\nbody:\n"
     with pytest.raises(ParseError, match="minor version too old"):
         loads(text)
 
@@ -307,7 +300,7 @@ def test_loads_inline_schema_with_naming():
         '#!QProgram 1.0\n\nschema:\n  naming: "{kind}_{element}{index}_bus"\n  element q:\n    drive info=IQ\n\nbody:\n'
     )
     p = loads(text)
-    assert p.schema.naming.pattern == "{kind}_{element}{index}_bus"  # type: ignore[union-attr]
+    assert p.schema.naming.pattern == "{kind}_{element}{index}_bus"
 
 
 def test_loads_rejects_old_preset_keyword_form():

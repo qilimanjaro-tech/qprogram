@@ -40,7 +40,7 @@ def test_diagnostic_is_frozen_dataclass() -> None:
     d = Diagnostic(severity="error", code="x", message="m")
     assert dataclasses.is_dataclass(d)
     with pytest.raises(dataclasses.FrozenInstanceError):
-        d.code = "y"  # type: ignore[misc]  # pyright: ignore[reportAttributeAccessIssue]
+        d.code = "y"
 
 
 def test_diagnostic_str_includes_severity_code_message() -> None:
@@ -107,7 +107,7 @@ def test_register_waveform_token_extends_registry_and_dispatch() -> None:
     assert "waveform.test_fake_class" in CAPABILITY_REGISTRY
     # We deliberately pass a non-Waveform instance to verify the dispatch
     # table — that's how vendor packages register their own classes.
-    assert waveform_token(_Fake()) == "waveform.test_fake_class"  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
+    assert waveform_token(_Fake()) == "waveform.test_fake_class"
 
 
 # ---------------------------------------------------------------------------

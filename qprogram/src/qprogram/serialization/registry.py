@@ -68,7 +68,7 @@ class OperationSpec:
     """Serialization metadata for one operation (core or vendor).
 
     ``vendor`` is ``None`` for core operations; otherwise it is the vendor
-    name used in the dot-prefix on the wire (``qblox.acquire``). ``serialize``
+    name used in the dot-prefix on the wire (``<vendor>.<op>``). ``serialize``
     and ``parse`` may be ``None``, in which case the default callbacks based
     on ``inspect.signature`` are used.
     """
@@ -167,8 +167,8 @@ def register_operation(
     """Register an operation for ``.qp`` serialization.
 
     ``name`` is the keyword used in the file (``play``, ``measure``, …). For
-    vendor extensions, pass ``vendor="qblox"`` and the file writes
-    ``qblox.<name>``. ``serialize`` and ``parse`` are optional overrides; when
+    vendor extensions, pass ``vendor="<vendor>"`` and the file writes
+    ``<vendor>.<name>``. ``serialize`` and ``parse`` are optional overrides; when
     omitted, the default signature-driven callbacks handle the operation.
 
     The same class can only be registered once — registering a second time
@@ -292,7 +292,7 @@ def register_vendor_version(vendor: str, version: str) -> None:
     """Register the protocol version of an installed vendor extension.
 
     Args:
-        vendor: Vendor name as used in the dot-notation operations (e.g. "qblox").
+        vendor: Vendor name as used in the dot-notation operations.
         version: Semver string (e.g. "0.1.0"). Major.minor is what counts for
             compatibility; patch is informational.
     """

@@ -13,7 +13,7 @@ execution time inside a platform — is a subclass of
 The platform-side classes (``UnsupportedOperationError``,
 ``BusNotAvailableError``, ``WaveformResolutionError``, ``CompilationError``,
 ``HardwareError``) are *defined* here but not raised by core QProgram itself.
-They are the contract concrete platforms (qililab, qblox-platform, …) use
+They are the contract concrete platforms (vendor backends, …) use
 when reporting errors back to the user, so a single ``except
 CompilationError`` works uniformly across every backend.
 
@@ -128,7 +128,7 @@ class UnassignedVariableError(ValidationError, ValueError):
 # ---------------------------------------------------------------------------
 #
 # Core QProgram does not raise these — they are the agreed-on exception
-# classes concrete platforms (qililab, qblox-platform, vendor backends, …)
+# classes concrete platforms (vendor backends, …)
 # raise back to users. Defining them in core gives every platform a single
 # import path and lets user code write one ``except`` per failure mode.
 

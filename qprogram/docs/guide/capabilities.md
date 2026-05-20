@@ -17,7 +17,7 @@ Three orthogonal axes describe what a platform supports:
 
 | Axis                | What it is                                                          |
 |---------------------|---------------------------------------------------------------------|
-| **Capabilities**    | Set of dotted string *tokens* like `op.play`, `vendor.qblox.acquire`. Flags. |
+| **Capabilities**    | Set of dotted string *tokens* like `op.play`, `vendor.<name>.acquire`. Flags. |
 | **Limits**          | Dict of numeric thresholds like `max_loop_nesting`, `min_wait_duration_ns`. |
 | **Predicates**      | Callables that walk the AST and emit diagnostics for context-sensitive checks. |
 
@@ -31,9 +31,9 @@ program against a profile and get back a list of `Diagnostic` objects
 ```python
 import numpy as np
 import qprogram as qp
-import qprogram_qblox      # registers the qblox-default-v1 profile on import
+import qprogram_myvendor   # registers the myvendor-default-v1 profile on import
 
-caps = qp.CompilerCapabilities.from_profile("qblox-default-v1")
+caps = qp.CompilerCapabilities.from_profile("myvendor-default-v1")
 
 program = qp.QProgram()
 freq = program.variable("freq")
@@ -103,7 +103,7 @@ Tokens are flat dotted strings. They group by prefix:
 | `sweep.<shape>`        | `sweep.linear` (from `for_loop`), `sweep.arbitrary` (from `loop`)   |
 | `expr.<kind>`          | `expr.constant`, `expr.variable`, `expr.binary_op`, `expr.math.sin` |
 | `measure.returns.<t>`  | `measure.returns.iq`, `measure.returns.raw`, `measure.returns.state` |
-| `vendor.<name>.<op>`   | `vendor.qblox.acquire`, `vendor.qblox.active_reset`, ...            |
+| `vendor.<name>.<op>`   | `vendor.myvendor.acquire`, `vendor.myvendor.active_reset`, ...      |
 
 Every `Operation` and `Block` declares the tokens *it* needs through
 `required_capabilities()`. The set is **instance-aware**: it depends on the
@@ -148,7 +148,7 @@ profile carry forward-looking limits without breaking older validator
 versions.
 
 ```python
-caps = qp.CompilerCapabilities.from_profile("qblox-default-v1")
+caps = qp.CompilerCapabilities.from_profile("myvendor-default-v1")
 
 p = qp.QProgram()
 p.wait("drive_q0", 2)         # profile sets min_wait_duration_ns=4
@@ -166,7 +166,7 @@ the descriptor:
 
 ```python
 tight = qp.CompilerCapabilities.from_profile(
-    "qblox-default-v1",
+    "myvendor-default-v1",
     limit_overrides={"max_loop_nesting": 1},
 )
 ```
@@ -178,7 +178,7 @@ through without re-publishing the vendor profile.
 
 Some constraints depend on how *several* AST nodes interact, not on any one
 node in isolation. The canonical example: `Wait.duration` accepts a
-`Variable`, but on qblox the wait instruction takes a fixed-step register,
+`Variable`, but on some backends the wait instruction takes a fixed-step register,
 so a variable bound by an arbitrary-array `loop` is illegal — while the
 same variable bound by a `for_loop` is fine. A flat token can't express
 this; the answer depends on the binding loop, which is a different node.
@@ -212,8 +212,9 @@ cross-op data-flow facts:
 | `ctx.max_parallel_arity`       | Largest `len(parallel.loops)`                                            |
 | `ctx.measurement_count`        | Total number of measurement operations                                  |
 
-`qblox-default-v1` ships exactly the predicate above, so the motivating
-case is already covered when you import `qprogram_qblox`:
+A vendor profile (e.g. `myvendor-default-v1`) can ship exactly the predicate
+above, so the motivating case is already covered when you import the
+relevant vendor package:
 
 ```python
 program = qp.QProgram()
@@ -223,8 +224,8 @@ with program.loop(d, np.array([100, 200, 400])):     # arbitrary sweep
 
 for diag in qp.validate(program, caps):
     print(diag)
-# [error] qblox.arbitrary-wait-sweep: Variable 'd' is swept with arbitrary
-# values and used at Wait.duration, which qblox does not support …
+# [error] myvendor.arbitrary-wait-sweep: Variable 'd' is swept with arbitrary
+# values and used at Wait.duration, which myvendor does not support …
 ```
 
 Switch to a `for_loop` and the same program validates clean:
@@ -247,13 +248,13 @@ profile as a side effect — exactly the same activation pattern the
 serializer uses.
 
 ```python
-import qprogram_qblox            # registers "qblox-default-v1"
-from qprogram_qblox.profiles import QBLOX_DEFAULT_V1
+import qprogram_myvendor          # registers "myvendor-default-v1"
+from qprogram_myvendor.profiles import MYVENDOR_DEFAULT_V1
 
-QBLOX_DEFAULT_V1.name             # "qblox-default-v1"
-QBLOX_DEFAULT_V1.version          # (0, 1, 0)
-len(QBLOX_DEFAULT_V1.capabilities)  # 44
-QBLOX_DEFAULT_V1.limits
+MYVENDOR_DEFAULT_V1.name             # "myvendor-default-v1"
+MYVENDOR_DEFAULT_V1.version          # (0, 1, 0)
+len(MYVENDOR_DEFAULT_V1.capabilities)  # 44
+MYVENDOR_DEFAULT_V1.limits
 # {'max_loop_nesting': 8, 'max_parallel_loops': 4,
 #  'min_wait_duration_ns': 4, 'max_measurements': 1024}
 ```
@@ -274,7 +275,7 @@ unrelated profiles is intentionally out of scope.
 strict = qp.Profile(
     name="myplat-strict-v1",
     version=(0, 1, 0),
-    extends="qblox-default-v1",     # inherits everything
+    extends="myvendor-default-v1",  # inherits everything
     capabilities=frozenset(),        # add nothing new
     limits={"max_measurements": 16}, # tighten one limit
     predicates=(my_extra_predicate,),
@@ -290,9 +291,9 @@ Cycles in the `extends` chain are detected at resolution time and raise
 ```python
 import numpy as np
 import qprogram as qp
-import qprogram_qblox
+import qprogram_myvendor
 
-caps = qp.CompilerCapabilities.from_profile("qblox-default-v1")
+caps = qp.CompilerCapabilities.from_profile("myvendor-default-v1")
 
 # A program that hits both an operation issue and the data-flow predicate
 p = qp.QProgram()
@@ -303,7 +304,7 @@ with p.loop(d, np.array([100, 200, 400])):
 
 for diag in qp.validate(p, caps):
     print(diag)
-# [error] qblox.arbitrary-wait-sweep: Variable 'd' is swept with arbitrary
+# [error] myvendor.arbitrary-wait-sweep: Variable 'd' is swept with arbitrary
 # values and used at Wait.duration ...
 # [error] limit-exceeded: Wait duration 2 ns is shorter than min_wait_duration_ns=4
 ```

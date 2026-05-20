@@ -154,8 +154,8 @@ schema. Each vendor knows its own namespace.
 
 ```python
 register_capability_tokens(
-    "vendor.qblox.acquire",
-    "vendor.qblox.set_markers",
+    "vendor.myvendor.acquire",
+    "vendor.myvendor.set_markers",
     ...
 )
 ```
@@ -265,7 +265,7 @@ surface:
 A predicate that fires on the user-motivating case:
 
 ```python
-# qprogram-qblox/src/qprogram_qblox/profiles.py
+# qprogram-myvendor/src/qprogram_myvendor/profiles.py
 def _reject_arbitrary_sweep_at_wait_duration(node, ctx):
     if not isinstance(node, Wait):
         return
@@ -274,7 +274,7 @@ def _reject_arbitrary_sweep_at_wait_duration(node, ctx):
     if ctx.sweep_kind_of(node.duration) == "arbitrary":
         yield Diagnostic(
             severity="error",
-            code="qblox.arbitrary-wait-sweep",
+            code="myvendor.arbitrary-wait-sweep",
             message=(
                 f"Variable {node.duration.id!r} is swept with arbitrary "
                 f"values and used at Wait.duration ..."
@@ -320,10 +320,10 @@ Vendor packages register at import time, alongside the existing
 vendor-namespace / vendor-version / operations registration:
 
 ```python
-# qprogram-qblox/src/qprogram_qblox/__init__.py
-from qprogram_qblox.profiles import _register as _register_qblox_profile
+# qprogram-myvendor/src/qprogram_myvendor/__init__.py
+from qprogram_myvendor.profiles import _register as _register_myvendor_profile
 
-_register_qblox_profile()
+_register_myvendor_profile()
 ```
 
 ### Building `CompilerCapabilities` from a profile
@@ -428,14 +428,14 @@ The protocol has dedicated test modules:
 | `qprogram/tests/test_protocol.py`                              | Dataclass behaviour, registry, waveform dispatch, profile extends. |
 | `qprogram/tests/test_required_capabilities.py`                 | Per-op / per-block assertions, instance-aware variants.             |
 | `qprogram/tests/test_validation.py`                            | Validator end-to-end: missing caps, limits, predicates, data flow. |
-| `qprogram-qblox/tests/test_profile.py`                         | Vendor profile integration: registration, happy path, predicate.    |
+| `qprogram-<vendor>/tests/test_profile.py`                      | Vendor profile integration: registration, happy path, predicate.    |
 
 When you add a new operation, mirror an existing
 `test_required_capabilities.py` block: cover at least one positive case
 per refinement axis (e.g. for an op with a waveform attribute, test both
 single-channel and IQ paths).
 
-When you add a new profile, mirror `test_profile.py` from `qprogram-qblox`:
+When you add a new profile, mirror a vendor `test_profile.py`:
 register the profile, build the descriptor, validate a representative
 happy-path program, and exercise the predicate(s) you ship.
 

@@ -64,7 +64,7 @@ class BusRef(str):
     ) -> Self:
         instance = super().__new__(cls, value)
         instance.element = element
-        instance.index = index  # type: ignore[assignment]  # slot shadows str.index()
+        instance.index = index
         instance.kind = kind
         instance.channel = channel
         instance.acquires = acquires

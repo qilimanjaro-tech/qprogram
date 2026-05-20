@@ -2,8 +2,9 @@
 
 This guide builds a new vendor extension from scratch. The example vendor is
 `fake_inst`, with two operations: a real-time `fake_inst.beep(bus, duration)`
-and a software-only `fake_inst.set_threshold(bus, value)`. Use
-`qprogram-qblox` as the working reference; it follows the same template.
+and a software-only `fake_inst.set_threshold(bus, value)`. The same template
+applies to any vendor package; for an in-tree reference, the test suite's
+`tests/_dummy_vendor.py` exercises every step.
 
 ## Package layout
 
@@ -369,8 +370,7 @@ version once published.
 
 ## Step 7: Tests
 
-The `qprogram-qblox/tests/` folder is the canonical template. Mirror its
-layout:
+A vendor package's `tests/` folder typically mirrors this layout:
 
 - `test_operations.py` covers each Operation class: construction,
   introspection (`buses()`, `waveforms()`, `variables()`), structural
@@ -387,8 +387,7 @@ layout:
   representative programs validate clean, and that each predicate fires on
   the cases it should.
 
-`qprogram-qblox` reaches 100% coverage with 89 tests across these
-modules; copy the spirit.
+Aim for full coverage across these modules; copy the spirit.
 
 ## How serialization works for vendor ops
 
@@ -427,11 +426,11 @@ End users combine multiple vendors with multiple inheritance:
 
 ```python
 from qprogram import QProgram as BaseQProgram
-from qprogram_qblox import QbloxMixin
+from qprogram_othervendor import OtherVendorMixin
 from qprogram_fakeinst import FakeInstMixin
 
 
-class QProgram(QbloxMixin, FakeInstMixin, BaseQProgram):
+class QProgram(OtherVendorMixin, FakeInstMixin, BaseQProgram):
     pass
 ```
 

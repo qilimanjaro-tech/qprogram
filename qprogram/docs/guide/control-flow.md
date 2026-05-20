@@ -135,8 +135,8 @@ with program.if_(m.state == 1):
     program.play(q[0].drive, "pi_pulse")
 ```
 
-The same intent used to require the vendor-specific
-`program.qblox.active_reset(...)`. The conditional expresses it without
+The same intent used to require a vendor-specific
+`program.<vendor>.active_reset(...)`. The conditional expresses it without
 locking the program to one backend; platforms that have optimized
 active-reset choreographies can still recognize the pattern at
 compile time and lower it to their preferred form.

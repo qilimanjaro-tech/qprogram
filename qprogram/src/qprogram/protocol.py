@@ -5,7 +5,7 @@ its **supported feature set** through three orthogonal axes (Vulkan-style, becau
 flags, numbers, and AST-shape checks have different *shapes of check*):
 
 1. **Capabilities** — flat set of dotted string tokens (``op.play``,
-   ``waveform.iq_drag``, ``vendor.qblox.acquire``). Each Operation, Block,
+   ``waveform.iq_drag``, ``vendor.<name>.<op>``). Each Operation, Block,
    and Waveform declares the tokens *it* needs through
    :meth:`Operation.required_capabilities`, instance-aware: a ``Play``
    carrying an :class:`IQDrag` returns ``{op.play, waveform.iq,
@@ -476,7 +476,7 @@ class Profile:
 
     The ``vendor_versions`` field is informational: it records which
     vendor extension versions this profile was designed for, mirroring
-    the existing ``.qp`` ``require qblox 0.1`` line.
+    the existing ``.qp`` ``require <vendor> <version>`` line.
     """
 
     name: str

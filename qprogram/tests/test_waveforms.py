@@ -299,7 +299,7 @@ def test_iq_pair_get_duration():
 )
 def test_iq_pair_rejects_non_waveform_args(i, q):
     with pytest.raises(TypeError, match="must be Waveform"):
-        IQPair(i, q)  # type: ignore[arg-type]
+        IQPair(i, q)
 
 
 # ---------------------------------------------------------------------------
@@ -381,9 +381,9 @@ def test_chained_with_nested_waveforms_equality():
 
 def test_waveform_is_abstract():
     with pytest.raises(TypeError):
-        Waveform()  # type: ignore[abstract]
+        Waveform()
 
 
 def test_iq_waveform_is_abstract():
     with pytest.raises(TypeError):
-        IQWaveform()  # type: ignore[abstract]
+        IQWaveform()

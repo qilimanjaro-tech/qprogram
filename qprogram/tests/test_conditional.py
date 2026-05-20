@@ -357,7 +357,7 @@ def test_multiple_else_raises() -> None:
 
 def test_if_rejects_non_comparison_condition() -> None:
     p = QProgram()
-    with pytest.raises(ValidationError, match=r"if_\(\) expects"), p.if_(42):  # type: ignore[arg-type]
+    with pytest.raises(ValidationError, match=r"if_\(\) expects"), p.if_(42):
         pass
 
 
@@ -470,7 +470,7 @@ def test_if_accepts_constant_on_left() -> None:
     # builds a Comparison instead of a bool. Static type-checkers infer
     # `bool` for `0 == m.state` and complain about the if_ argument; that
     # mismatch is exactly the runtime trick we're exercising.
-    with p.if_(0 == m.state):  # type: ignore[arg-type]  # noqa: SIM300  # pyright: ignore[reportArgumentType]
+    with p.if_(0 == m.state):
         p.play("drive_q0", "a")
 
 
@@ -497,7 +497,7 @@ def test_if_rejects_float_constant() -> None:
 def test_if_error_message_mentions_handle_state() -> None:
     """The error message guides the user to the right shape."""
     p = QProgram()
-    with pytest.raises(ValidationError, match=r"handle\.state == 0"), p.if_(42):  # type: ignore[arg-type]
+    with pytest.raises(ValidationError, match=r"handle\.state == 0"), p.if_(42):
         pass
 
 

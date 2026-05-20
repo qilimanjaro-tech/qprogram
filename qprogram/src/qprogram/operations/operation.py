@@ -169,8 +169,8 @@ class Operation:
 class MeasurementOperation(Operation):
     """Marker base for operations that produce a referenceable measurement.
 
-    Concrete subclasses (``Measure`` in core; ``Acquire`` in qprogram-qblox;
-    any future vendor measurement op) **must** expose a
+    Concrete subclasses (``Measure`` in core; any vendor measurement op)
+    **must** expose a
     ``handle: MeasurementHandle`` instance attribute carrying the
     *canonical* handle for this measurement. The handle's ``name`` (read
     via the :attr:`name` property here) is what flows through the

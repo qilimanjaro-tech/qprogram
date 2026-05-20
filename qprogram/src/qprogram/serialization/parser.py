@@ -524,7 +524,7 @@ class _Parser:
         wrapped = expr_text if expr_text.startswith("(") and expr_text.endswith(")") else f"({expr_text})"
         condition = self._parse_paren_expression(wrapped)
         arm_body = self._program._body.__class__()  # noqa: SLF001  # build a bare Block instance
-        cond.arms.append((condition, arm_body))  # type: ignore[arg-type]
+        cond.arms.append((condition, arm_body))
         self._pos += 1
         self._parse_statements(arm_body, min_indent + 2)
 
@@ -548,7 +548,7 @@ class _Parser:
                     f"ForLoop and Loop can compose under `|` (parallel)"
                 )
                 raise ParseError(msg, self._pos + 1)
-        block: Block = loops[0] if len(loops) == 1 else Parallel(loops=loops)  # type: ignore[arg-type]
+        block: Block = loops[0] if len(loops) == 1 else Parallel(loops=loops)
         parent.append(block)
         self._pos += 1
         self._parse_statements(block, min_indent + 2)
@@ -742,7 +742,7 @@ class _Parser:
         if inner.startswith("not "):
             operand_tok = inner[4:].strip()
             operand = _to_expression(self.parse_value(operand_tok))
-            return LogicalNot(operand)  # type: ignore[arg-type]
+            return LogicalNot(operand)
 
         tokens = _tokenize(inner)
 
@@ -752,7 +752,7 @@ class _Parser:
             if single.startswith(("+", "-")) and len(single) > 1:
                 op_char = single[0]
                 operand = _to_expression(self.parse_value(single[1:].strip()))
-                return UnaryOp(op_char, operand)  # type: ignore[arg-type]
+                return UnaryOp(op_char, operand)
             msg = f"could not parse expression: {tok!r}"
             raise ParseError(msg, self._pos + 1)
 
@@ -761,11 +761,11 @@ class _Parser:
             left = _to_expression(self.parse_value(left_tok))
             right = _to_expression(self.parse_value(right_tok))
             if op_tok in {"+", "-", "*", "/"}:
-                return BinaryOp(op_tok, left, right)  # type: ignore[arg-type]
+                return BinaryOp(op_tok, left, right)
             if op_tok in {"==", "!=", "<", "<=", ">", ">="}:
-                return Comparison(op_tok, left, right)  # type: ignore[arg-type]
+                return Comparison(op_tok, left, right)
             if op_tok in {"and", "or"}:
-                return LogicalBinaryOp(op_tok, left, right)  # type: ignore[arg-type]
+                return LogicalBinaryOp(op_tok, left, right)
             msg = f"unknown operator {op_tok!r} in expression {tok!r}"
             raise ParseError(msg, self._pos + 1)
 
@@ -787,13 +787,13 @@ class _Parser:
         args_text = tok[paren_idx + 1 : tok.rindex(")")]
         if name in _MATH_FUNCTIONS:
             args = [_to_expression(self.parse_value(part.strip())) for part in _split_args(args_text)]
-            return MathFunc(name, tuple(args))  # type: ignore[arg-type]
+            return MathFunc(name, tuple(args))
         if name == "where":
             parts = [_to_expression(self.parse_value(part.strip())) for part in _split_args(args_text)]
             if len(parts) != 3:
                 msg = f"where(...) requires 3 arguments (condition, then, else); got {len(parts)}"
                 raise ParseError(msg, self._pos + 1)
-            return Where(parts[0], parts[1], parts[2])  # type: ignore[arg-type]
+            return Where(parts[0], parts[1], parts[2])
         # Threading the variable table makes ``Gaussian(amplitude=amp, ...)``
         # parse back into a Variable rather than the bare string ``"amp"``.
         return _parse_waveform_expr(tok, self._variables)

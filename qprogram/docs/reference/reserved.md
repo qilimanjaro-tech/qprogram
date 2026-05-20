@@ -107,7 +107,7 @@ from qprogram._reserved import is_reserved_keyword, is_reserved_vendor
 is_reserved_keyword("if")        # True
 is_reserved_keyword("If")        # False
 is_reserved_vendor("core")       # True
-is_reserved_vendor("qblox")      # False
+is_reserved_vendor("myvendor")   # False
 ```
 
 `RESERVED_KEYWORDS` is a `frozenset[str]`, so it is hashable and stable.

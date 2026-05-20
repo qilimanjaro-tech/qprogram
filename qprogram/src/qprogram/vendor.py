@@ -72,6 +72,6 @@ class VendorNamespace:
         # Static analysers can't see that through the type variable — a
         # Protocol with a generic constructor would, but it's more
         # machinery than this single call site warrants.
-        op = op_cls(bus=bus, handle=handle, **kwargs)  # type: ignore[call-arg]  # ty:ignore[unknown-argument]
+        op = op_cls(bus=bus, handle=handle, **kwargs)
         self._append(op)
         return handle

@@ -116,7 +116,7 @@ explanation.
 ## Platform-side errors
 
 These are defined in `qprogram` but **never raised by it**. Platforms
-(QiliLab, qblox-platform, ...) use them to report errors back to users so
+(vendor backends, ...) use them to report errors back to users so
 the catch surface is uniform across backends.
 
 ### `UnsupportedOperationError`
@@ -158,7 +158,7 @@ validate time.
 | `Variable("if")` or `Variable("1freq")`                     | `InvalidVariableIdError`              |
 | `expr.evaluate_or_raise()` with unbound variable             | `UnassignedVariableError`             |
 | `.qp` file missing a `require` declaration                  | `ParseError`                          |
-| `require qblox 99.0` against an older install                | `ParseError`                          |
+| `require myvendor 99.0` against an older install             | `ParseError`                          |
 | Platform missing the bus you wrote                          | `BusNotAvailableError` (platform side)|
 | Forgot to call `with_waveforms` and the platform ran        | `WaveformResolutionError` (platform side)|
 | Anything else from a platform you do not recognise          | `QProgramError`                        |

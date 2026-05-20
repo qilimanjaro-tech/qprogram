@@ -60,13 +60,13 @@ def test_handle_empty_name_raises():
 
 def test_handle_non_string_name_raises():
     with pytest.raises(ValidationError):
-        MeasurementHandle(42)  # type: ignore[arg-type]
+        MeasurementHandle(42)
 
 
 def test_handle_uses_slots():
     h = MeasurementHandle("a")
     with pytest.raises(AttributeError):
-        h.extra = "x"  # type: ignore[attr-defined]
+        h.extra = "x"
 
 
 # ---------------------------------------------------------------------------

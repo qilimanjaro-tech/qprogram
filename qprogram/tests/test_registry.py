@@ -47,12 +47,12 @@ def test_core_operations_registered():
 
 def test_operation_qualified_name_no_vendor():
     spec = get_operation_spec(None, "play")
-    assert spec.qualified_name == "play"  # type: ignore[union-attr]
+    assert spec.qualified_name == "play"
 
 
 def test_vendor_operation_qualified_name():
-    spec = OperationSpec(name="acquire", vendor="qblox", cls=Play)
-    assert spec.qualified_name == "qblox.acquire"
+    spec = OperationSpec(name="acquire", vendor="dummy", cls=Play)
+    assert spec.qualified_name == "dummy.acquire"
 
 
 def test_get_operation_by_class():
@@ -278,16 +278,16 @@ def test_register_waveform_decorator():
 def test_block_spec_frozen():
     spec = BlockSpec(name="test", cls=Block)
     with pytest.raises(FrozenInstanceError):
-        spec.name = "x"  # type: ignore[misc]
+        spec.name = "x"
 
 
 def test_operation_spec_frozen():
     spec = OperationSpec(name="play", vendor=None, cls=Play)
     with pytest.raises(FrozenInstanceError):
-        spec.name = "x"  # type: ignore[misc]
+        spec.name = "x"
 
 
 def test_sweep_generator_spec_frozen():
     spec = SweepGeneratorSpec(name="r", block_cls=ForLoop, parse=lambda *_a: None)
     with pytest.raises(FrozenInstanceError):
-        spec.name = "x"  # type: ignore[misc]
+        spec.name = "x"

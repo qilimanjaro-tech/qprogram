@@ -91,9 +91,7 @@ def test_validate_tokens_passes_for_registered_tokens() -> None:
 
 def test_waveform_token_returns_canonical_token_for_known_classes() -> None:
     assert waveform_token(Square(amplitude=0.5, duration=100)) == "waveform.square"
-    assert (
-        waveform_token(IQDrag(amplitude=0.5, duration=40, num_sigmas=2.5, drag_coefficient=0.1)) == "waveform.iq_drag"
-    )
+    assert waveform_token(IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)) == "waveform.iq_drag"
     assert waveform_token(IQPair(I=Square(0.5, 100), Q=Square(0.0, 100))) == "waveform.iq_pair"
 
 

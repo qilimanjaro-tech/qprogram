@@ -116,7 +116,7 @@ from qprogram.waveforms import IQDrag, Square
 Play("drive_q0", Square(0.5, 100)).required_capabilities()
 # {'op.play', 'waveform.single', 'waveform.square'}
 
-Play("drive_q0", IQDrag(0.5, 40, 2.5, 0.1)).required_capabilities()
+Play("drive_q0", IQDrag(0.5, 40, 8, 0.1)).required_capabilities()
 # {'op.play', 'waveform.iq', 'waveform.iq_drag'}
 
 Play("drive_q0", "pi_pulse").required_capabilities()

@@ -21,8 +21,8 @@ Output a waveform.
 
 ```python
 program.play("drive_q0", "pi_pulse")
-program.play(q[0].drive, IQDrag(amplitude=0.5, duration=40, num_sigmas=2.5, drag_coefficient=0.1))
-program.play(q[0].drive, Gaussian(amplitude=amp, duration=40 + t, num_sigmas=2.5))
+program.play(q[0].drive, IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1))
+program.play(q[0].drive, Gaussian(amplitude=amp, duration=40 + t, sigma=8))
 ```
 
 The schema validator rejects mismatched channel types: IQ waveforms on

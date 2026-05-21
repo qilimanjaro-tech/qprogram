@@ -47,7 +47,7 @@ def test_play_with_single_channel_waveform() -> None:
 
 
 def test_play_with_iq_waveform() -> None:
-    wf = IQDrag(amplitude=0.5, duration=40, num_sigmas=2.5, drag_coefficient=0.1)
+    wf = IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
     caps = Play(bus="drive_q0", waveform=wf).required_capabilities()
     assert caps == {"op.play", "waveform.iq", "waveform.iq_drag"}
 

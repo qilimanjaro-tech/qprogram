@@ -356,14 +356,21 @@ def _register_builtin_waveforms() -> None:
     from qprogram.waveforms import (  # noqa: PLC0415
         Arbitrary,
         Chained,
+        Cosine,
         FlatTop,
         Gaussian,
         GaussianDragCorrection,
         IQDrag,
         IQPair,
+        IQRotation,
+        IQZero,
+        Modulated,
         Ramp,
+        Sech,
+        Sine,
         Square,
         SuddenNetZero,
+        Tukey,
     )
 
     for cls in [
@@ -375,8 +382,15 @@ def _register_builtin_waveforms() -> None:
         SuddenNetZero,
         Arbitrary,
         Chained,
+        Sine,
+        Cosine,
+        Tukey,
+        Sech,
         IQPair,
         IQDrag,
+        Modulated,
+        IQRotation,
+        IQZero,
     ]:
         _waveform_registry[cls.__name__] = cls
 

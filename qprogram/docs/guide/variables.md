@@ -130,7 +130,7 @@ program.wait(bus, 100 + t)                       # int or expression
 program.set_frequency(bus, 5e9 + freq * 1e6)     # float or expression
 program.set_gain(bus, amp / 2)
 program.set_offset(bus, -amp)
-program.play(bus, Gaussian(amplitude=amp, duration=40 + t, num_sigmas=2.5))
+program.play(bus, Gaussian(amplitude=amp, duration=40 + t, sigma=8))
 ```
 
 Waveform constructors accept expressions on every numeric parameter; see

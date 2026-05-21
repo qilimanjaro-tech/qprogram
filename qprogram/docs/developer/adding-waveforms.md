@@ -156,7 +156,7 @@ name, the round-trip works for free.
 ## How the writer emits a waveform
 
 ```
-Gaussian(amplitude=0.5, duration=40, num_sigmas=2.5)
+Gaussian(amplitude=0.5, duration=40, sigma=8)
 ```
 
 Algorithm (in `writer.py`):
@@ -178,7 +178,7 @@ This means:
 ## How the parser reads a waveform
 
 ```
-parser._parse_waveform_expr("Gaussian(amplitude=0.5, duration=40, num_sigmas=2.5)")
+parser._parse_waveform_expr("Gaussian(amplitude=0.5, duration=40, sigma=8)")
 ```
 
 1. Split off the class name; look it up in the registry.

@@ -15,32 +15,29 @@ class GaussianDragCorrection(Gaussian):
     Args:
         amplitude: Peak amplitude of the underlying Gaussian. Accepts an :class:`~qprogram.Expression`.
         duration: Pulse duration in nanoseconds. Accepts an :class:`~qprogram.Expression`.
-        num_sigmas: Window width in standard deviations.
-        drag_coefficient: Multiplicative scale applied to the derivative term.
+        sigma: Standard deviation of the underlying Gaussian in nanoseconds.
+        beta: DRAG scaling (``β`` in the Motzoi et al. parameterisation). Multiplicative weight on the
+            derivative term.
     """
 
     def __init__(
         self,
         amplitude: float | Expression,
         duration: int | Expression,
-        num_sigmas: float | Expression,
-        drag_coefficient: float | Expression,
+        sigma: float | Expression,
+        beta: float | Expression,
     ) -> None:
-        super().__init__(amplitude=amplitude, duration=duration, num_sigmas=num_sigmas)
-        self.drag_coefficient = drag_coefficient
+        super().__init__(amplitude=amplitude, duration=duration, sigma=sigma)
+        self.beta = beta
 
     def envelope(self, resolution: int = 1) -> np.ndarray:
         amplitude = self.amplitude.evaluate_or_raise() if isinstance(self.amplitude, Expression) else self.amplitude
         duration = self.duration.evaluate_or_raise() if isinstance(self.duration, Expression) else self.duration
-        num_sigmas = self.num_sigmas.evaluate_or_raise() if isinstance(self.num_sigmas, Expression) else self.num_sigmas
-        drag_coefficient = (
-            self.drag_coefficient.evaluate_or_raise()
-            if isinstance(self.drag_coefficient, Expression)
-            else self.drag_coefficient
-        )
+        sigma = self.sigma.evaluate_or_raise() if isinstance(self.sigma, Expression) else self.sigma
+        beta = self.beta.evaluate_or_raise() if isinstance(self.beta, Expression) else self.beta
         n_samples = int(duration / resolution)
-        sigma = n_samples / (2 * num_sigmas)
+        sigma_samples = sigma / resolution
         center = (n_samples - 1) / 2
         t = np.arange(n_samples)
-        gaussian = amplitude * np.exp(-0.5 * ((t - center) / sigma) ** 2)
-        return drag_coefficient * -(t - center) / (sigma**2) * gaussian
+        gaussian = amplitude * np.exp(-0.5 * ((t - center) / sigma_samples) ** 2)
+        return beta * -(t - center) / (sigma_samples**2) * gaussian

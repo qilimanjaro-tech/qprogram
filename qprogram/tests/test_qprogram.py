@@ -282,7 +282,7 @@ def test_play_single_waveform_on_single_bus_ok(flux_tunable_schema):
 def test_play_iq_waveform_on_flux_raises(flux_tunable_schema):
     p = QProgram(schema=flux_tunable_schema)
     with pytest.raises(ValidationError, match="single channel"):
-        p.play(flux_tunable_schema.q[0].flux, IQDrag(amplitude=0.5, duration=40, num_sigmas=2.5, drag_coefficient=0.1))
+        p.play(flux_tunable_schema.q[0].flux, IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1))
 
 
 def test_play_with_string_waveform_skips_channel_validation(schema_program):
@@ -520,7 +520,7 @@ def test_with_waveforms_replaces_aliases():
     p.play("bus", "pi_pulse")
     p.measure("bus_r", "readout", "weights")
 
-    pi = Gaussian(0.5, 40, 2.5)
+    pi = Gaussian(0.5, 40, 8)
     readout = IQPair(Square(1.0, 100), Square(0.0, 100))
     weights = IQPair(Square(1.0, 100), Square(1.0, 100))
 
@@ -538,7 +538,7 @@ def test_with_waveforms_replaces_aliases():
 def test_with_waveforms_preserves_unmapped_aliases():
     p = QProgram()
     p.play("bus", "pi_pulse")
-    resolved = p.with_waveforms({"unrelated": Gaussian(0.5, 40, 2.5)})
+    resolved = p.with_waveforms({"unrelated": Gaussian(0.5, 40, 8)})
     play_op = resolved.body.elements[0]
     assert isinstance(play_op, Play)
     assert play_op.waveform == "pi_pulse"
@@ -549,7 +549,7 @@ def test_with_waveforms_nested_inside_block():
     v = p.variable("x")
     with p.average(100), p.for_loop(v, 0.0, 1.0, 0.1):
         p.play("bus", "pi_pulse")
-    pi = Gaussian(0.5, 40, 2.5)
+    pi = Gaussian(0.5, 40, 8)
     resolved = p.with_waveforms({"pi_pulse": pi})
     avg = resolved.body.elements[0]
     assert isinstance(avg, Block)

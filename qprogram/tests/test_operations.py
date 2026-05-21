@@ -203,7 +203,7 @@ def test_set_crosstalk_bus_attrs_empty():
 
 def test_play_variables_from_waveform():
     v = Variable("amp")
-    wf = Gaussian(amplitude=v, duration=40, num_sigmas=2.5)
+    wf = Gaussian(amplitude=v, duration=40, sigma=8)
     op = Play("bus", wf)
     assert op.variables() == {v}
 
@@ -220,7 +220,7 @@ def test_wait_no_variables_with_literal():
 
 def test_measure_variables_from_waveform_and_weights():
     v = Variable("amp")
-    wf = IQPair(I=Gaussian(amplitude=v, duration=2000, num_sigmas=2.5), Q=Square(0.0, 2000))
+    wf = IQPair(I=Gaussian(amplitude=v, duration=2000, sigma=400), Q=Square(0.0, 2000))
     op = Measure("bus", wf, "w", handle=MeasurementHandle("m0"))
     assert v in op.variables()
 
@@ -392,7 +392,7 @@ def test_collect_variables_from_expression():
 
 def test_collect_variables_from_waveform():
     v = Variable("amp")
-    wf = Gaussian(amplitude=v, duration=40, num_sigmas=2.5)
+    wf = Gaussian(amplitude=v, duration=40, sigma=8)
     assert _collect_variables(wf) == {v}
 
 
@@ -417,7 +417,7 @@ def test_collect_variables_from_unrelated_type():
 def test_collect_variables_from_nested_structures():
     v = Variable("a")
     w = Variable("b")
-    nested = [Gaussian(amplitude=v, duration=40, num_sigmas=2.5), w]
+    nested = [Gaussian(amplitude=v, duration=40, sigma=8), w]
     assert _collect_variables(nested) == {v, w}
 
 

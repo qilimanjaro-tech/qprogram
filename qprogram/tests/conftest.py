@@ -87,13 +87,13 @@ def square_pulse() -> Square:
 @pytest.fixture
 def gaussian_pulse() -> Gaussian:
     """A Gaussian waveform with simple numeric params."""
-    return Gaussian(amplitude=0.5, duration=40, num_sigmas=2.5)
+    return Gaussian(amplitude=0.5, duration=40, sigma=8)
 
 
 @pytest.fixture
 def iq_pulse() -> IQDrag:
     """An IQ DRAG pulse with simple numeric params."""
-    return IQDrag(amplitude=0.5, duration=40, num_sigmas=2.5, drag_coefficient=0.1)
+    return IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
 
 
 @pytest.fixture

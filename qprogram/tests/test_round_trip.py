@@ -106,8 +106,8 @@ def test_round_trip_all_core_operations(transmon_schema):
 
 def test_round_trip_with_inline_waveforms():
     p = QProgram()
-    p.play("drive", Gaussian(amplitude=0.5, duration=40, num_sigmas=2.5))
-    p.play("drive", IQDrag(0.5, 40, 2.5, 0.1))
+    p.play("drive", Gaussian(amplitude=0.5, duration=40, sigma=8))
+    p.play("drive", IQDrag(0.5, 40, 8, 0.1))
     p.measure(
         "readout",
         IQPair(Square(1.0, 100), Square(0.0, 100)),
@@ -119,7 +119,7 @@ def test_round_trip_with_inline_waveforms():
 def test_round_trip_with_variable_in_waveform():
     p = QProgram()
     v = p.variable("amp")
-    p.play("drive", Gaussian(amplitude=v, duration=40, num_sigmas=2.5))
+    p.play("drive", Gaussian(amplitude=v, duration=40, sigma=8))
     _assert_byte_stable(p)
 
 
@@ -241,7 +241,7 @@ def test_round_trip_full_features(transmon_schema):
         p.set_offset("flux", abs(gain - 0.5))
         p.play(
             transmon_schema.q[0].drive,
-            IQDrag(amplitude=gain, duration=40, num_sigmas=2.5, drag_coefficient=0.1),
+            IQDrag(amplitude=gain, duration=40, sigma=8, beta=0.1),
         )
         p.sync([transmon_schema.q[0].drive, transmon_schema.q[0].readout])
         p.wait(transmon_schema.q[0].drive, t)
@@ -273,7 +273,7 @@ def test_round_trip_with_with_bus_mapping():
 def test_round_trip_with_with_waveforms():
     p = QProgram()
     p.play("bus", "pi_pulse")
-    resolved = p.with_waveforms({"pi_pulse": Gaussian(0.5, 40, 2.5)})
+    resolved = p.with_waveforms({"pi_pulse": Gaussian(0.5, 40, 8)})
     _assert_byte_stable(resolved)
 
 

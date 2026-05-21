@@ -161,7 +161,7 @@ Different loop kinds mix freely:
 ```python
 with program.for_loop(freq, 4e9, 6e9, 1e6) | program.loop(amp, custom_values):
     program.set_frequency("drive_q0", freq)
-    program.play("drive_q0", Gaussian(amplitude=amp, duration=40, num_sigmas=2.5))
+    program.play("drive_q0", Gaussian(amplitude=amp, duration=40, sigma=8))
 ```
 
 Chain more than two with extra pipes:

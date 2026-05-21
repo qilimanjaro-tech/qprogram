@@ -102,7 +102,7 @@ This is how you sweep waveform parameters too:
 ```python
 amp = program.variable("amp")
 with program.for_loop(amp, 0.0, 1.0, 0.01):
-    program.play("drive_q0", Gaussian(amplitude=amp, duration=40, num_sigmas=2.5))
+    program.play("drive_q0", Gaussian(amplitude=amp, duration=40, sigma=8))
 ```
 
 See [Variables and expressions](variables.md) for the full story.
@@ -119,7 +119,7 @@ acquisition support before runtime.
 schema = BusSchema.transmon()
 q = schema.q
 
-program.play(q[0].drive, IQDrag(0.5, 40, 2.5, 0.1))   # OK
+program.play(q[0].drive, IQDrag(0.5, 40, 8, 0.1))   # OK
 program.play(q[0].drive, Square(0.5, 100))             # ValidationError
 program.measure(q[0].drive, "readout", "weights")     # ValidationError
 ```
@@ -133,7 +133,7 @@ can carry `Variable`s as parameters, and they only get evaluated to a sample
 array when something asks for `.envelope()`.
 
 ```python
-g = Gaussian(amplitude=amp, duration=40, num_sigmas=2.5)
+g = Gaussian(amplitude=amp, duration=40, sigma=8)
 g.envelope()                # UnassignedVariableError before amp is bound
 amp.set_value(0.7)
 g.envelope()                # numpy array, peak at 0.7

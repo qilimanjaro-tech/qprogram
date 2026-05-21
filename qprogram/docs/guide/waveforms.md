@@ -1,7 +1,7 @@
 # Waveforms
 
 A waveform describes a pulse envelope. It is pure data; nothing about it
-involves hardware. The same `Gaussian(0.5, 40, 2.5)` shape can drive a
+involves hardware. The same `Gaussian(0.5, 40, 8)` shape can drive a
 qubit on one platform and a flux line on another, depending on the bus it
 ends up on.
 
@@ -35,13 +35,13 @@ from qprogram.waveforms import (
 )
 
 Square(amplitude=0.5, duration=100)
-Gaussian(amplitude=0.5, duration=40, num_sigmas=2.5)
-GaussianDragCorrection(amplitude=0.5, duration=40, num_sigmas=2.5, drag_coefficient=0.1)
+Gaussian(amplitude=0.5, duration=40, sigma=8)
+GaussianDragCorrection(amplitude=0.5, duration=40, sigma=8, beta=0.1)
 Ramp(from_amplitude=0.0, to_amplitude=1.0, duration=200)
 FlatTop(amplitude=0.5, duration=200, smooth_duration=20)
 SuddenNetZero(amplitude=0.5, duration=100, b=0.4, t_phi=20)
 Arbitrary(samples=my_numpy_array)
-Chained(waveforms=[Square(1.0, 50), Gaussian(0.5, 40, 2.5)])
+Chained(waveforms=[Square(1.0, 50), Gaussian(0.5, 40, 8)])
 ```
 
 `FlatTop` accepts an optional `buffer=` for zero-padding on each side.
@@ -54,7 +54,7 @@ concatenate other waveforms.
 from qprogram.waveforms import IQPair, IQDrag, Square
 
 IQPair(I=Square(1.0, 2000), Q=Square(0.0, 2000))
-IQDrag(amplitude=0.5, duration=40, num_sigmas=2.5, drag_coefficient=0.1)
+IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
 ```
 
 `IQPair` is the generic pair; you can put any two `Waveform`s in it as long
@@ -70,7 +70,7 @@ you sweep pulse parameters inside a loop:
 amp = program.variable("amp")
 
 with program.for_loop(amp, 0.0, 1.0, 0.01):
-    program.play("drive_q0", Gaussian(amplitude=amp, duration=40, num_sigmas=2.5))
+    program.play("drive_q0", Gaussian(amplitude=amp, duration=40, sigma=8))
 ```
 
 The waveform stores the symbolic parameter. The platform's compiler then
@@ -82,7 +82,7 @@ You can evaluate a waveform locally for plotting if you bind its variables:
 
 ```python
 amp.set_value(0.7)
-samples = Gaussian(amp, 40, 2.5).envelope()
+samples = Gaussian(amp, 40, 8).envelope()
 amp.reset()
 ```
 
@@ -91,7 +91,7 @@ amp.reset()
 Waveforms compare equal by structure:
 
 ```python
-Gaussian(0.5, 40, 2.5) == Gaussian(0.5, 40, 2.5)        # True
+Gaussian(0.5, 40, 8) == Gaussian(0.5, 40, 8)        # True
 IQPair(Square(1.0, 100), Square(0.0, 100)) == ...        # True if both halves match
 ```
 

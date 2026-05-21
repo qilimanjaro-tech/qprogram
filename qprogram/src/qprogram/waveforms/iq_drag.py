@@ -10,38 +10,38 @@ class IQDrag(IQWaveform):
     """DRAG (Derivative Removal by Adiabatic Gate) pulse.
 
     The I channel carries a :class:`Gaussian`; the Q channel carries the derivative correction
-    (:class:`GaussianDragCorrection`) scaled by ``drag_coefficient``. Suppresses leakage to the |2⟩ state
-    during single-qubit rotations on weakly-anharmonic transmons.
+    (:class:`GaussianDragCorrection`) scaled by ``beta``. Suppresses leakage to the |2⟩ state during
+    single-qubit rotations on weakly-anharmonic transmons.
 
     Args:
         amplitude: Peak amplitude of the I-channel Gaussian. Accepts an :class:`~qprogram.Expression`.
         duration: Pulse duration in nanoseconds. Accepts an :class:`~qprogram.Expression`.
-        num_sigmas: Window width of the I-channel Gaussian in standard deviations.
-        drag_coefficient: Calibration parameter setting Q-channel weight. Typically a small (<0.5) value
-            tuned per qubit.
+        sigma: Standard deviation of the I-channel Gaussian in nanoseconds.
+        beta: DRAG scaling (``β`` in the Motzoi et al. parameterisation). Typically a small (< 0.5)
+            value tuned per qubit.
     """
 
     def __init__(
         self,
         amplitude: float | Expression,
         duration: int | Expression,
-        num_sigmas: float | Expression,
-        drag_coefficient: float | Expression,
+        sigma: float | Expression,
+        beta: float | Expression,
     ) -> None:
         self.amplitude = amplitude
         self.duration = duration
-        self.num_sigmas = num_sigmas
-        self.drag_coefficient = drag_coefficient
+        self.sigma = sigma
+        self.beta = beta
 
     def get_I(self) -> Waveform:
-        return Gaussian(amplitude=self.amplitude, duration=self.duration, num_sigmas=self.num_sigmas)
+        return Gaussian(amplitude=self.amplitude, duration=self.duration, sigma=self.sigma)
 
     def get_Q(self) -> Waveform:
         return GaussianDragCorrection(
             amplitude=self.amplitude,
             duration=self.duration,
-            num_sigmas=self.num_sigmas,
-            drag_coefficient=self.drag_coefficient,
+            sigma=self.sigma,
+            beta=self.beta,
         )
 
     def get_duration(self) -> int:

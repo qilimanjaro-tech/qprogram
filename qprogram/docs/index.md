@@ -41,7 +41,7 @@ with program.average(shots=1000):
 
 # Plug in calibrated waveforms at the very end.
 resolved = program.with_waveforms({
-    "pi_pulse": IQDrag(0.5, 40, 2.5, 0.1),
+    "pi_pulse": IQDrag(0.5, 40, 8, 0.1),
     "readout":  IQPair(Square(1.0, 2000), Square(0.0, 2000)),
     "weights":  IQPair(Square(1.0, 2000), Square(1.0, 2000)),
 })

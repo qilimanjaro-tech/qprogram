@@ -69,7 +69,7 @@ actually run on hardware, supply concrete waveforms:
 from qprogram.waveforms import IQDrag, IQPair, Square
 
 resolved = program.with_waveforms({
-    "pi_pulse": IQDrag(amplitude=0.5, duration=40, num_sigmas=2.5, drag_coefficient=0.1),
+    "pi_pulse": IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1),
     "readout":  IQPair(Square(1.0, 2000), Square(0.0, 2000)),
     "weights":  IQPair(Square(1.0, 2000), Square(1.0, 2000)),
 })

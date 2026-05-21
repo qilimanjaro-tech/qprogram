@@ -149,7 +149,7 @@ Variable references are unquoted. Numeric arguments are decimal.
 
 ```
 play "drive_q0" pi_pulse
-play "drive_q0" Gaussian(amplitude=0.5, duration=40, num_sigmas=2.5)
+play "drive_q0" Gaussian(amplitude=0.5, duration=40, sigma=8)
 measure "readout_q0" "readout" "weights" name="q0/readout/m0"
 measure "readout_q0" "readout" "weights" name="q0/readout/m1" returns="iq,raw"
 wait "drive_q0" 100
@@ -178,8 +178,8 @@ Key rules:
 ## Inline waveform constructors
 
 ```
-play "drive_q0" Gaussian(amplitude=0.5, duration=40, num_sigmas=2.5)
-play "drive_q0" IQDrag(0.5, 40, 2.5, 0.1)
+play "drive_q0" Gaussian(amplitude=0.5, duration=40, sigma=8)
+play "drive_q0" IQDrag(0.5, 40, 8, 0.1)
 play "flux_q0"  FlatTop(amplitude=amp, duration=dur, smooth_duration=5)
 measure "readout_q0" IQPair(Square(1.0, 2000), Square(0.0, 2000)) IQPair(Square(1.0, 2000), Square(1.0, 2000))
 ```
@@ -199,7 +199,7 @@ inline:
 wait "drive_q0" 100 - t
 set_frequency "drive_q0" 5e9 + freq * 1e6
 set_gain "drive_q0" where(amp > 0.5, amp, 0.0)
-play "drive_q0" Gaussian(amplitude=sin(phi) * 0.5, duration=40, num_sigmas=2.5)
+play "drive_q0" Gaussian(amplitude=sin(phi) * 0.5, duration=40, sigma=8)
 ```
 
 Supported binary operators: `+`, `-`, `*`, `/`. Unary `-` and `+`.

@@ -111,10 +111,10 @@ Schema-backed buses get checked when you call an operation:
 schema = BusSchema.flux_tunable_transmon()
 q = schema.q
 
-program.play(q[0].drive, IQDrag(0.5, 40, 2.5, 0.1))     # OK
+program.play(q[0].drive, IQDrag(0.5, 40, 8, 0.1))     # OK
 program.play(q[0].drive, Square(0.5, 100))               # ValidationError
 program.play(q[0].flux,  FlatTop(0.5, 200, 20))          # OK
-program.play(q[0].flux,  IQDrag(0.5, 40, 2.5, 0.1))     # ValidationError
+program.play(q[0].flux,  IQDrag(0.5, 40, 8, 0.1))     # ValidationError
 program.measure(q[0].drive, "readout", "weights")       # ValidationError (no ADC)
 program.measure(q[0].readout, "readout", "weights")     # OK
 ```

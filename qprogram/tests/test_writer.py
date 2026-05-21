@@ -506,7 +506,7 @@ def test_dumps_iq_pair_inline():
 
 def test_dumps_iq_drag_inline():
     p = QProgram()
-    p.play("bus", IQDrag(0.5, 40, 2.5, 0.1))
+    p.play("bus", IQDrag(0.5, 40, 8, 0.1))
     text = dumps(p)
     assert "IQDrag(" in text
 
@@ -514,7 +514,7 @@ def test_dumps_iq_drag_inline():
 def test_dumps_gaussian_with_variable_amp():
     p = QProgram()
     v = p.variable("amp")
-    p.play("bus", Gaussian(amplitude=v, duration=40, num_sigmas=2.5))
+    p.play("bus", Gaussian(amplitude=v, duration=40, sigma=8))
     text = dumps(p)
     assert "amplitude=amp" in text
 

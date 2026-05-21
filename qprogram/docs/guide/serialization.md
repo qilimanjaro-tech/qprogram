@@ -137,7 +137,7 @@ A program may carry waveforms two ways:
 
 ```
 play "drive_q0" "pi_pulse"                                  # string alias
-play "drive_q0" Gaussian(amplitude=0.5, duration=40, num_sigmas=2.5)   # concrete
+play "drive_q0" Gaussian(amplitude=0.5, duration=40, sigma=8)   # concrete
 ```
 
 Both round-trip. Aliases stay as strings on reload, ready to be resolved

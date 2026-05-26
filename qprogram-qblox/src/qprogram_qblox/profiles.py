@@ -1,44 +1,48 @@
 """Capability profile bundles for the Qblox vendor extension.
 
-Defines :data:`QBLOX_DEFAULT_V1`: a single profile bundle covering everything
-the qblox backend supports today. Registered as a side effect of importing
-:mod:`qprogram_qblox`.
+Defines :data:`QBLOX_DEFAULT_V1`: a bus-level profile covering every qblox-driven bus's real-time
+feature set — pulse / timing / parameter operations, every waveform class qblox can render, both
+sweep shapes, and the ``vendor.qblox.*`` operations. Platforms typically use the same profile for
+both the hw and sw slots of a qblox-driven bus; the hw/sw distinction emerges from predicates that
+emit :class:`~qprogram.DomainConstraint` rather than from two parallel profiles.
 
-The profile composes three orthogonal axes (see
-:mod:`qprogram.protocol`):
+The bus-level :data:`QBLOX_DEFAULT_V1` is paired with the core-shipped ``qprogram-base-v1`` at the
+platform slot (block-structure tokens, expression tokens, measurement return-tokens, bus-less ops),
+giving a complete :class:`~qprogram.PlatformCapabilities` shape.
 
-- A capability set — every dotted token a program may legally need.
-- A limits dict — numeric thresholds the validator checks against AST
-  measurements (loop depth, parallel arity, total measurements, ...).
-- A tuple of predicates — callable hooks invoked on each AST node with a
-  :class:`~qprogram.ValidationContext`. The included
-  :func:`_reject_arbitrary_sweep_at_wait_duration` flags a known qblox
-  hardware constraint: ``Wait.duration`` cannot be swept by an arbitrary
-  numpy array (the wait-instruction operand is a fixed-step register).
+This module declares two predicates:
 
-A concrete platform constructs its
-:class:`~qprogram.CompilerCapabilities` from this profile via
-:meth:`CompilerCapabilities.from_profile`, optionally tightening any
-``limits`` element for a specific device.
+- :func:`_reject_arbitrary_sweep_at_wait_duration` — a hard :class:`~qprogram.Diagnostic`. The
+  qblox wait instruction's operand is a fixed-step register, so an arbitrary numpy-array sweep
+  doesn't fit any execution model qblox knows how to compile, hw or sw.
+- :func:`_drag_sigma_in_loop_is_software_only` — a soft :class:`~qprogram.DomainConstraint`. The
+  qblox sequencer can't real-time-update an IQDrag's ``sigma`` field, but the platform can still
+  dispatch one shot per iteration. The constraint excludes ``"hw"`` only, so the enclosing
+  for-loop is classified as ``{sw}`` while everything outside the offending Play stays unaffected.
+
+Registered as a side effect of importing :mod:`qprogram_qblox`.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from qprogram.operations.play import Play
 from qprogram.operations.wait import Wait
 from qprogram.protocol import (
     Diagnostic,
+    DomainConstraint,
     Profile,
     ValidationContext,
     register_capability_tokens,
     register_profile,
 )
 from qprogram.variable import Variable
+from qprogram.waveforms.iq_drag import IQDrag
 
-# Register vendor-specific capability tokens *before* constructing the
-# profile that names them — Profile.__post_init__ validates that every
-# listed token is in CAPABILITY_REGISTRY, so registration must come first.
+# Register vendor-specific capability tokens *before* constructing the profile that names them —
+# Profile.__post_init__ validates that every listed token is in CAPABILITY_REGISTRY, so registration
+# must come first.
 register_capability_tokens(
     "vendor.qblox.acquire",
     "vendor.qblox.set_markers",
@@ -58,20 +62,15 @@ if TYPE_CHECKING:
 def _reject_arbitrary_sweep_at_wait_duration(
     node: Operation | Block,
     ctx: ValidationContext,
-) -> Iterable[Diagnostic]:
-    """Flag ``Wait(duration=var)`` where ``var`` is swept by an arbitrary
-    numpy array.
+) -> Iterable[Diagnostic | DomainConstraint]:
+    """Flag ``Wait(duration=var)`` where ``var`` is swept by an arbitrary numpy array.
 
-    Qblox's wait instruction takes a single integer cycle count; the
-    instruction register is incremented by a fixed step. Sweeping with a
-    :class:`~qprogram.blocks.Loop` (numpy-array-driven) violates this
-    constraint, while a :class:`~qprogram.blocks.ForLoop` (linear sweep)
-    or a constant work fine.
-
-    This is the data-flow case the capability protocol was designed to
-    express: the requirement is not a property of ``Wait`` in isolation,
-    nor of the loop in isolation, but of how the variable bound by the
-    loop is *used* downstream.
+    Qblox's wait instruction takes a single integer cycle count; the instruction register is
+    incremented by a fixed step. Sweeping with a :class:`~qprogram.blocks.Loop` (numpy-array-driven)
+    violates this constraint, while a :class:`~qprogram.blocks.ForLoop` (linear sweep) or a constant
+    work fine. The combination cannot be salvaged by software dispatch either — qblox still has to
+    emit the wait instruction per shot — so this is a hard :class:`Diagnostic`, not a
+    :class:`DomainConstraint`.
     """
     if not isinstance(node, Wait):
         return
@@ -91,7 +90,41 @@ def _reject_arbitrary_sweep_at_wait_duration(
         )
 
 
-_CORE_OPS: frozenset[str] = frozenset(
+def _drag_sigma_in_loop_is_software_only(
+    node: Operation | Block,
+    ctx: ValidationContext,
+) -> Iterable[Diagnostic | DomainConstraint]:
+    """Flag ``Play(IQDrag(sigma=var))`` as software-only when ``sigma`` is loop-bound.
+
+    The qblox sequencer can rapidly re-arm a real-time loop with a new amplitude or duration but
+    cannot recompute a Drag envelope's ``sigma`` between iterations — the gaussian + derivative
+    samples are precomputed at upload. Sweeping ``sigma`` in a hardware loop is therefore
+    unsupported, but software dispatch (one qblox shot per loop iteration, re-uploading the
+    waveform each time) still works fine. This is a :class:`DomainConstraint` excluding ``"hw"``,
+    not a hard :class:`Diagnostic`: the classifier will lift the enclosing for-loop to ``{sw}``,
+    leaving the rest of the program free to stay in hw where possible.
+
+    Uses ``ctx.sweep_kind_of`` to confirm ``sigma`` is in fact loop-bound; bare variables that
+    aren't swept at all are unaffected (they're treated as constants at upload time).
+    """
+    if not isinstance(node, Play) or not isinstance(node.waveform, IQDrag):
+        return
+    sigma = node.waveform.sigma
+    if not isinstance(sigma, Variable):
+        return
+    if ctx.sweep_kind_of(sigma) is None:
+        return  # not loop-bound — constant at upload time
+    yield DomainConstraint(
+        node=node,
+        exclude=frozenset({"hw"}),
+        reason=(
+            f"Variable {sigma.id!r} sweeps IQDrag.sigma, which is not real-time on "
+            f"qblox — falls back to per-iteration software dispatch."
+        ),
+    )
+
+
+_BUS_OPS: frozenset[str] = frozenset(
     {
         "op.play",
         "op.measure",
@@ -102,20 +135,6 @@ _CORE_OPS: frozenset[str] = frozenset(
         "op.set_gain",
         "op.reset_phase",
         "op.set_offset",
-        "op.set_parameter",
-        "op.get_parameter",
-        "op.set_crosstalk",
-    },
-)
-
-_BLOCKS: frozenset[str] = frozenset(
-    {
-        "block.block",
-        "block.average",
-        "block.for_loop",
-        "block.loop",
-        "block.parallel",
-        "block.conditional",
     },
 )
 
@@ -137,21 +156,12 @@ _WAVEFORMS: frozenset[str] = frozenset(
     },
 )
 
-_SWEEPS: frozenset[str] = frozenset({"sweep.linear", "sweep.arbitrary"})
-
-_EXPRS: frozenset[str] = frozenset(
-    {
-        "expr.constant",
-        "expr.variable",
-        "expr.measurement_ref",
-        "expr.binary_op",
-        "expr.unary_op",
-        "expr.comparison",
-    },
-)
-
 _RETURNS: frozenset[str] = frozenset(
-    {"measure.returns.iq", "measure.returns.raw", "measure.returns.state"},
+    {
+        "measure.returns.iq",
+        "measure.returns.raw",
+        "measure.returns.state",
+    },
 )
 
 _VENDOR: frozenset[str] = frozenset(
@@ -170,14 +180,12 @@ QBLOX_DEFAULT_V1 = Profile(
     name="qblox-default-v1",
     version=(0, 1, 0),
     extends=None,
-    capabilities=_CORE_OPS | _BLOCKS | _WAVEFORMS | _SWEEPS | _EXPRS | _RETURNS | _VENDOR,
-    limits={
-        "max_loop_nesting": 8,
-        "max_parallel_loops": 4,
-        "min_wait_duration_ns": 4,
-        "max_measurements": 1024,
-    },
-    predicates=(_reject_arbitrary_sweep_at_wait_duration,),
+    capabilities=_BUS_OPS | _WAVEFORMS | _RETURNS | _VENDOR,
+    limits={"min_wait_duration_ns": 4},
+    predicates=(
+        _reject_arbitrary_sweep_at_wait_duration,
+        _drag_sigma_in_loop_is_software_only,
+    ),
     vendor_versions={"qblox": (0, 1, 0)},
 )
 

@@ -24,7 +24,14 @@ import pytest
 from qprogram import QProgram, ValidationError, dumps, loads, validate
 from qprogram.blocks.block import Block
 from qprogram.blocks.conditional import Conditional
-from qprogram.protocol import CompilerCapabilities, Profile, expression_tokens, register_profile
+from qprogram.protocol import (
+    BusCapabilities,
+    CompilerCapabilities,
+    PlatformCapabilities,
+    Profile,
+    expression_tokens,
+    register_profile,
+)
 from qprogram.result import MeasurementHandle
 from qprogram.variable import (
     UNASSIGNED,
@@ -61,13 +68,20 @@ def _weights_wf() -> IQPair:
     return IQPair(I=Square(1.0, 200), Q=Square(1.0, 200))
 
 
-def _full_caps() -> CompilerCapabilities:
-    """A capability set with every token a conditional + measurement might emit."""
-    profile_name = "test-full-conditional"
-    if profile_name not in __import__("qprogram.protocol", fromlist=["PROFILE_REGISTRY"]).PROFILE_REGISTRY:
+def _full_caps() -> PlatformCapabilities:
+    """A :class:`PlatformCapabilities` covering every token a conditional + measurement might emit.
+
+    Bus-touching ops + waveforms go on the default-bus slot; block / expression / return tokens
+    go on the platform slot. Both halves of each slot share the same profile so the validator
+    sees identical hw/sw capabilities (the conditional tests don't exercise the hw/sw split).
+    """
+    bus_profile_name = "test-full-conditional-bus"
+    platform_profile_name = "test-full-conditional-platform"
+    registry = __import__("qprogram.protocol", fromlist=["PROFILE_REGISTRY"]).PROFILE_REGISTRY
+    if bus_profile_name not in registry:
         register_profile(
             Profile(
-                name=profile_name,
+                name=bus_profile_name,
                 version=(0, 0, 1),
                 extends=None,
                 capabilities=frozenset(
@@ -75,12 +89,24 @@ def _full_caps() -> CompilerCapabilities:
                         "op.measure",
                         "op.play",
                         "op.sync",
-                        "block.block",
-                        "block.conditional",
                         "waveform.iq",
                         "waveform.alias",
                         "waveform.square",
                         "waveform.iq_pair",
+                    },
+                ),
+            ),
+        )
+    if platform_profile_name not in registry:
+        register_profile(
+            Profile(
+                name=platform_profile_name,
+                version=(0, 0, 1),
+                extends=None,
+                capabilities=frozenset(
+                    {
+                        "block.block",
+                        "block.conditional",
                         "expr.constant",
                         "expr.measurement_ref",
                         "expr.comparison",
@@ -90,7 +116,21 @@ def _full_caps() -> CompilerCapabilities:
                 ),
             ),
         )
-    return CompilerCapabilities.from_profile(profile_name)
+    bus_cc = CompilerCapabilities.from_profile(bus_profile_name)
+    platform_cc = CompilerCapabilities.from_profile(platform_profile_name)
+    bus_slot = BusCapabilities(hw=bus_cc, sw=bus_cc)
+    platform_slot = BusCapabilities(hw=platform_cc, sw=platform_cc)
+    return PlatformCapabilities(
+        bus={},
+        platform=platform_slot,
+        default_bus_profile=bus_slot,
+    )
+
+
+def _validate(p: QProgram, caps: PlatformCapabilities) -> list:
+    """Run the validator and return just the diagnostics (drops the plan)."""
+    diagnostics, _ = validate(p, caps)
+    return diagnostics
 
 
 def _measure_with_state(p: QProgram) -> MeasurementHandle:
@@ -500,7 +540,7 @@ def test_validator_classification_fires_for_either_side_in_ref_ref() -> None:
     m_without = p.measure("readout_q1", _readout_wf(), _weights_wf())  # no state
     with p.if_(m_with.state == m_without.state):
         p.play("drive_q0", "a")
-    diags = validate(p, _full_caps())
+    diags = _validate(p, _full_caps())
     assert any(d.code == "missing-classification" for d in diags)
 
 
@@ -548,7 +588,7 @@ def test_validate_missing_classification_emits_diagnostic() -> None:
     m = p.measure("readout_q0", _readout_wf(), _weights_wf())  # default returns=("iq",)
     with p.if_(m.state == 0):
         p.play("drive_q0", "a")
-    diags = validate(p, _full_caps())
+    diags = _validate(p, _full_caps())
     assert any(d.code == "missing-classification" for d in diags)
 
 
@@ -557,7 +597,7 @@ def test_validate_with_state_returns_clean() -> None:
     m = _measure_with_state(p)
     with p.if_(m.state == 0):
         p.play("drive_q0", "a")
-    diags = validate(p, _full_caps())
+    diags = _validate(p, _full_caps())
     assert not any(d.code in {"missing-classification", "unknown-measurement"} for d in diags)
 
 
@@ -569,7 +609,7 @@ def test_validate_unknown_measurement_emits_diagnostic() -> None:
     cond = Conditional()
     cond.arms.append((Comparison("==", MeasurementRef(fake, "state"), Constant(0)), Block()))
     p.body.append(cond)
-    diags = validate(p, _full_caps())
+    diags = _validate(p, _full_caps())
     assert any(d.code == "unknown-measurement" for d in diags)
 
 

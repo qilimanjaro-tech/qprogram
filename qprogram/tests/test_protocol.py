@@ -1,6 +1,7 @@
 """Tests for the capability-protocol type layer.
 
-Covers :class:`Diagnostic`, :class:`Profile`, :class:`CompilerCapabilities`,
+Covers :class:`Diagnostic`, :class:`DomainConstraint`, :class:`Profile`,
+:class:`CompilerCapabilities`, :class:`BusCapabilities`, :class:`PlatformCapabilities`,
 the global :data:`PROFILE_REGISTRY` (register/resolve/cycle detection), the
 capability-token registry, and the waveform-class → token mapping.
 
@@ -15,10 +16,14 @@ import dataclasses
 
 import pytest
 
+from qprogram.buses import BusSchema
 from qprogram.protocol import (
     CAPABILITY_REGISTRY,
+    BusCapabilities,
     CompilerCapabilities,
     Diagnostic,
+    DomainConstraint,
+    PlatformCapabilities,
     Profile,
     expression_tokens,
     register_capability_tokens,
@@ -285,3 +290,102 @@ def test_compiler_capabilities_supports() -> None:
     )
     assert caps.supports("op.play") is True
     assert caps.supports("op.sync") is False
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic.severity widening + domain field
+# ---------------------------------------------------------------------------
+
+
+def test_diagnostic_accepts_info_severity() -> None:
+    d = Diagnostic(severity="info", code="forced-software", message="m", domain="sw")
+    assert d.severity == "info"
+    assert d.domain == "sw"
+
+
+# ---------------------------------------------------------------------------
+# DomainConstraint
+# ---------------------------------------------------------------------------
+
+
+def test_domain_constraint_is_frozen_dataclass() -> None:
+    dc = DomainConstraint(node=None, exclude=frozenset({"hw"}), reason="why")  # type: ignore[arg-type]
+    assert dataclasses.is_dataclass(dc)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        setattr(dc, "reason", "y")  # noqa: B010
+
+
+# ---------------------------------------------------------------------------
+# BusCapabilities
+# ---------------------------------------------------------------------------
+
+
+def _cc(name: str, *, tokens: frozenset[str] = frozenset()) -> CompilerCapabilities:
+    return CompilerCapabilities(
+        profile=name,
+        version=(1, 0, 0),
+        capabilities=tokens,
+        limits={},
+        predicates=(),
+        vendor_versions={},
+    )
+
+
+def test_bus_capabilities_get_and_supported_domains() -> None:
+    cc_hw = _cc("hw")
+    bc = BusCapabilities(hw=cc_hw, sw=None)
+    assert bc.get("hw") is cc_hw
+    assert bc.get("sw") is None
+    assert bc.supported_domains() == frozenset({"hw"})
+
+
+def test_bus_capabilities_empty_supported_domains_when_both_none() -> None:
+    bc = BusCapabilities(hw=None, sw=None)
+    assert bc.supported_domains() == frozenset()
+
+
+# ---------------------------------------------------------------------------
+# PlatformCapabilities.for_bus routing
+# ---------------------------------------------------------------------------
+
+
+def _default_caps() -> tuple[BusCapabilities, BusCapabilities, BusCapabilities]:
+    """Return three distinct BusCapabilities slots so identity tests are unambiguous."""
+    return (
+        BusCapabilities(hw=_cc("drive-hw"), sw=None),
+        BusCapabilities(hw=_cc("platform-hw"), sw=None),
+        BusCapabilities(hw=_cc("default-hw"), sw=None),
+    )
+
+
+def test_for_bus_routes_busref_to_per_element_slot() -> None:
+    drive_slot, platform_slot, default_slot = _default_caps()
+    caps = PlatformCapabilities(
+        bus={("q", "drive"): drive_slot},
+        platform=platform_slot,
+        default_bus_profile=default_slot,
+    )
+    schema = BusSchema.transmon()
+    assert caps.for_bus(schema.q[0].drive) is drive_slot
+
+
+def test_for_bus_falls_back_to_default_for_unmapped_busref() -> None:
+    drive_slot, platform_slot, default_slot = _default_caps()
+    caps = PlatformCapabilities(
+        bus={("q", "drive"): drive_slot},
+        platform=platform_slot,
+        default_bus_profile=default_slot,
+    )
+    schema = BusSchema.transmon()
+    # The (q, readout) BusRef has no entry in caps.bus.
+    assert caps.for_bus(schema.q[0].readout) is default_slot
+
+
+def test_for_bus_routes_raw_string_to_default() -> None:
+    drive_slot, platform_slot, default_slot = _default_caps()
+    caps = PlatformCapabilities(
+        bus={("q", "drive"): drive_slot},
+        platform=platform_slot,
+        default_bus_profile=default_slot,
+    )
+    assert caps.for_bus("anonymous_bus") is default_slot

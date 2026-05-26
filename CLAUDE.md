@@ -64,19 +64,32 @@ Anywhere a numeric parameter is accepted, an `Expression` is also accepted (`var
 
 `qprogram_qblox/__init__.py` does all three at import time. Importing the package is the activation step — `import qprogram_qblox` registers the namespace, version, and operations as side effects.
 
-### Capability protocol (`protocol.py`, `validation.py`)
+### Capability protocol (`protocol.py`, `profiles.py`, `validation.py`)
 
-Platforms declare which DSL features they support and validate programs against that declaration. The descriptor (`CompilerCapabilities`) has three orthogonal axes (Vulkan-style split, because flags/numbers/AST-shape-checks have different shapes of check):
+Platforms declare which DSL features they support per (bus, domain) slot, and validate programs against that declaration. The top-level descriptor is `PlatformCapabilities`:
 
-1. **Capabilities** — flat set of dotted string tokens. Every `Operation`/`Block` subclass implements an *instance-aware* `required_capabilities() -> set[str]` that returns its identity token plus refinement tokens computed from instance state. A `Play(IQDrag(...))` returns `{op.play, waveform.iq, waveform.iq_drag}`; a `Play(Square(...))` returns `{op.play, waveform.single, waveform.square}`. **Per-node methods are non-recursive** — the validator walks the AST via `body.walk()` and unions per-node sets; recursing inside `required_capabilities()` would double-count. Token namespace: `op.*`, `block.*`, `waveform.*`, `sweep.*`, `expr.*`, `expr.math.*`, `measure.returns.*`, `vendor.<name>.*`.
+```
+PlatformCapabilities
+├── bus: Mapping[(element_kind, bus_kind), BusCapabilities]   # per-bus profiles
+├── platform: BusCapabilities                                  # block.*, expr.*, bus-less op.*
+└── default_bus_profile: BusCapabilities                       # raw-string-bus fallback
+```
 
-2. **Limits** — numeric thresholds (`max_loop_nesting`, `max_parallel_loops`, `max_measurements`, `min_wait_duration_ns`). Each `Profile` declares defaults; a live device tightens via `CompilerCapabilities.from_profile(name, limit_overrides={...})`. Unknown keys are silently ignored — profiles can declare future limits the validator doesn't yet enforce.
+`BusCapabilities(hw, sw)` is the two-domain split — real-time hardware vs software-dispatched orchestration. Either half may be `None`. Each non-None half is a `CompilerCapabilities` with the same three orthogonal axes as before (capabilities, limits, predicates).
 
-3. **Predicates** — callables `(node, ValidationContext) -> Iterable[Diagnostic]`. The escape hatch for data-flow checks ("Wait.duration supports linear sweeps but not arbitrary ones"). `ValidationContext` is built once per `validate()` call by a pre-walk and exposes cross-op queries (`sweep_kind_of(var)`, `binding_loop_of(var)`, `max_loop_nesting`, ...). Predicates run on every visited node and may emit zero or more `Diagnostic` objects.
+**Routing.** Each AST node is checked against the slot it logically belongs to: bus-touching ops route via `caps.for_bus(node.bus)` (BusRef → `(element, kind)` lookup, else `default_bus_profile`; raw string → `default_bus_profile`); bus-less ops and all blocks route to `caps.platform`; multi-bus ops (`Sync`) intersect across every touched bus. Within the routed slot, `expr.*` tokens always check against `caps.platform` regardless of where the op itself routes (they describe Python AST node kinds, not bus features). Token namespace (and where each lives): `op.*` (bus or platform depending on whether the op touches a bus), `block.*` (platform), `sweep.*` (platform — emitted by loop blocks), `waveform.*` (bus), `expr.*` (always checked against platform), `measure.returns.*` (bus — emitted by `Measure`), `vendor.<name>.<op>` (bus or platform).
 
-Vendors register **profile bundles** via `register_profile(Profile(name=..., capabilities=..., limits=..., predicates=..., extends=...))` as a side effect of importing the vendor package — same activation pattern as the existing three-step registration. Profiles can extend others by name; capabilities and predicates accumulate, limits inherit then override. Token registry validation runs at `Profile` construction time, so a typo in a vendor package's token list is an error at import, not at validate-time.
+**HW / SW classification.** Required tokens are domain-agnostic — the same set is checked against both halves of the routed slot. Domain-specific behavior comes from predicates:
+- `Diagnostic` outputs → hard error in the slot's domain (surfaces only when no domain works).
+- `DomainConstraint(node, exclude, reason)` outputs → soft restriction (silently narrows the support set).
 
-`PlatformProtocol` exposes `.capabilities: CompilerCapabilities` and `.validate(qp) -> list[Diagnostic]`. The validator is the single source of truth (same object users introspect, validator consumes). It does not raise — callers (typically `execute()`) decide how to react to non-empty diagnostic lists; the convention is to raise `UnsupportedOperationError`.
+The validator runs a two-pass walk: per-node check, then bottom-up classification where each block's `support` is the intersection of children's. Outputs `(list[Diagnostic], ExecutionPlan)`. `ExecutionPlan = Mapping[Node, frozenset[Domain]]`. When a block's support shrinks from `{hw, sw}` to `{sw}`, one `severity="info"` `"forced-software"` diagnostic surfaces on the highest such block (its parent isn't forced sw). Empty support → `"empty-domain"` (or the contributing predicate `Diagnostic`s, if any).
+
+**Per-node methods are non-recursive** — the validator walks via `body.walk()` and unions per-node sets; recursing inside `required_capabilities()` would double-count.
+
+Vendors register **profile bundles** via `register_profile(Profile(name=..., capabilities=..., limits=..., predicates=..., extends=...))` as a side effect of importing the vendor package. Profiles are domain-agnostic; a platform decides which profile fills each (bus, domain) slot. Core qprogram ships `qprogram-base-v1` in `qprogram/profiles.py` (registered on `import qprogram`) — the canonical platform-level base of block/sweep/expression/bus-less-op tokens. Vendor platforms typically use it for the platform slot via `extends="qprogram-base-v1"` or `from_profile("qprogram-base-v1", ...)`.
+
+`PlatformProtocol` exposes `.capabilities: PlatformCapabilities`, `.validate(qp) -> list[Diagnostic]`, and `.plan(qp) -> ExecutionPlan` — both default to delegating into `qprogram.validation.validate`. The validator does not raise — callers (typically `execute()`) decide how to react; the convention is to raise `UnsupportedOperationError` on any `severity="error"` diagnostic and pass `severity="info"` through as advisory.
 
 Design lineage: MLIR's SPIR-V dialect (distributed declaration + centralized check + per-op interface methods), MLIR's `addDynamicallyLegalOp` (operand-sensitive predicates), QIR profiles (named, hierarchical bundles), Vulkan (features/limits/extensions split).
 
@@ -113,8 +126,9 @@ Key behaviors:
 
 ### What lives where (when adding things)
 
-- New core operation: `qprogram/src/qprogram/operations/<name>.py` (subclass `Operation`), export from `operations/__init__.py`, add a method on `QProgram`, add a serializer branch in `_serialize_operation` (writer.py) and parser branch in `_parse_operation` (parser.py), implement `required_capabilities()` returning the op's identity token (`op.<name>`) plus any refinement tokens, register the token in `protocol.py:_BASE_TOKENS`, add it to vendor profiles that support it.
-- New waveform: subclass `Waveform`/`IQWaveform`, add to `_register_builtins()` in `serialization/registry.py`, export from `waveforms/__init__.py`, register a class→token mapping in `protocol.py:_register_builtin_waveform_tokens()` (or via `register_waveform_token()` from a vendor package). Serializer auto-emits constructor args by walking `vars(wf)`; parser uses the registry by class name.
+- New core operation: `qprogram/src/qprogram/operations/<name>.py` (subclass `Operation`), export from `operations/__init__.py`, add a method on `QProgram`, add a serializer branch in `_serialize_operation` (writer.py) and parser branch in `_parse_operation` (parser.py), implement `required_capabilities()` returning the op's identity token (`op.<name>`) plus any refinement tokens, register the token in `protocol.py:_BASE_TOKENS`. Add the token to whichever profile is the right home: bus-touching ops to vendor bus profiles; bus-less ops to `qprogram-base-v1` (`qprogram/profiles.py`).
+- New waveform: subclass `Waveform`/`IQWaveform`, add to `_register_builtins()` in `serialization/registry.py`, export from `waveforms/__init__.py`, register a class→token mapping in `protocol.py:_register_builtin_waveform_tokens()` (or via `register_waveform_token()` from a vendor package). Serializer auto-emits constructor args by walking `vars(wf)`; parser uses the registry by class name. Waveform tokens always live on the bus profile (waveforms reach the hardware via a bus).
 - New vendor operation: subclass `Operation` in the vendor package, add a typed method to its `VendorNamespace` subclass, call `register_vendor_operation(vendor, name, cls)` in the vendor package's `__init__.py`, implement `required_capabilities()` returning `{vendor.<name>.<op>}` plus refinement tokens, register the token via `register_capability_tokens(...)` in the vendor's `profiles.py`, include it in the vendor profile's capability set. No core changes needed.
 - New vendor (whole namespace): create a separate package depending on `qprogram`, follow `qprogram-qblox` as the template (mirror its `__init__.py` four-step registration: vendor namespace, vendor version, operations, profile).
-- New profile bundle: create a `Profile` in the vendor package's `profiles.py`, register via `register_profile()` from `qprogram-<vendor>/__init__.py`. Use `extends=` to inherit from a parent profile.
+- New profile bundle: create a `Profile` in the vendor package's `profiles.py`, register via `register_profile()` from `qprogram-<vendor>/__init__.py`. Use `extends=` to inherit from a parent profile (e.g. `extends="qprogram-base-v1"` for a platform-level slot).
+- New domain-constraint predicate: write a callable returning `Iterable[Diagnostic | DomainConstraint]`. Yield `DomainConstraint(node, exclude={"hw"}, reason="...")` for soft restrictions ("hw can't, but sw dispatch works") — the classifier will lift the enclosing block to sw. Yield `Diagnostic` for hard errors (no domain can run it).

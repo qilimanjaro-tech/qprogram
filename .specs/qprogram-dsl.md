@@ -1005,7 +1005,7 @@ The QProgram language makes **no distinction** between hardware and software loo
 - Blocks containing only pulse/timing operations **may** be compiled to hardware loops
 - Blocks containing `set_parameter`, `get_parameter`, or `set_crosstalk` **require** software orchestration
 - The same `for_loop` may run in hardware on one platform and in software on another.
-This is intentional. Users describe *what* they want; the compiler decides *how*.
+This is intentional. Users describe *what* they want; the compiler decides *how*. The mechanism is the classifier in §9.7 — each platform declares per-bus hw/sw capabilities, and the validator returns an `ExecutionPlan` mapping each block to the domain(s) it can run in.
 ---
 # 7. CrosstalkMatrix (?)
 A `CrosstalkMatrix` models flux crosstalk between buses. It can be applied at runtime via `set_crosstalk()`.
@@ -1104,8 +1104,8 @@ result.get(bus="readout_q0", measurement=0)     # first measurement on readout_q
 The QProgram library defines a `PlatformProtocol` — a common interface that any execution backend must implement. It has three duties:
 
 - **Resource discovery** — what buses and parameters this hardware exposes.
-- **Capability declaration** — which features of the QProgram DSL this backend supports.
-- **Execution** — compile + run a QProgram, return a `QProgramResult`.
+- **Capability declaration** — which features of the QProgram DSL this backend supports, **per bus and per execution domain** (hw / sw).
+- **Execution** — validate, classify, compile, and run a QProgram; return a `QProgramResult`.
 
 ```python
 class PlatformProtocol(ABC):
@@ -1115,10 +1115,11 @@ class PlatformProtocol(ABC):
     def get_parameters(self, bus: str) -> list[str]: ...
     def get_global_parameters(self) -> list[str]: ...
 
-    # Capability declaration + validation
+    # Capability declaration + validation + classification
     @property
-    def capabilities(self) -> CompilerCapabilities: ...
+    def capabilities(self) -> PlatformCapabilities: ...
     def validate(self, qprogram: QProgram) -> list[Diagnostic]: ...
+    def plan(self, qprogram: QProgram) -> ExecutionPlan: ...
 
     # Execution
     def execute(self, qprogram: QProgram, **kwargs) -> QProgramResult: ...
@@ -1128,10 +1129,39 @@ class PlatformProtocol(ABC):
 Users can query the platform to inspect available resources before writing a program. Parameters are strings — each platform defines its own (replacing the old `Parameter` enum).
 
 ## 9.2 Execution
-The platform compiles and executes a QProgram, returning a `QProgramResult`. Internally it is responsible for analyzing the block tree, deciding hardware vs software execution, allocating hardware resources, resolving calibrated references, and reporting errors for unsupported operations.
+The platform compiles and executes a QProgram, returning a `QProgramResult`. Internally it (a) validates the program against its `PlatformCapabilities`, (b) classifies each block/operation as hardware- or software-executed (see §9.7), (c) allocates hardware resources for hw-classified blocks and emits a software dispatch loop for sw-classified blocks, (d) resolves calibrated references, and (e) reports errors via the diagnostic list. Users may call `plan()` to inspect the classifier's output before executing.
 
-## 9.3 Capability descriptor
-A platform declares the DSL features it supports through a structured `CompilerCapabilities` descriptor with **three orthogonal axes** (the same separation Vulkan uses for features, limits, and extensions — flags, numbers, and AST-shape checks have different shapes of check):
+## 9.3 Capability descriptors: per-bus and platform-wide
+A platform's capability surface has two grains: **per-bus** and **platform-wide**. The per-bus grain captures the fact that a logical bus is wired to a concrete instrument with its own feature set — drive and readout buses may live on a real-time waveform generator (qblox) while a flux bus may live on a slow DAC (qdac). The platform-wide grain captures features that don't belong to any single bus: control-flow blocks, expression node kinds, and bus-less operations like `set_parameter`.
+
+Both grains are further split into a **hw** and **sw** half via `BusCapabilities(hw, sw)`. The classifier (§9.7) decides which half of which bus is in play for each node; either half may be `None` when the bus (or the platform itself) doesn't physically support that domain.
+
+```python
+Domain = Literal["hw", "sw"]
+BusSelector = tuple[str, str]                       # (element_kind, bus_kind), e.g. ("q", "drive")
+
+@dataclass(frozen=True)
+class BusCapabilities:
+    hw: CompilerCapabilities | None
+    sw: CompilerCapabilities | None
+
+@dataclass(frozen=True)
+class PlatformCapabilities:
+    bus: Mapping[BusSelector, BusCapabilities]      # by-(element, kind)
+    platform: BusCapabilities                       # block.*, expr.*, bus-less op.*
+    default_bus_profile: BusCapabilities            # for plain-string buses lacking schema metadata
+
+    def for_bus(self, bus: str | BusRef) -> BusCapabilities: ...
+```
+
+The validator's routing rules:
+
+- An op that touches a `BusRef` routes its required-tokens to `caps.bus[(bus.element, bus.kind)]`, falling back to `caps.default_bus_profile` when no entry exists.
+- An op that touches a raw-string bus routes to `caps.default_bus_profile`.
+- An op with no bus (block-structure, `set_parameter`, `set_crosstalk`, `get_parameter`) routes to `caps.platform`.
+- Multi-bus ops (`Sync(targets=[...])`) intersect across every touched bus's capability set.
+
+Each `CompilerCapabilities` slot retains the three-axis structure unchanged (the same separation Vulkan uses for features, limits, and extensions — flags, numbers, and AST-shape checks have different shapes of check):
 
 ```python
 @dataclass(frozen=True)
@@ -1144,22 +1174,23 @@ class CompilerCapabilities:
     vendor_versions: Mapping[str, tuple[int, int, int]]
 ```
 
-**Capability tokens** are dotted strings naming a feature. The canonical namespace:
+**Capability tokens** stay flat dotted strings. The split between bus and platform lives in *where the token is declared*, not in the token text:
 
-- `op.<name>` — operation presence (`op.play`, `op.measure`, `op.set_frequency`, …).
-- `block.<name>` — control flow (`block.for_loop`, `block.loop`, `block.average`, `block.parallel`, `block.block`).
-- `waveform.<kind>` — channel kind (`waveform.single`, `waveform.iq`, `waveform.alias`) or per-class (`waveform.square`, `waveform.iq_drag`, …).
-- `sweep.<shape>` — loop sweep shape (`sweep.linear` for a `for_loop`, `sweep.arbitrary` for a numpy-driven `loop`).
-- `expr.<kind>` — expression node presence at parameter sites (`expr.constant`, `expr.variable`, `expr.binary_op`, `expr.math.sin`, …).
-- `measure.returns.<token>` — accepted measurement return-tokens (`measure.returns.iq`, `measure.returns.raw`, …).
-- `vendor.<name>.<op>` — vendor-namespace operations (`vendor.qblox.acquire`, …). Vendors extend the core token registry via `register_capability_tokens`.
+- `op.<name>` for bus-touching ops (`op.play`, `op.measure`, `op.wait`, `op.sync`, `op.set_frequency`, `op.set_phase`, `op.set_gain`, `op.reset_phase`, `op.set_offset`) — **bus** profile.
+- `op.<name>` for bus-less ops (`op.set_parameter`, `op.get_parameter`, `op.set_crosstalk`) — **platform** profile.
+- `block.<name>` (`block.for_loop`, `block.loop`, `block.parallel`, `block.average`, `block.conditional`, `block.block`) — **platform** profile.
+- `waveform.<kind>` (`waveform.single`, `waveform.iq`, `waveform.alias`) and `waveform.<class>` (`waveform.square`, `waveform.iq_drag`, …) — **bus** profile.
+- `sweep.<shape>` (`sweep.linear`, `sweep.arbitrary`) — **platform** profile, since loop blocks (`ForLoop`, `Loop`) declare these in their own ``required_capabilities`` alongside the `block.*` token, and blocks route to the platform slot.
+- `expr.<kind>` (`expr.constant`, `expr.variable`, `expr.binary_op`, `expr.math.sin`, …) — **platform** profile.
+- `measure.returns.<token>` (`measure.returns.iq`, `measure.returns.raw`, `measure.returns.state`) — **bus** profile (Measure is bus-touching and its return-type tokens travel with it to the bus side).
+- `vendor.<name>.<op>` — **bus** profile for bus-touching vendor ops, **platform** profile otherwise. Vendors extend the core token registry via `register_capability_tokens`.
 
-**Limits** are numeric thresholds the validator checks against whole-program measurements: `max_loop_nesting`, `max_parallel_loops`, `max_measurements`, `min_wait_duration_ns`, etc. Each `Profile` declares defaults; a live device can pass `limit_overrides` to `CompilerCapabilities.from_profile()` to tighten any value for its specific hardware.
+**Limits** are numeric thresholds the validator checks against whole-program measurements: `max_loop_nesting`, `max_parallel_loops`, `max_measurements`, `min_wait_duration_ns`, etc. Each `CompilerCapabilities` slot declares its own; a live device can pass `limit_overrides` per-slot to `CompilerCapabilities.from_profile()` to tighten any value for its specific hardware.
 
-**Predicates** are the escape hatch for data-flow / context-sensitive checks that flat tokens can't express ("supports X but only when Y"). See §9.5.
+**Predicates** are the escape hatch for data-flow / context-sensitive checks that flat tokens can't express ("supports X but only when Y", or "runs on hw but only when Y"). See §9.5.
 
 ## 9.4 Distributed declaration: `required_capabilities`
-Every `Operation` and `Block` subclass declares the capability tokens it needs, **instance-aware**, via a `required_capabilities()` method:
+Every `Operation` and `Block` subclass declares the capability tokens it needs, **instance-aware** and **domain-agnostic**, via a `required_capabilities()` method. The same token set is checked against both the hw and sw slots of the routed profile; domain-specific differences are expressed by predicates emitting `DomainConstraint` (§9.5), not by the per-node declaration.
 
 ```python
 class Play(Operation):
@@ -1177,8 +1208,41 @@ A `Play(IQDrag(...))` returns `{op.play, waveform.iq, waveform.iq_drag}`; a `Pla
 
 The validator walks the AST via `body.walk()` and unions per-node sets. Per-node methods are **non-recursive** — children's tokens are picked up when the walker visits them, not by recursing inside `required_capabilities()`. This pattern mirrors MLIR's SPIR-V dialect availability interfaces (requirements declared next to the op, centralized check by a single validator).
 
-## 9.5 Predicates and the validation context
-Some requirements are not properties of one node in isolation but of how an AST node interacts with another — most notably variable bindings flowing through control flow. Example: Qblox supports `Wait.duration` as a variable, but only if that variable is bound by a linear `for_loop`, not by an arbitrary-array `loop`. Predicates handle this:
+## 9.5 Predicates, the validation context, and DomainConstraints
+A predicate is a callable that runs on every visited AST node and yields zero or more outputs of two kinds:
+
+```python
+class Predicate(Protocol):
+    def __call__(
+        self,
+        node: Operation | Block,
+        ctx: ValidationContext,
+    ) -> Iterable[Diagnostic | DomainConstraint]: ...
+
+@dataclass(frozen=True)
+class DomainConstraint:
+    node: Operation | Block
+    exclude: frozenset[Domain]
+    reason: str
+```
+
+`Diagnostic` is a hard outcome (the node is unsupported in the slot being validated). `DomainConstraint` is a soft outcome: the node *would* be supported, except in the listed domains. The classifier (§9.7) collects `DomainConstraint`s and intersects them with the node's domain set; an empty result becomes one error diagnostic, a `{hw,sw} → {sw}` reduction at a block becomes one info diagnostic.
+
+Example — the canonical Qblox IQDrag-sigma case, expressed as a domain constraint (this combination *can* run, but only via software dispatch):
+
+```python
+def _drag_sigma_in_loop_is_software_only(node, ctx):
+    if not isinstance(node, Play) or not isinstance(node.waveform, IQDrag):
+        return
+    if isinstance(node.waveform.sigma, Variable):
+        yield DomainConstraint(
+            node=node,
+            exclude=frozenset({"hw"}),
+            reason="IQDrag.sigma swept by ForLoop is not real-time on qblox-drive",
+        )
+```
+
+A `Wait.duration` swept by an arbitrary `loop` stays a `Diagnostic` because qblox cannot run it at all — neither in hw nor as a software dispatch loop:
 
 ```python
 def _reject_arbitrary_sweep_at_wait_duration(node, ctx):
@@ -1197,44 +1261,73 @@ The validator builds a `ValidationContext` once per call by pre-walking the AST.
 
 - `sweep_kind_of(var) -> "linear" | "arbitrary" | "averaged" | None`
 - `binding_loop_of(var) -> Block | None`
-- `max_loop_nesting`, `max_parallel_arity`, `measurement_count` (also drive the limit checks).
+- `max_loop_nesting`, `max_parallel_arity`, `measurement_count` (also drive the limit checks)
+- `measurement_returns(name) -> tuple[str, ...] | None`
 
-Predicates run on every visited node, see the same context, and emit zero or more `Diagnostic` objects.
+Predicates run on every visited node, see the same context, and emit zero or more `Diagnostic | DomainConstraint` objects.
 
-## 9.6 Profile bundles
-A `Profile` is a named, versioned bundle of (capabilities, limits, predicates, vendor_versions). Vendors register one or more via `register_profile()` as a side effect of importing the vendor package. Profiles can extend other profiles by name — capabilities and predicates accumulate (parent → child), limits inherit and may be overridden (child wins). This mirrors QIR's named-profile design and its experience that hierarchical extension is the only composition mode that doesn't fragment immediately; ad-hoc intersection of arbitrary bundles is out of scope.
+## 9.6 Profile bundles and `qprogram-base-v1`
+A `Profile` is a named, versioned bundle of (capabilities, limits, predicates, vendor_versions). Profiles are **domain-agnostic** — a platform decides which profile fills each (bus, domain) slot. The same `qblox-default-v1` profile may sit at both `bus[("q","drive")].hw` and `bus[("q","readout")].hw` on the same platform; identical tokens, predicates, and limits, optionally tightened per-slot via `limit_overrides`.
+
+Core qprogram ships **`qprogram-base-v1`** — a platform-level base bundle declaring everything the DSL has that doesn't touch a bus: every `block.*` token, every `expr.*` and `expr.math.*` token, every `measure.returns.*` token, and the bus-less `op.set_parameter` / `op.get_parameter` / `op.set_crosstalk`. Vendor platforms typically set their platform-level slot via `extends="qprogram-base-v1"` and add only what's different.
 
 ```python
 QBLOX_DEFAULT_V1 = Profile(
     name="qblox-default-v1",
     version=(0, 1, 0),
     extends=None,
-    capabilities=frozenset({"op.play", "op.measure", ..., "vendor.qblox.acquire", ...}),
-    limits={"max_loop_nesting": 8, "min_wait_duration_ns": 4, ...},
-    predicates=(_reject_arbitrary_sweep_at_wait_duration,),
+    capabilities=frozenset({
+        "op.play", "op.measure", "op.wait", "op.sync",
+        "op.set_frequency", "op.set_phase", "op.set_gain",
+        "op.reset_phase", "op.set_offset",
+        "waveform.iq", "waveform.single", "waveform.alias",
+        "waveform.square", "waveform.iq_drag", ...,
+        "sweep.linear", "sweep.arbitrary",
+        "vendor.qblox.acquire", ...,
+    }),
+    limits={"min_wait_duration_ns": 4, ...},
+    predicates=(_reject_arbitrary_sweep_at_wait_duration, _drag_sigma_in_loop_is_software_only),
     vendor_versions={"qblox": (0, 1, 0)},
 )
 ```
 
-Profile names are arbitrary strings; the convention is `<vendor>-<tier>-v<major>` (e.g. `qblox-default-v1`, future `qblox-adaptive-v1`). A `.qp` file's `require qblox 0.1` line continues to gate vendor-version compatibility — profiles are platform-side metadata and do **not** appear in `.qp` headers today.
+Vendors register one or more profiles via `register_profile()` as a side effect of importing the vendor package. Profile names follow the `<vendor>-<tier>-v<major>` convention (e.g. `qblox-default-v1`, future `qblox-adaptive-v1`). A `.qp` file's `require qblox 0.1` line continues to gate vendor-version compatibility — profiles are platform-side metadata and do **not** appear in `.qp` headers today.
 
-## 9.7 Validation
-`PlatformProtocol.validate(qprogram)` returns a list of `Diagnostic` objects (empty if the program is compatible):
+Profiles compose only by **single-parent extension**. `child.extends="parent-name"` unions capabilities and predicates parent → child, and lets child limits override parent limits. There is no `removes=` field today; a vendor with exotic constraints builds a profile from scratch instead of subtracting from a parent. This mirrors QIR's named-profile design and its experience that hierarchical extension is the only composition mode that doesn't fragment immediately; ad-hoc intersection of arbitrary bundles is out of scope.
+
+## 9.7 Validation and execution-domain classification
+`PlatformProtocol.validate(qprogram)` runs a two-pass check and returns a flat list of `Diagnostic` objects (empty if the program is compatible with no perf surprises). `PlatformProtocol.plan(qprogram)` runs the same passes and returns an `ExecutionPlan` mapping each block/operation to the domain it will execute in.
 
 ```python
 @dataclass(frozen=True)
 class Diagnostic:
-    severity: Literal["error"]
-    code: str                                       # e.g. "missing-capability", "limit-exceeded"
+    severity: Literal["error", "info"]
+    code: str                                       # "missing-capability", "limit-exceeded",
+                                                    # "empty-domain", "forced-software", ...
     message: str
     node: Operation | Block | None
     capability: str | None = None
     limit: tuple[str, float] | None = None
+    domain: Domain | None = None                    # set on "forced-software" info diagnostics
+
+ExecutionPlan = Mapping[Operation | Block, frozenset[Domain]]
 ```
 
-The validator walks the AST once: for each node it (a) checks `required_capabilities() ⊆ caps.capabilities` and emits `missing-capability` for any missing token, (b) runs every registered predicate with the shared `ValidationContext`, and (c) after the walk, checks numeric limits against aggregate measurements (max nesting, parallel arity, total measurements, min wait duration). The validator does not raise — it returns the list, leaving the decision to the caller. A typical `execute()` implementation calls `validate()` first and raises `UnsupportedOperationError` if any diagnostic is present.
+**Pass 1 — per-node check.** Walk the AST in pre-order. For each node:
 
-`severity` is currently always `"error"`; `"warning"` is reserved for a future limit-violation-with-software-fallback story.
+1. Route the node's `required_capabilities()` via `caps.for_bus(node.bus)` for bus-touching ops, `caps.platform` for others. `Sync` and other multi-bus ops intersect over every touched bus.
+2. Compute the per-domain support set: `{d ∈ {hw, sw} : required ⊆ d.capabilities, no predicate emits a Diagnostic for d}`. A `None` slot contributes the empty set.
+3. Run predicates against each non-`None` slot. `Diagnostic` outputs disqualify the slot's domain (and contribute to the diagnostic list); `DomainConstraint(exclude=…)` outputs subtract their listed domains from the support set without producing a diagnostic.
+4. Whole-program limit checks (max nesting, max parallel arity, max measurements, min wait duration) fire after the walk against the relevant slot's limits.
+
+**Pass 2 — domain classification.** Walk the AST in post-order. Each block's domain is the **intersection** of its children's domains. Then:
+
+- If a node's domain set is empty, emit one `severity="error"` diagnostic with code `"empty-domain"` listing the contributing exclusions; the offending node is the lowest one whose domain went empty.
+- If a block's domain was reduced from `{hw, sw}` to `{sw}`, emit one `severity="info"` diagnostic with code `"forced-software"` attached to the **highest** such block. Ancestors that are software-only purely because of this block are not separately reported — the highest-block rule keeps the output skimmable, with the reason text pointing down to the originating constraint.
+
+Validation never raises. The convention remains: `execute()` calls `validate()` first and raises `UnsupportedOperationError` if any `severity="error"` diagnostic appears; `severity="info"` diagnostics are passed through as advisory output.
+
+The classifier output (the `ExecutionPlan`) is the platform's hand-off to the compiler. A `for_loop` classified `{hw}` becomes a real-time hardware loop; a `for_loop` classified `{sw}` is dispatched one iteration per shot by the lab server. The user writes the same program either way (§6.3: the DSL makes no distinction); the platform decides "how", and the user can see "how" by reading the plan.
 
 ---
 # 10. File Format (`.qp`)
@@ -1314,5 +1407,5 @@ print(I_values)
 - [x] **Active reset**: **Resolved** — `active_reset` is a `qblox.*` vendor extension (complex orchestration), not a core operation.
 - [x] **`set_offset`**** dual path**: **Resolved** — core `set_offset` keeps a generic signature; Qblox-specific dual-path behavior is handled by the compiler.
 - [x] **Variable arithmetic**: **Resolved** — expressions support `+`, `-`, `*`, `/`, and unary `-` via the `Expression` AST (Section 3).
-- [x] **Error model**: **Resolved** — a structured `validate()` pass runs before compilation and returns a list of `Diagnostic` objects (Section 9). Platforms decide whether to raise on diagnostics; the typical `execute()` does. `severity` is `"error"` today; `"warning"` is reserved for a future software-fallback story.
+- [x] **Error model**: **Resolved** — a structured `validate()` pass runs before compilation and returns a list of `Diagnostic` objects (Section 9). Platforms decide whether to raise on diagnostics; the typical `execute()` raises on `severity="error"` and passes `severity="info"` through as advisory. The validator also emits a `plan()` mapping each block/operation to its execution domain (`{hw}`, `{sw}`, or both).
 - [x] **Conditional execution / mid-circuit branching**: **Resolved** (v1) — `program.if_(condition) / elif_(condition) / else_()` with sequential `with` blocks. Conditions are restricted to `Comparison` with at least one `MeasurementRef` operand and `int` literals or other `MeasurementRef`s on the remaining side(s); both operator (`handle.state == 0`, `m1.state == m2.state`) and helper (`qp.eq(handle.state, 0)`) ergonomics are supported. Richer boolean shapes (variable comparisons, logical combinations) are a follow-up. AST: flat `Conditional(arms=[(cond, body), ...], else_body)`. See Section 6.1.

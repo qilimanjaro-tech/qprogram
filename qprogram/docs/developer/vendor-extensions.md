@@ -205,14 +205,12 @@ FAKE_INST_DEFAULT_V1 = Profile(
     extends=None,
     capabilities=frozenset(
         {
-            # core ops the backend supports — name everything it can run
+            # bus-touching ops the backend can run (block.* / expr.* / sweep.* /
+            # bus-less op.* live on the platform-level slot — see notes below).
             "op.play", "op.measure", "op.wait", "op.sync",
             "op.set_frequency", "op.set_phase",
-            "block.block", "block.average", "block.for_loop", "block.loop",
             "waveform.single", "waveform.iq", "waveform.alias",
             "waveform.square", "waveform.gaussian", "waveform.iq_drag", "waveform.iq_pair",
-            "sweep.linear", "sweep.arbitrary",
-            "expr.constant", "expr.variable", "expr.binary_op", "expr.unary_op",
             "measure.returns.iq",
             # vendor ops
             "vendor.fake_inst.beep",
@@ -220,8 +218,7 @@ FAKE_INST_DEFAULT_V1 = Profile(
         }
     ),
     limits={
-        "max_loop_nesting": 4,
-        "min_wait_duration_ns": 4,
+        "min_wait_duration_ns": 4,    # per-Wait limits live on the bus slot
     },
     predicates=(_reject_zero_duration_beep,),
     vendor_versions={"fake_inst": (0, 1, 0)},
@@ -235,11 +232,17 @@ def _register() -> None:
 
 A few notes:
 
-- **List every capability the backend supports**, including core ones. The
-  profile is what defines "what this platform will accept" — leaving out a
-  core token means programs using it will fail validation against this
-  profile. The validator catches typos at profile-construction time, so
-  you can't accidentally claim support for a non-existent token.
+- **List the bus-side capabilities the backend supports.** Bus-touching ops (`op.play`,
+  `op.measure`, `op.wait`, ...), waveforms, and `measure.returns.*` all live on the bus profile
+  because the corresponding nodes route there. Block / expression / sweep tokens and the bus-less
+  ops (`op.set_parameter`, `op.get_parameter`, `op.set_crosstalk`) come from core
+  `qprogram-base-v1` — the platform-level slot of `PlatformCapabilities` (you'll wire this up
+  alongside the bus profile when building the platform descriptor below). Leaving out a
+  bus-touching token your backend can actually run means programs using it will fail validation
+  against this profile.
+- **Platform-level limits** like `max_loop_nesting`, `max_parallel_loops`, `max_measurements` live
+  on the platform slot, not on the bus profile. Apply them via `limit_overrides=` when
+  materialising the platform-level slot from `qprogram-base-v1`.
 - **Per-class waveform tokens** (`waveform.square`, `waveform.iq_drag`,
   ...) refine the channel-kind tokens. Include the per-class tokens for
   every waveform your compiler knows how to lower. Programs using a

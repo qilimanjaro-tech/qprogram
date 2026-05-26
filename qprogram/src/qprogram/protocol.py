@@ -1,7 +1,9 @@
 """Compiler capability protocol for QProgram.
 
 Platforms declare which DSL features they support along three orthogonal axes — capability tokens,
-numeric limits, and predicates — and the validator walks an AST once against the resulting descriptor.
+numeric limits, and predicates — split into a **per-bus** grain (drive, readout, flux, ...) and a
+**platform-wide** grain (control flow, expressions, bus-less ops). Each grain is further split into
+**hw** and **sw** halves so the validator can reason about real-time vs software-dispatched execution.
 See the architecture docs (``docs/developer/capability-protocol.md``) for the design rationale and the
 MLIR/Vulkan/QIR lineage.
 """
@@ -14,8 +16,18 @@ from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from qprogram.blocks.block import Block
+    from qprogram.buses import BusRef
     from qprogram.operations.operation import Operation
     from qprogram.variable import Variable
+
+
+Domain = Literal["hw", "sw"]
+"""Execution domain for an AST node — real-time hardware sequencer (``"hw"``) or software-dispatched
+orchestration on the lab server (``"sw"``)."""
+
+BusSelector = tuple[str, str]
+"""``(element_kind, bus_kind)`` key into :attr:`PlatformCapabilities.bus`. ``("q", "drive")`` selects
+every transmon drive bus on the platform."""
 
 
 # Canonical capability-token registry.
@@ -306,27 +318,52 @@ class Diagnostic:
     """One issue found by the validator.
 
     Attributes:
-        severity: Always ``"error"`` today. ``"warning"`` is reserved for a future fallback story
-            (e.g. limit violations a platform can spill to software-driven execution).
-        code: Short machine-readable identifier (``"missing-capability"``, ``"limit-exceeded"``, or
-            a vendor-prefixed code).
+        severity: ``"error"`` for hard failures (missing capability, exceeded limit, empty execution
+            domain); ``"info"`` for advisory output that callers should pass through (notably the
+            single ``forced-software`` notice attached to the highest block that lost ``"hw"`` from
+            its execution domain).
+        code: Short machine-readable identifier (``"missing-capability"``, ``"limit-exceeded"``,
+            ``"empty-domain"``, ``"forced-software"``, or a vendor-prefixed code).
         message: Human-readable explanation.
         node: The offending AST node when one is available. Capability-missing diagnostics always
             have one; whole-program checks (total-measurement-count, ...) do not.
         capability: The token that was missing, when applicable.
         limit: ``(name, observed_value)`` tuple when a numeric limit was exceeded. The threshold
             itself lives in :attr:`CompilerCapabilities.limits`.
+        domain: Populated on ``"forced-software"`` diagnostics with the domain the node ended up
+            running in (typically ``"sw"``).
     """
 
-    severity: Literal["error"]
+    severity: Literal["error", "info"]
     code: str
     message: str
     node: Operation | Block | None = None
     capability: str | None = None
     limit: tuple[str, float] | None = None
+    domain: Domain | None = None
 
     def __str__(self) -> str:
         return f"[{self.severity}] {self.code}: {self.message}"
+
+
+@dataclass(frozen=True)
+class DomainConstraint:
+    """A predicate's soft outcome: this node *would* be supported, except in the listed domains.
+
+    The classifier collects these and subtracts ``exclude`` from the node's per-domain support set.
+    Compare to :class:`Diagnostic`, which is a hard outcome (the node is unsupported outright in the
+    slot being validated). A predicate may yield zero or more of each type from a single call.
+
+    Attributes:
+        node: The AST node the constraint applies to.
+        exclude: Domains the node cannot run in. Usually a single-element frozenset (``{"hw"}``).
+        reason: Human-readable explanation surfaced in the eventual ``forced-software`` info
+            diagnostic or in the ``empty-domain`` error if the exclusion leaves nothing.
+    """
+
+    node: Operation | Block
+    exclude: frozenset[Domain]
+    reason: str
 
 
 # ---------------------------------------------------------------------------
@@ -339,16 +376,20 @@ class Predicate(Protocol):
     """Per-node validation predicate — called once per visited AST node during ``validate()``.
 
     Receives a :class:`ValidationContext` with cross-op data-flow facts. Returns zero or more
-    :class:`Diagnostic` objects. Motivating example: flagging a :class:`Wait` whose ``duration`` is
-    bound by an arbitrary-sweep :class:`Loop` — a fact a per-node ``required_capabilities`` call
-    can't see in isolation.
+    :class:`Diagnostic` or :class:`DomainConstraint` objects. Motivating examples:
+
+    - Flagging a :class:`Wait` whose ``duration`` is bound by an arbitrary-sweep :class:`Loop` —
+      qblox can't run it at all, so the predicate emits a :class:`Diagnostic`.
+    - Flagging an :class:`IQDrag` whose ``sigma`` is loop-bound — qblox can't realtime-update
+      ``sigma``, but the platform can still dispatch one shot per iteration in software, so the
+      predicate emits a :class:`DomainConstraint` excluding ``"hw"``.
     """
 
     def __call__(
         self,
         node: Operation | Block,
         ctx: ValidationContext,
-    ) -> Iterable[Diagnostic]: ...
+    ) -> Iterable[Diagnostic | DomainConstraint]: ...
 
 
 SweepKind = Literal["linear", "arbitrary", "averaged"]
@@ -533,6 +574,79 @@ class CompilerCapabilities:
 
 
 # ---------------------------------------------------------------------------
+# BusCapabilities + PlatformCapabilities
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BusCapabilities:
+    """Two stacked :class:`CompilerCapabilities` for a single bus or platform slot.
+
+    Each half describes what the slot supports in that execution domain. Either may be ``None``
+    when the bus or platform lacks an engine for that domain — e.g. a flux bus driven only by a
+    slow DAC has ``hw=None``; a real-time-only bus has ``sw=None``.
+    """
+
+    hw: CompilerCapabilities | None
+    sw: CompilerCapabilities | None
+
+    def get(self, domain: Domain) -> CompilerCapabilities | None:
+        """Return the :class:`CompilerCapabilities` for ``domain``, or ``None`` if unsupported."""
+        return self.hw if domain == "hw" else self.sw
+
+    def supported_domains(self) -> frozenset[Domain]:
+        """Return the set of domains this slot has a non-``None`` descriptor for."""
+        out: set[Domain] = set()
+        if self.hw is not None:
+            out.add("hw")
+        if self.sw is not None:
+            out.add("sw")
+        return frozenset(out)
+
+
+@dataclass(frozen=True)
+class PlatformCapabilities:
+    """The capability descriptor returned by :attr:`PlatformProtocol.capabilities`.
+
+    Splits along two grains:
+
+    - :attr:`bus` — per-``(element_kind, bus_kind)`` :class:`BusCapabilities`. Bus-touching ops
+      (Play, Wait, Measure, ...) route here via :meth:`for_bus`.
+    - :attr:`platform` — platform-wide :class:`BusCapabilities`. Holds block-structure tokens,
+      expression tokens, ``measure.returns.*``, and bus-less ops.
+    - :attr:`default_bus_profile` — fallback for raw-string buses lacking schema metadata, or for
+      bus-touching ops whose ``(element, kind)`` key is missing from :attr:`bus`.
+    """
+
+    bus: Mapping[BusSelector, BusCapabilities]
+    platform: BusCapabilities
+    default_bus_profile: BusCapabilities
+
+    def for_bus(self, bus: str | BusRef) -> BusCapabilities:
+        """Resolve the :class:`BusCapabilities` that applies to ``bus``.
+
+        A :class:`BusRef` carrying schema metadata routes to ``bus[(element, kind)]`` when present,
+        otherwise to :attr:`default_bus_profile`. A plain ``str`` or schema-less ``BusRef`` always
+        routes to :attr:`default_bus_profile`.
+        """
+        from qprogram.buses import BusRef as _BusRef  # noqa: PLC0415 — break the import cycle
+
+        if isinstance(bus, _BusRef) and bus.schema is not None:
+            key: BusSelector = (bus.element, bus.kind)
+            if key in self.bus:
+                return self.bus[key]
+        return self.default_bus_profile
+
+
+ExecutionPlan = Mapping["Operation | Block", frozenset[Domain]]
+"""Classifier output: each AST node mapped to the set of domains it may execute in.
+
+A ``frozenset({"hw"})`` entry means a real-time hardware path; ``frozenset({"sw"})`` means software
+dispatch; ``frozenset({"hw", "sw"})`` means the platform may pick either at compile time. Delivered
+by :meth:`PlatformProtocol.plan`."""
+
+
+# ---------------------------------------------------------------------------
 # Profile registry
 # ---------------------------------------------------------------------------
 
@@ -593,15 +707,24 @@ def _profile_chain(profile: Profile) -> list[Profile]:
 
 
 # Callable alias for users authoring predicates without pulling Protocol into scope.
-PredicateFn = Callable[["Operation | Block", "ValidationContext"], Iterable[Diagnostic]]
+PredicateFn = Callable[
+    ["Operation | Block", "ValidationContext"],
+    Iterable["Diagnostic | DomainConstraint"],
+]
 
 
 __all__ = [
     "CAPABILITY_REGISTRY",
     "PROFILE_REGISTRY",
     "WAVEFORM_TOKEN",
+    "BusCapabilities",
+    "BusSelector",
     "CompilerCapabilities",
     "Diagnostic",
+    "Domain",
+    "DomainConstraint",
+    "ExecutionPlan",
+    "PlatformCapabilities",
     "Predicate",
     "PredicateFn",
     "Profile",

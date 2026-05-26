@@ -15,9 +15,16 @@ from qprogram.errors import (
     WaveformResolutionError,
 )
 from qprogram.platform import PlatformProtocol
+from qprogram.profiles import QPROGRAM_BASE_V1
 from qprogram.protocol import (
+    BusCapabilities,
+    BusSelector,
     CompilerCapabilities,
     Diagnostic,
+    Domain,
+    DomainConstraint,
+    ExecutionPlan,
+    PlatformCapabilities,
     Predicate,
     PredicateFn,
     Profile,
@@ -63,19 +70,25 @@ from qprogram.variable import (
 from qprogram.vendor import VendorNamespace
 
 __all__ = [
+    "QPROGRAM_BASE_V1",
     "RESERVED_KEYWORDS",
     "UNASSIGNED",
     "BinaryOp",
+    "BusCapabilities",
     "BusNaming",
     "BusNotAvailableError",
     "BusRef",
     "BusSchema",
+    "BusSelector",
     "Comparison",
     "CompilationError",
     "CompilerCapabilities",
     "Constant",
     "CrosstalkMatrix",
     "Diagnostic",
+    "Domain",
+    "DomainConstraint",
+    "ExecutionPlan",
     "Expression",
     "HardwareError",
     "InvalidVariableIdError",
@@ -86,6 +99,7 @@ __all__ = [
     "MeasurementRef",
     "MeasurementResult",
     "ParseError",
+    "PlatformCapabilities",
     "PlatformProtocol",
     "Predicate",
     "PredicateFn",

@@ -18,9 +18,10 @@ qprogram/
 │   ├── errors.py               # exception hierarchy
 │   ├── _structural.py          # ast_eq / ast_hash helpers
 │   ├── vendor.py               # VendorNamespace base
-│   ├── platform.py             # PlatformProtocol + .capabilities + .validate
-│   ├── protocol.py             # CompilerCapabilities, Diagnostic, Profile, token registry
-│   ├── validation.py           # the validator
+│   ├── platform.py             # PlatformProtocol + .capabilities + .validate + .plan
+│   ├── protocol.py             # PlatformCapabilities, BusCapabilities, Domain, DomainConstraint, Diagnostic, Profile, token registry
+│   ├── profiles.py             # QPROGRAM_BASE_V1 (core platform-level profile)
+│   ├── validation.py           # the two-pass validator + classifier
 │   ├── result.py               # MeasurementHandle, QProgramResult
 │   ├── crosstalk_matrix.py
 │   ├── operations/
@@ -176,16 +177,17 @@ reverses the same lookup to find the class.
 
 ### 4. Capability protocol
 
-`qprogram.protocol` defines `CompilerCapabilities`, `Diagnostic`,
-`Profile`, `ValidationContext`, and registries for capability tokens and
-profiles. Every `Operation` and `Block` subclass implements
-`required_capabilities()` returning the dotted-string tokens it needs
-(instance-aware: refines based on the op's data). A vendor package
-registers tokens, a waveform-class dispatch table, and one or more
-`Profile` bundles at import time, alongside the existing three registration
-steps. `qprogram.validation.validate(qp, caps)` walks the AST once and
-emits diagnostics for missing tokens, exceeded limits, and predicate
-failures. Full details in [Capability protocol internals](capability-protocol.md).
+`qprogram.protocol` defines `PlatformCapabilities` (per-bus + platform-wide profiles),
+`BusCapabilities(hw, sw)` (the two-domain split), `CompilerCapabilities` (a single slot's
+contents), `Domain`, `DomainConstraint`, `Diagnostic`, `Profile`, `ValidationContext`, and
+registries for capability tokens and profiles. Every `Operation` and `Block` subclass implements
+`required_capabilities()` returning the dotted-string tokens it needs (instance-aware,
+domain-agnostic). Core qprogram ships `qprogram-base-v1` in `qprogram/profiles.py` — a
+platform-level base of block / sweep / expression / bus-less-op tokens that vendors extend. A
+vendor package registers tokens, a waveform-class dispatch table, and one or more `Profile`
+bundles at import time, alongside the existing registration steps. `qprogram.validation.validate(qp, caps)`
+walks the AST in a two-pass routine (per-node check + bottom-up domain classification) and
+returns `(diagnostics, plan)`. Full details in [Capability protocol internals](capability-protocol.md).
 
 ## The `.qp` writer
 

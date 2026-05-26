@@ -214,7 +214,15 @@ The data types and helpers that platforms use to declare which DSL features
 they support. See [Capabilities, diagnostics, and profiles](../guide/capabilities.md)
 for the narrative tour.
 
-### Descriptor and bundles
+### Descriptors and bundles
+
+::: qprogram.PlatformCapabilities
+    options:
+      show_root_full_path: false
+
+::: qprogram.BusCapabilities
+    options:
+      show_root_full_path: false
 
 ::: qprogram.CompilerCapabilities
     options:
@@ -228,6 +236,16 @@ for the narrative tour.
     options:
       show_root_full_path: false
 
+::: qprogram.DomainConstraint
+    options:
+      show_root_full_path: false
+
+::: qprogram.Domain
+
+::: qprogram.BusSelector
+
+::: qprogram.ExecutionPlan
+
 ::: qprogram.ValidationContext
     options:
       show_root_full_path: false
@@ -239,6 +257,8 @@ for the narrative tour.
       show_root_full_path: false
 
 ::: qprogram.PredicateFn
+
+::: qprogram.QPROGRAM_BASE_V1
 
 ### Validator
 

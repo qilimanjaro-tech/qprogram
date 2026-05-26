@@ -174,13 +174,16 @@ working for those specific cases. New code should prefer the
 ## `Diagnostic` is not an exception
 
 The validator surface lives next door, but it is **not** part of this
-hierarchy. `qp.validate(program, caps)` returns a `list[Diagnostic]`
-rather than raising — the list comes back, the caller decides what to do.
-A `Diagnostic` is a frozen dataclass with `severity`, `code`, `message`,
-`node`, `capability`, and `limit` fields. Platforms typically translate a
-non-empty list into one of the platform-side exceptions above
-(`UnsupportedOperationError` is the usual choice) so end users see one
-consistent error class regardless of which axis tripped.
+hierarchy. `qp.validate(program, caps)` returns a tuple
+`(list[Diagnostic], ExecutionPlan)` rather than raising — the list comes
+back, the caller decides what to do. A `Diagnostic` is a frozen dataclass
+with `severity` (`"error"` or `"info"`), `code`, `message`, `node`,
+`capability`, `limit`, and `domain` fields. Platforms typically translate
+any `severity="error"` diagnostic into one of the platform-side exceptions
+above (`UnsupportedOperationError` is the usual choice) so end users see
+one consistent error class regardless of which axis tripped;
+`severity="info"` diagnostics (the `"forced-software"` fallback notice)
+are passed through as advisory output.
 
 See [Capabilities, diagnostics, and profiles](../guide/capabilities.md)
 for the validator walkthrough.

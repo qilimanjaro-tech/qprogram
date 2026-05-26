@@ -151,15 +151,17 @@ QProgram captures the difference through a small **capability protocol**.
 
 Each `Operation` and `Block` knows the *capability tokens* it needs
 (instance-aware: a `Play(IQDrag(...))` needs different tokens than a
-`Play(Square(...))`). A platform exposes a `CompilerCapabilities` descriptor
-listing the tokens it accepts, the numeric limits it imposes, and any
-predicates that check for context-sensitive cases. `qp.validate(program,
-caps)` walks the AST once and returns a list of `Diagnostic` objects —
-empty when the program is supported.
+`Play(Square(...))`). A platform exposes a `PlatformCapabilities`
+descriptor with per-bus profiles (each split into hw + sw halves) and a
+platform-wide slot for block and expression tokens. `qp.validate(program,
+caps)` walks the AST and returns a tuple of `(diagnostics, plan)` — the
+diagnostic list is empty when the program is supported with no
+forced-software fallback events, and the plan maps each AST node to its
+allowed execution domains.
 
 ```python
 caps = platform.capabilities
-diagnostics = qp.validate(program, caps)
+diagnostics, plan = qp.validate(program, caps)
 for d in diagnostics:
     print(d)
 ```

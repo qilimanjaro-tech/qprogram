@@ -400,23 +400,30 @@ def test_constant_wait_duration_is_accepted() -> None:
 
 
 def _drag_sigma_excludes_hw(node, ctx):
-    """DomainConstraint version of the IQDrag-sigma case."""
+    """DomainConstraint targeting the binding loop of an IQDrag.sigma-sweep.
+
+    Per the spec, predicates emit DomainConstraints that target the **loop block** binding the
+    variable — not the operation node itself. The Play's classification is unaffected; only the
+    loop's domain is restricted.
+    """
     if not isinstance(node, Play) or not isinstance(node.waveform, IQDrag):
         return
     sigma = node.waveform.sigma
     if not isinstance(sigma, Variable):
         return
-    if ctx.sweep_kind_of(sigma) is None:
+    binding_loop = ctx.binding_loop_of(sigma)
+    if binding_loop is None:
         return
     yield DomainConstraint(
-        node=node,
+        node=binding_loop,
         exclude=frozenset({"hw"}),
         reason="IQDrag.sigma sweep is not real-time",
     )
 
 
-def test_domain_constraint_silently_narrows_support() -> None:
-    """A DomainConstraint alone (no Diagnostic) silences error output and sets the plan to {sw}."""
+def test_domain_constraint_targets_block_not_op() -> None:
+    """A DomainConstraint targeting the binding loop forces the loop to {sw} but leaves the
+    Play's classification unchanged (spec (e2))."""
     caps = _full_caps(bus_predicates=(_drag_sigma_excludes_hw,))
     p = QProgram()
     sigma = p.variable("sigma")
@@ -425,13 +432,17 @@ def test_domain_constraint_silently_narrows_support() -> None:
     diagnostics, plan = validate(p, caps)
     errors = [d for d in diagnostics if d.severity == "error"]
     assert errors == []
-    # Find the for_loop node in the AST.
     for_loop = next(n for n in p.body.walk() if type(n).__name__ == "ForLoop")
+    play_node = next(n for n in p.body.walk() if type(n).__name__ == "Play")
+    # The loop is forced to {sw}.
     assert plan[for_loop] == frozenset({"sw"})
+    # The op's classification stays whatever the slot supports — Play itself is unaffected.
+    assert "hw" in plan[play_node]
 
 
 def test_forced_software_info_diagnostic_fires_once_on_highest_block() -> None:
-    """A DomainConstraint excluding hw causes one info diagnostic on the highest forced-sw block."""
+    """A DomainConstraint targeting an inner loop, with both the outer Average and the loop forced
+    to sw, surfaces exactly one ``forced-software`` info on the topmost forced block."""
     caps = _full_caps(bus_predicates=(_drag_sigma_excludes_hw,))
     p = QProgram()
     sigma = p.variable("sigma")
@@ -440,7 +451,7 @@ def test_forced_software_info_diagnostic_fires_once_on_highest_block() -> None:
     diagnostics = _diagnostics(p, caps)
     info_diags = [d for d in diagnostics if d.code == "forced-software"]
     assert len(info_diags) == 1
-    # The info should attach to Average, the topmost forced-sw block (its parent is the root body).
+    # The info attaches to Average — the topmost forced-sw block (its parent is the root body).
     assert type(info_diags[0].node).__name__ == "Average"
     assert info_diags[0].severity == "info"
     assert info_diags[0].domain == "sw"
@@ -458,6 +469,98 @@ def test_amplitude_sweep_stays_hw_when_only_sigma_is_constrained() -> None:
     assert info_diags == []
     for_loop = next(n for n in p.body.walk() if type(n).__name__ == "ForLoop")
     assert "hw" in plan[for_loop]
+
+
+def test_op_targeted_constraint_emits_bad_domain_constraint_error() -> None:
+    """A predicate that incorrectly targets an op node (not a Block) gets caught."""
+
+    def bad_predicate(node, ctx):  # noqa: ARG001
+        if isinstance(node, Play):
+            yield DomainConstraint(
+                node=node,  # WRONG — should be a Block.
+                exclude=frozenset({"hw"}),
+                reason="this predicate is broken",
+            )
+
+    caps = _full_caps(bus_predicates=(bad_predicate,))
+    p = QProgram()
+    p.play("drive_q0", Square(0.5, 100))
+    diagnostics = _diagnostics(p, caps)
+    bad = [d for d in diagnostics if d.code == "bad-domain-constraint"]
+    # Predicates run once per slot domain (hw + sw) when both halves are filled, so the bad
+    # constraint is emitted twice — once per run. Both are reported.
+    assert len(bad) == 2
+
+
+def test_mixed_domain_error_when_op_children_disagree() -> None:
+    """Two op-children with disjoint singleton supports trip the (d) mixed-domain check."""
+    hw_bus = BusCapabilities(hw=_cc("hw-only", _BUS_TOKENS), sw=None)
+    sw_bus = BusCapabilities(hw=None, sw=_cc("sw-only", _BUS_TOKENS))
+    caps = PlatformCapabilities(
+        bus={("q", "drive"): hw_bus, ("q", "flux"): sw_bus},
+        platform=_slot("platform-full", _PLATFORM_TOKENS),
+        default_bus_profile=hw_bus,
+    )
+    schema = BusSchema.flux_tunable_transmon()
+    p = QProgram(schema=schema)
+    v = p.variable("v")
+    with p.for_loop(v, 0, 1, 0.1):
+        p.play(schema.q[0].drive, IQDrag(0.5, 40, 8, 0.1))
+        p.play(schema.q[0].flux, Square(0.5, 100))   # different bus → different singleton
+    diagnostics, _ = validate(p, caps)
+    mixed = [d for d in diagnostics if d.code == "mixed-domain"]
+    assert len(mixed) == 1
+
+
+def test_sw_block_child_auto_propagates_hw_exclusion() -> None:
+    """An SW block-child inside an outer with platform.sw available makes the outer drop to sw
+    (no error). The (e1) error fires only when the propagation can't be honoured — see the next
+    test."""
+    hw_bus = BusCapabilities(hw=_cc("hw-only", _BUS_TOKENS), sw=None)
+    sw_bus = BusCapabilities(hw=None, sw=_cc("sw-only", _BUS_TOKENS))
+    caps = PlatformCapabilities(
+        bus={("q", "drive"): hw_bus, ("q", "flux"): sw_bus},
+        platform=_slot("platform-full", _PLATFORM_TOKENS),
+        default_bus_profile=hw_bus,
+    )
+    schema = BusSchema.flux_tunable_transmon()
+    p = QProgram(schema=schema)
+    a = p.variable("a")
+    b = p.variable("b")
+    with p.for_loop(a, 0, 1, 0.1):
+        p.play(schema.q[0].drive, IQDrag(0.5, 40, 8, 0.1))   # HW op
+        with p.for_loop(b, 0, 1, 0.1):
+            p.play(schema.q[0].flux, Square(0.5, 100))         # SW op nested inside
+    diagnostics, plan = validate(p, caps)
+    nesting_errs = [d for d in diagnostics if d.code == "sw-in-hw"]
+    assert nesting_errs == []
+    outer = next(n for n in p.body.walk() if type(n).__name__ == "ForLoop")
+    assert plan[outer] == frozenset({"sw"})
+
+
+def test_sw_in_hw_nesting_error_fires_when_platform_lacks_sw() -> None:
+    """When the platform slot has no sw half, the (e1) auto-propagation can't fall back to sw —
+    that's when the explicit ``sw-in-hw`` error fires."""
+    hw_bus = BusCapabilities(hw=_cc("hw-only", _BUS_TOKENS), sw=None)
+    sw_bus = BusCapabilities(hw=None, sw=_cc("sw-only", _BUS_TOKENS))
+    # Platform slot has hw only — no sw fallback available for blocks.
+    platform_slot = BusCapabilities(hw=_cc("platform-hw", _PLATFORM_TOKENS), sw=None)
+    caps = PlatformCapabilities(
+        bus={("q", "drive"): hw_bus, ("q", "flux"): sw_bus},
+        platform=platform_slot,
+        default_bus_profile=hw_bus,
+    )
+    schema = BusSchema.flux_tunable_transmon()
+    p = QProgram(schema=schema)
+    a = p.variable("a")
+    b = p.variable("b")
+    with p.for_loop(a, 0, 1, 0.1):
+        p.play(schema.q[0].drive, IQDrag(0.5, 40, 8, 0.1))
+        with p.for_loop(b, 0, 1, 0.1):
+            p.play(schema.q[0].flux, Square(0.5, 100))
+    diagnostics, _ = validate(p, caps)
+    nesting_errs = [d for d in diagnostics if d.code == "sw-in-hw"]
+    assert len(nesting_errs) == 1
 
 
 @pytest.mark.parametrize(

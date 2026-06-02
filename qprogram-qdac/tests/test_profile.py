@@ -45,7 +45,9 @@ def _make_caps(
         "qprogram-base-v1",
         limit_overrides=platform_limit_overrides,
     )
-    bus_slot = BusCapabilities(hw=bus_cc, sw=bus_cc)
+    # Spec-compliant wiring: qdac has no FPGA, so its profile fills the sw slot only.
+    # The platform-level slot has both halves so blocks can be hw or sw depending on contents.
+    bus_slot = BusCapabilities(hw=None, sw=bus_cc)
     platform_slot = BusCapabilities(hw=platform_cc, sw=platform_cc)
     return PlatformCapabilities(
         bus={},
@@ -138,51 +140,66 @@ def test_non_empty_trigger_outputs_validates_clean():
 
 
 # ---------------------------------------------------------------------------
-# Predicate: SetOffset variable sweep → DomainConstraint(exclude={"hw"})
+# Op classification — qdac ops are SW by design (spec (b))
 # ---------------------------------------------------------------------------
 
 
-def test_set_offset_constant_stays_hw():
-    """SetOffset with a literal float doesn't trip the constraint."""
+def test_qdac_set_offset_is_sw_only():
+    """qdac is wired to the sw slot only, so every qdac op classifies as ``{sw}`` regardless of
+    arguments — that's the design-time classification from spec (b)."""
     caps = _make_caps()
     p = QProgram()
     p.qdac.set_offset("flux_q0", 0.42)
-    diagnostics, plan = validate(p, caps)
+    _, plan = validate(p, caps)
     set_off = next(n for n in p.body.walk() if type(n).__name__ == "SetOffset")
-    assert "hw" in plan[set_off]
-    assert not any(d.code == "forced-software" for d in diagnostics)
+    assert plan[set_off] == frozenset({"sw"})
 
 
-def test_set_offset_unbound_variable_stays_hw():
-    """A free Variable (not loop-bound) is treated as a constant at upload time."""
+def test_qdac_play_is_sw_only():
+    """Same for qdac.play — bus-touching but the bus is sw-only."""
     caps = _make_caps()
     p = QProgram()
-    v = p.variable("flux")
-    p.qdac.set_offset("flux_q0", v)
-    set_off = next(n for n in p.body.walk() if type(n).__name__ == "SetOffset")
+    p.qdac.play("flux_q0", Square(0.5, 100), dwell=10)
     _, plan = validate(p, caps)
-    assert "hw" in plan[set_off]
+    play = next(n for n in p.body.walk() if type(n).__name__ == "Play")
+    assert plan[play] == frozenset({"sw"})
 
 
-def test_set_offset_swept_by_for_loop_forces_software():
+# ---------------------------------------------------------------------------
+# Loop classification — op-children consensus + predicate constraints
+# ---------------------------------------------------------------------------
+
+
+def test_loop_with_qdac_op_classifies_as_sw():
+    """A loop whose only op-child is a qdac op (SW) classifies as SW from op-children consensus
+    alone — no constraint needed."""
     caps = _make_caps()
     p = QProgram()
     v = p.variable("flux")
     with p.for_loop(v, 0.0, 1.0, 0.1):
         p.qdac.set_offset("flux_q0", v)
-    diagnostics, plan = validate(p, caps)
-    errors = [d for d in diagnostics if d.severity == "error"]
-    assert errors == [], errors
-    info = [d for d in diagnostics if d.code == "forced-software"]
-    assert len(info) == 1, info
-    # Attached to the topmost forced block — the ForLoop here (its parent is the root body).
-    assert type(info[0].node).__name__ == "ForLoop"
+    _, plan = validate(p, caps)
     for_loop = next(n for n in p.body.walk() if type(n).__name__ == "ForLoop")
     assert plan[for_loop] == frozenset({"sw"})
 
 
-def test_set_offset_swept_by_arbitrary_loop_forces_software():
-    """Same constraint, ``loop`` arbitrary sweep instead of ``for_loop`` linear sweep."""
+def test_loop_with_unswept_qdac_op_also_classifies_as_sw():
+    """No swept variable on the qdac op, but the op is still SW by design — so the enclosing
+    loop classifies as SW from op-children consensus."""
+    caps = _make_caps()
+    p = QProgram()
+    v = p.variable("dummy")
+    with p.for_loop(v, 0.0, 1.0, 0.1):
+        p.qdac.play("flux_q0", Square(0.5, 100), dwell=10)
+    diagnostics, plan = validate(p, caps)
+    errors = [d for d in diagnostics if d.severity == "error"]
+    assert errors == []
+    for_loop = next(n for n in p.body.walk() if type(n).__name__ == "ForLoop")
+    assert plan[for_loop] == frozenset({"sw"})
+
+
+def test_arbitrary_loop_with_qdac_op_classifies_as_sw():
+    """The ``loop`` (arbitrary-array) variant works identically."""
     import numpy as np
 
     caps = _make_caps()
@@ -195,45 +212,23 @@ def test_set_offset_swept_by_arbitrary_loop_forces_software():
     assert plan[loop] == frozenset({"sw"})
 
 
-def test_swept_waveform_var_in_play_also_forces_software():
-    """Any qdac op referencing a loop-bound variable forces sw — even when the variable is
-    embedded inside the Play's waveform parameters, not on the op's direct attributes.
+# ---------------------------------------------------------------------------
+# Predicate diagnostic — surface a clearer ``forced-software`` reason
+# ---------------------------------------------------------------------------
+
+
+def test_no_forced_software_info_when_consensus_alone_picks_sw():
+    """With strict (sw-only) wiring of qdac, the loop is naturally SW from op-children consensus
+    alone — no constraint is applied, and no ``forced-software`` info diagnostic surfaces.
+
+    The predicate-driven ``forced-software`` info is reserved for cases where the block's
+    available domain set was ``{hw}`` (or ``{hw, sw}``) and constraints reduced it to ``{sw}``.
+    With sw-only ops, the available is already ``{sw}`` — there's no constraint to surface.
     """
     caps = _make_caps()
     p = QProgram()
-    amp = p.variable("amp")
-    with p.for_loop(amp, 0.0, 1.0, 0.1):
-        p.qdac.play("flux_q0", Square(amp, 100), dwell=10)
-    diagnostics, plan = validate(p, caps)
-    info = [d for d in diagnostics if d.code == "forced-software"]
-    assert len(info) == 1
-    for_loop = next(n for n in p.body.walk() if type(n).__name__ == "ForLoop")
-    assert plan[for_loop] == frozenset({"sw"})
-
-
-def test_unbound_variable_in_qdac_op_stays_hw():
-    """A free Variable (not loop-bound) is treated as a constant at upload time."""
-    caps = _make_caps()
-    p = QProgram()
-    amp = p.variable("amp")
-    # No surrounding loop binds `amp`, so the predicate doesn't fire.
-    p.qdac.play("flux_q0", Square(amp, 100), dwell=10)
-    diagnostics, plan = validate(p, caps)
-    play_node = next(n for n in p.body.walk() if type(n).__name__ == "Play")
-    assert "hw" in plan[play_node]
-    assert not any(d.code == "forced-software" for d in diagnostics)
-
-
-def test_qdac_op_without_swept_var_stays_hw():
-    """A qdac op with only literal arguments inside a loop is unaffected (the *loop* might still
-    need to be hw-runnable, but the qdac op itself doesn't restrict it)."""
-    caps = _make_caps()
-    p = QProgram()
-    v = p.variable("dummy")
+    v = p.variable("flux")
     with p.for_loop(v, 0.0, 1.0, 0.1):
-        # qdac op references no swept variable — it's a constant ramp inside a loop.
-        p.qdac.play("flux_q0", Square(0.5, 100), dwell=10)
-    diagnostics, plan = validate(p, caps)
+        p.qdac.set_offset("flux_q0", v)
+    diagnostics, _ = validate(p, caps)
     assert not any(d.code == "forced-software" for d in diagnostics)
-    play_node = next(n for n in p.body.walk() if type(n).__name__ == "Play")
-    assert "hw" in plan[play_node]

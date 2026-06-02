@@ -94,32 +94,36 @@ def _drag_sigma_in_loop_is_software_only(
     node: Operation | Block,
     ctx: ValidationContext,
 ) -> Iterable[Diagnostic | DomainConstraint]:
-    """Flag ``Play(IQDrag(sigma=var))`` as software-only when ``sigma`` is loop-bound.
+    """Flag the enclosing loop of a ``Play(IQDrag(sigma=var))`` as software-only.
 
     The qblox sequencer can rapidly re-arm a real-time loop with a new amplitude or duration but
     cannot recompute a Drag envelope's ``sigma`` between iterations — the gaussian + derivative
-    samples are precomputed at upload. Sweeping ``sigma`` in a hardware loop is therefore
-    unsupported, but software dispatch (one qblox shot per loop iteration, re-uploading the
-    waveform each time) still works fine. This is a :class:`DomainConstraint` excluding ``"hw"``,
-    not a hard :class:`Diagnostic`: the classifier will lift the enclosing for-loop to ``{sw}``,
-    leaving the rest of the program free to stay in hw where possible.
+    samples are precomputed at upload. So sweeping ``sigma`` requires re-uploading the waveform
+    per iteration, which means the **enclosing loop** must dispatch from software (one qblox
+    shot per iteration). The ``Play`` operation itself remains HW (qblox is a HW vendor by
+    design); what changes is the loop's iteration mechanism.
 
-    Uses ``ctx.sweep_kind_of`` to confirm ``sigma`` is in fact loop-bound; bare variables that
-    aren't swept at all are unaffected (they're treated as constants at upload time).
+    Per the spec, this is a :class:`DomainConstraint` targeting the **binding loop**, not the
+    Play op. The classifier subtracts ``"hw"`` from the loop's domain; the Play stays HW and is
+    dispatched as a single hardware shot per software iteration (per nesting rule (e1)).
+
+    Uses ``ctx.binding_loop_of`` to find the loop that binds ``sigma``; bare variables that
+    aren't loop-bound are unaffected (they're treated as constants at upload time).
     """
     if not isinstance(node, Play) or not isinstance(node.waveform, IQDrag):
         return
     sigma = node.waveform.sigma
     if not isinstance(sigma, Variable):
         return
-    if ctx.sweep_kind_of(sigma) is None:
+    binding_loop = ctx.binding_loop_of(sigma)
+    if binding_loop is None:
         return  # not loop-bound — constant at upload time
     yield DomainConstraint(
-        node=node,
+        node=binding_loop,
         exclude=frozenset({"hw"}),
         reason=(
-            f"Variable {sigma.id!r} sweeps IQDrag.sigma, which is not real-time on "
-            f"qblox — falls back to per-iteration software dispatch."
+            f"Variable {sigma.id!r} sweeps IQDrag.sigma in a contained Play, which qblox "
+            f"cannot real-time-update; the loop dispatches per shot from software instead."
         ),
     )
 

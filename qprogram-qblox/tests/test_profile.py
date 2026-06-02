@@ -47,7 +47,10 @@ def _make_caps(
         "qprogram-base-v1",
         limit_overrides=platform_limit_overrides,
     )
-    bus_slot = BusCapabilities(hw=bus_cc, sw=bus_cc)
+    # Spec-compliant wiring: qblox is HW by design, so its profile fills the hw slot only.
+    # The platform-level slot has the qprogram-base profile on both halves so blocks can land
+    # on either hw or sw depending on what their op-children require.
+    bus_slot = BusCapabilities(hw=bus_cc, sw=None)
     platform_slot = BusCapabilities(hw=platform_cc, sw=platform_cc)
     return PlatformCapabilities(
         bus={},

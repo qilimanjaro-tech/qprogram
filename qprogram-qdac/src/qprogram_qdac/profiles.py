@@ -66,45 +66,53 @@ def _qdac_op_with_swept_var_is_software_only(
     node: Operation | Block,
     ctx: ValidationContext,
 ) -> Iterable[Diagnostic | DomainConstraint]:
-    """Flag any qdac operation that references a loop-bound variable.
+    """Flag the enclosing loop of any qdac op that references a loop-bound variable.
 
     QDAC has **no FPGA**: every parameter change goes through the host's slow-control plane
-    (USB, ~ms latency). The sequencer cannot real-time-update *anything* between iterations —
-    not the offset, not waveform-engine timing, not the embedded waveform's amplitude. Any
-    qdac operation that references a variable bound by an enclosing :class:`~qprogram.ForLoop`
-    or :class:`~qprogram.Loop` therefore cannot run in a hardware loop; per-iteration software
-    dispatch (uploading a fresh program per iteration) does work, so we emit a soft
-    :class:`~qprogram.DomainConstraint` excluding ``"hw"`` rather than a hard
-    :class:`~qprogram.Diagnostic`.
+    (USB, ~ms latency). Any qdac operation referencing a variable bound by an enclosing
+    :class:`~qprogram.ForLoop` or :class:`~qprogram.Loop` therefore cannot live inside a
+    real-time hardware loop — the enclosing loop must dispatch from software, re-uploading per
+    iteration.
+
+    Per the spec, this is a :class:`~qprogram.DomainConstraint` targeting the **binding loop
+    block** of the variable, not the qdac op itself. The qdac op's classification doesn't
+    change (it's SW by design — see :data:`QDAC_DEFAULT_V1` wiring); what changes is the
+    enclosing loop's classification, which goes from HW-or-SW down to SW-only.
 
     Walks every variable on the node via :meth:`Operation.variables`, which transitively
-    inspects expression arguments and waveform parameters — so a
-    ``play(bus, Square(amplitude=v))`` is caught just like a ``set_offset(bus, v)``.
+    descends into expression arguments and waveform parameters — so a
+    ``play(bus, Square(amplitude=v))`` is caught just like a ``set_offset(bus, v)``. Emits one
+    constraint per (distinct) binding loop encountered.
 
-    The constraint propagates up through enclosing blocks via the classifier; the highest
-    forced-sw block surfaces a single ``"forced-software"`` info diagnostic.
+    Note: when qdac is correctly wired into an ``sw``-only :class:`~qprogram.BusCapabilities`
+    slot, the qdac op is already SW-only and the enclosing loop is naturally SW (via op-children
+    consensus) — so this predicate is largely redundant. It remains useful as belt-and-braces
+    for platforms that mistakenly wire qdac into both halves of a bus slot, and as a place to
+    surface a clear ``forced-software`` reason in the diagnostic output.
 
     Args:
-        node: AST node currently being visited by the validator.
+        node: AST node currently being visited.
         ctx: Read-only validation context with cross-op data-flow facts.
 
     Yields:
-        Zero or one :class:`~qprogram.DomainConstraint`.
+        Zero or more :class:`~qprogram.DomainConstraint`, one per distinct binding loop.
     """
     if not isinstance(node, _QDAC_OP_CLASSES):
         return
-    swept = [v for v in node.variables() if ctx.sweep_kind_of(v) is not None]
-    if not swept:
-        return
-    var_ids = ", ".join(repr(v.id) for v in swept)
-    yield DomainConstraint(
-        node=node,
-        exclude=frozenset({"hw"}),
-        reason=(
-            f"qdac.{type(node).__name__} references loop-bound variable(s) {var_ids}; "
-            f"qdac has no FPGA, so any swept parameter forces per-iteration software dispatch."
-        ),
-    )
+    seen_loops: set[int] = set()
+    for var in node.variables():
+        binding_loop = ctx.binding_loop_of(var)
+        if binding_loop is None or id(binding_loop) in seen_loops:
+            continue
+        seen_loops.add(id(binding_loop))
+        yield DomainConstraint(
+            node=binding_loop,
+            exclude=frozenset({"hw"}),
+            reason=(
+                f"qdac.{type(node).__name__} references loop-bound variable {var.id!r}; "
+                f"qdac has no FPGA, so the loop must dispatch from software."
+            ),
+        )
 
 
 def _set_trigger_outputs_required(

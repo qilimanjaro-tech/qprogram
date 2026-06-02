@@ -1,10 +1,30 @@
 """Capability validation + execution-domain classification for QProgram.
 
-A single :func:`validate` entry point performs (a) per-node capability checks across the routed
-(bus, domain) slots of :class:`~qprogram.PlatformCapabilities`, (b) bottom-up classification of
-every AST node's execution domain, and (c) whole-program limit / Conditional checks. Returns
-``(diagnostics, plan)`` — a flat diagnostic list (errors plus advisory info events) and a mapping
-from every AST node to its final domain set.
+A single :func:`validate` entry point walks the program AST, checking each operation's required
+capability tokens against its routed :class:`~qprogram.BusCapabilities` slot and classifying each
+block's execution domain from its op-children's consensus plus any
+:class:`~qprogram.DomainConstraint` predicates emitted while walking. Returns
+``(diagnostics, plan)``: diagnostics is a flat list (errors + advisory info events), and the plan
+maps every AST node to the domain set it may execute in.
+
+The classification rules implemented here match the spec:
+
+* Operations have a domain derived from which slots (``hw``, ``sw``) of their routed
+  :class:`BusCapabilities` carry the required tokens. Vendor-specific operations have a fixed
+  domain by design (e.g. qdac ops are ``sw`` only); core ops depend on the platform's wiring.
+* Block classification is determined by **op-children consensus only** — child blocks act as
+  units and don't constrain the parent's domain. If a block contains all-HW op-children the
+  block's natural domain is ``{hw, sw}`` (HW ops can run real-time or be dispatched per shot);
+  if all-SW the block must be ``{sw}``; mixed op-children at the same level → ``mixed-domain``
+  error (spec (d)).
+* :class:`~qprogram.DomainConstraint` predicate outputs target **block** nodes (typically the
+  binding loop of a swept variable) and subtract from the targeted block's domain. The
+  operation's classification is unaffected (spec (e2)).
+* Nesting: a hardware-only block (``support == {hw}``) can only contain hardware-capable
+  block-children — an SW block-child inside an HW block-parent emits ``sw-in-hw`` error (spec
+  (e1)). The reverse (HW block inside SW block) is always allowed.
+* A block whose natural ``{hw, sw}`` is reduced to ``{sw}`` by a constraint surfaces a single
+  ``severity="info"`` ``"forced-software"`` diagnostic on the highest such block in its chain.
 
 The validator never raises — callers decide how to react. A typical
 :meth:`PlatformProtocol.execute` calls :func:`validate` and raises
@@ -13,6 +33,7 @@ The validator never raises — callers decide how to react. A typical
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from qprogram.blocks.block import Block
@@ -51,6 +72,8 @@ if TYPE_CHECKING:
 
 
 _ALL_DOMAINS: frozenset[Domain] = frozenset({"hw", "sw"})
+_HW_ONLY: frozenset[Domain] = frozenset({"hw"})
+_SW_ONLY: frozenset[Domain] = frozenset({"sw"})
 
 
 def validate(
@@ -61,11 +84,19 @@ def validate(
 
     Algorithm:
 
-    1. Pre-walk to build a :class:`ValidationContext` (variable bindings, sweep kinds, ...).
-    2. Recursive post-order walk computing per-node ``available`` (domains where the node's
-       :meth:`required_capabilities` fits the routed slot and no predicate-Diagnostic fires) and
-       ``support`` (``available`` minus the union of DomainConstraints firing on the node), with
-       block-level final domains taken as the intersection of children's domains.
+    1. Pre-walk to build a :class:`ValidationContext` (variable bindings, sweep kinds, …).
+    2. Single recursive post-order walk that, per node, computes:
+
+       - For operations: the *available* domain set is the slots where the op's required tokens
+         are present (and any predicate-emitted :class:`Diagnostic` is absent). The op's
+         ``support`` equals its ``available`` — :class:`DomainConstraint` outputs are *not*
+         applied to the op; they are routed to the **block** they target (typically the binding
+         loop of a swept variable).
+       - For blocks: ``support = own_available & natural_from_ops - exclude_from_constraints``,
+         where ``natural_from_ops = {sw} | (ops_consensus & {hw})`` captures the rule that all-HW
+         op-children permit either an HW block or an SW-dispatched block. Mixed op-children produce a
+         ``mixed-domain`` error. Block-children act as units; they don't constrain the parent's
+         domain but the parent's domain constrains them (no SW block inside an HW block).
     3. Whole-program limit checks (loop nesting, parallel arity, measurement count) against the
        platform slot's limits; ``min_wait_duration_ns`` checks against the bus slot's limits.
     4. Universal Conditional checks (unknown measurement, missing state classification).
@@ -84,26 +115,34 @@ def validate(
     available: dict[Operation | Block, frozenset[Domain]] = {}
     support: dict[Operation | Block, frozenset[Domain]] = {}
     parent: dict[Operation | Block, Block | None] = {}
+    constraints_by_block: dict[int, list[DomainConstraint]] = defaultdict(list)
 
     for child in qprogram.body.elements:
-        _classify_node(child, qprogram.body, caps, ctx, diagnostics, available, support, parent)
+        _classify_node(
+            child,
+            qprogram.body,
+            caps,
+            ctx,
+            diagnostics,
+            available,
+            support,
+            parent,
+            constraints_by_block,
+        )
 
     diagnostics.extend(_check_limits(qprogram, ctx, caps))
     diagnostics.extend(_check_conditional_classification(qprogram, ctx))
-
     _emit_forced_software(diagnostics, available, support, parent)
 
-    # The root body itself doesn't get classified, but external callers may want to know — give it
-    # the intersection of top-level children.
     return diagnostics, dict(support)
 
 
 # ---------------------------------------------------------------------------
-# Per-node + block classification (single recursive post-order walk)
+# Single recursive post-order walk
 # ---------------------------------------------------------------------------
 
 
-def _classify_node(  # noqa: PLR0913  # small data carrier — six mutable accumulators
+def _classify_node(  # noqa: PLR0913
     node: Operation | Block,
     parent_block: Block,
     caps: PlatformCapabilities,
@@ -112,94 +151,269 @@ def _classify_node(  # noqa: PLR0913  # small data carrier — six mutable accum
     available: dict[Operation | Block, frozenset[Domain]],
     support: dict[Operation | Block, frozenset[Domain]],
     parent: dict[Operation | Block, Block | None],
-) -> tuple[frozenset[Domain], frozenset[Domain]]:
-    """Recursively classify ``node`` and its descendants.
+    constraints_by_block: dict[int, list[DomainConstraint]],
+) -> None:
+    """Recursively classify ``node`` and its descendants in post-order.
 
-    Returns the node's ``(available, support)`` pair after combining with its children.
-    Side-effects: appends diagnostics, populates ``available``, ``support``, ``parent``.
+    Side-effects: populates ``diagnostics``, ``available``, ``support``, ``parent``, and
+    ``constraints_by_block`` (keyed by the target block's :func:`id`).
     """
     parent[node] = parent_block
 
-    # 1. Per-node check (the node's own contribution).
-    own_available, own_support, own_diags = _check_node_self(node, caps, ctx)
-    diagnostics.extend(own_diags)
-
-    # 2. Children — Conditional has arms+else_body; Parallel has loops+_elements; Block has _elements.
-    children_av, children_sup = _classify_children(
-        node, caps, ctx, diagnostics, available, support, parent,
-    )
-
-    final_av = own_available & children_av
-    final_sup = own_support & children_sup
-    available[node] = final_av
-    support[node] = final_sup
-
-    # 3. Block-level empty domain: own check passed but children disagreed.
-    if isinstance(node, Block) and not final_sup and own_support:
-        diagnostics.append(
-            Diagnostic(
-                severity="error",
-                code="empty-domain",
-                message=(
-                    f"Block '{type(node).__name__}' has no executable domain: "
-                    f"children require incompatible hw/sw support."
-                ),
-                node=node,
-            ),
+    if isinstance(node, Block):
+        _classify_block(
+            node, caps, ctx, diagnostics, available, support, parent, constraints_by_block,
+        )
+    else:
+        _classify_operation(
+            node, caps, ctx, diagnostics, available, support, constraints_by_block,
         )
 
-    return final_av, final_sup
+
+def _classify_operation(  # noqa: PLR0913
+    op: Operation,
+    caps: PlatformCapabilities,
+    ctx: ValidationContext,
+    diagnostics: list[Diagnostic],
+    available: dict[Operation | Block, frozenset[Domain]],
+    support: dict[Operation | Block, frozenset[Domain]],
+    constraints_by_block: dict[int, list[DomainConstraint]],
+) -> None:
+    """Classify a leaf operation.
+
+    An op's ``support`` equals its ``available`` — :class:`DomainConstraint` outputs target
+    block nodes and never directly subtract from the op's support (the op's classification is
+    by spec fixed by its vendor / bus slot, not by surrounding variables).
+    """
+    avail, op_diags, dcs = _check_node_self(op, caps, ctx)
+    diagnostics.extend(op_diags)
+    available[op] = avail
+    support[op] = avail
+    _route_constraints(dcs, op, diagnostics, constraints_by_block)
 
 
-def _classify_children(  # noqa: PLR0913
-    node: Operation | Block,
+def _classify_block(  # noqa: PLR0913
+    block: Block,
     caps: PlatformCapabilities,
     ctx: ValidationContext,
     diagnostics: list[Diagnostic],
     available: dict[Operation | Block, frozenset[Domain]],
     support: dict[Operation | Block, frozenset[Domain]],
     parent: dict[Operation | Block, Block | None],
-) -> tuple[frozenset[Domain], frozenset[Domain]]:
-    """Intersect children's ``(available, support)`` for the structural shape of ``node``."""
-    if isinstance(node, Conditional):
-        kids: list[Operation | Block] = [body for _, body in node.arms]
-        if node.else_body is not None:
-            kids.append(node.else_body)
-    elif isinstance(node, Parallel):
-        kids = [*node.loops, *node.elements]
-    elif isinstance(node, Block):
-        kids = list(node.elements)
-    else:
-        return _ALL_DOMAINS, _ALL_DOMAINS
+    constraints_by_block: dict[int, list[DomainConstraint]],
+) -> None:
+    """Classify a block from its immediate op-children plus any DomainConstraints targeting it.
 
-    av: frozenset[Domain] = _ALL_DOMAINS
-    sup: frozenset[Domain] = _ALL_DOMAINS
-    for kid in kids:
-        kid_av, kid_sup = _classify_node(kid, node, caps, ctx, diagnostics, available, support, parent)
-        av &= kid_av
-        sup &= kid_sup
-    return av, sup
+    Block-children are recursed into first (post-order) and tracked separately — they don't
+    enter the natural-domain computation, but the (e1) nesting check inspects them after the
+    parent's domain is known.
+    """
+    # 1. Identify immediate op-children vs block-children (without recursing yet).
+    op_children, block_children = _immediate_children(block)
+
+    # 2. Recurse into both — post-order, so children's support and any constraints they raise are
+    # in place before we classify this block.
+    for child in (*block_children, *op_children):
+        _classify_node(
+            child, block, caps, ctx, diagnostics, available, support, parent, constraints_by_block,
+        )
+
+    # 3. Block's own check (block tokens against the platform slot).
+    own_avail, own_diags, own_dcs = _check_node_self(block, caps, ctx)
+    diagnostics.extend(own_diags)
+    _route_constraints(own_dcs, block, diagnostics, constraints_by_block)
+
+    # 4. Op-children consensus → block's natural domain (spec (c) + (d)).
+    if op_children:
+        ops_consensus = _ALL_DOMAINS
+        for op in op_children:
+            ops_consensus &= support[op]
+        if not ops_consensus:
+            diagnostics.append(
+                Diagnostic(
+                    severity="error",
+                    code="mixed-domain",
+                    message=(
+                        f"Block '{type(block).__name__}' has op-children with incompatible "
+                        f"domain singletons: "
+                        f"{[(type(op).__name__, sorted(support[op])) for op in op_children]}"
+                    ),
+                    node=block,
+                ),
+            )
+            available[block] = frozenset()
+            support[block] = frozenset()
+            return
+        # Per spec (c): all-HW ops → block IS HW; all-SW ops → block IS SW. The natural domain
+        # is the ops' consensus directly. (e2) constraints can still shift HW → SW; see the
+        # fallback below.
+        natural_from_ops = ops_consensus
+    else:
+        # No op-children — the block's domain is unconstrained by content.
+        natural_from_ops = _ALL_DOMAINS
+
+    # 5. Combine with own slot availability.
+    avail = own_avail & natural_from_ops
+
+    # 6. Apply DomainConstraints accumulated for this block.
+    excluded: set[Domain] = set()
+    for dc in constraints_by_block.get(id(block), ()):
+        excluded.update(dc.exclude)
+
+    # 6b. Block-children SW propagation (spec (e1) constructive side): if any block-child has
+    # support {sw}, the parent must also support sw — an SW sub-block cannot be hosted by an HW
+    # parent. We treat that as an implicit ``exclude={"hw"}`` constraint on the parent. The
+    # explicit (e1) check below catches the rare case where this propagation can't be honoured
+    # (the parent's slot doesn't carry sw at all).
+    for child in block_children:
+        if support.get(child) == _SW_ONLY:
+            excluded.add("hw")
+            break
+
+    sup = avail - frozenset(excluded)
+
+    # 6c. (e2) HW→SW fallback: when a constraint (or propagated SW block-child) excludes hw
+    # from an all-HW block, the block falls back to SW dispatch (one HW shot per iteration). The
+    # op-children remain HW; the block's iteration mechanism becomes software. This implements
+    # the spec's "variable influences block class, not op class" rule.
+    if not sup and "hw" in excluded and natural_from_ops == _HW_ONLY and "sw" in own_avail:
+        sup = _SW_ONLY
+
+    available[block] = avail
+    support[block] = sup
+
+    # 7. Empty-domain error if support is empty.
+    if not sup:
+        if avail:
+            reasons = "; ".join(
+                f"{dc.reason}" for dc in constraints_by_block.get(id(block), ())
+            )
+            msg = (
+                f"Block '{type(block).__name__}' has no executable domain after DomainConstraints"
+                + (f": {reasons}" if reasons else ".")
+            )
+        elif not own_avail:
+            msg = (
+                f"Block '{type(block).__name__}' has no executable domain — the platform slot "
+                f"supports none of {sorted(_ALL_DOMAINS)} for the block's required tokens."
+            )
+        else:
+            msg = (
+                f"Block '{type(block).__name__}' has no executable domain: own slot supports "
+                f"{sorted(own_avail)} but op-children consensus is {sorted(natural_from_ops)}."
+            )
+        diagnostics.append(
+            Diagnostic(severity="error", code="empty-domain", message=msg, node=block),
+        )
+
+    # 8. (e1) nesting check: HW-only parent can only contain HW-capable block-children.
+    if sup == _HW_ONLY:
+        for child in block_children:
+            child_sup = support.get(child, _ALL_DOMAINS)
+            if "hw" not in child_sup:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        code="sw-in-hw",
+                        message=(
+                            f"Software block '{type(child).__name__}' nested inside hardware "
+                            f"block '{type(block).__name__}' — the FPGA cannot host an SW "
+                            f"sub-block (only HW-in-SW is allowed by spec (e1))."
+                        ),
+                        node=child,
+                    ),
+                )
+
+
+def _route_constraints(
+    dcs: list[DomainConstraint],
+    source_node: Operation | Block,
+    diagnostics: list[Diagnostic],
+    constraints_by_block: dict[int, list[DomainConstraint]],
+) -> None:
+    """Accumulate each constraint into the per-target-block bucket.
+
+    A constraint must target a :class:`Block` — predicates that emit ``DomainConstraint`` with
+    ``node`` set to something else are a programming error in the predicate author's code; we
+    emit a meta-diagnostic explaining that and drop the constraint on the floor.
+    """
+    for dc in dcs:
+        if isinstance(dc.node, Block):
+            constraints_by_block[id(dc.node)].append(dc)
+        else:
+            diagnostics.append(
+                Diagnostic(
+                    severity="error",
+                    code="bad-domain-constraint",
+                    message=(
+                        f"Predicate triggered by '{type(source_node).__name__}' emitted a "
+                        f"DomainConstraint whose 'node' is not a Block — DomainConstraints must "
+                        f"target the loop block they restrict. Got: "
+                        f"{type(dc.node).__name__ if dc.node is not None else 'None'}"
+                    ),
+                    node=source_node if isinstance(source_node, Operation | Block) else None,
+                ),
+            )
+
+
+def _immediate_children(block: Block) -> tuple[list[Operation], list[Block]]:
+    """Partition ``block``'s immediate children into (op-children, block-children).
+
+    Conditional has arm bodies + else_body (each a :class:`Block`) — those bodies are
+    block-children of the Conditional, not op-children. Parallel has loop headers (Blocks) plus
+    a body (`._elements`); the loop headers are block-children, and the body's elements are
+    immediate children of the Parallel.
+    """
+    if isinstance(block, Conditional):
+        bodies: list[Block] = [body for _, body in block.arms]
+        if block.else_body is not None:
+            bodies.append(block.else_body)
+        return [], bodies
+    if isinstance(block, Parallel):
+        block_children: list[Block] = [*block.loops]
+        op_children: list[Operation] = []
+        for el in block.elements:
+            if isinstance(el, Block):
+                block_children.append(el)
+            else:
+                op_children.append(el)
+        return op_children, block_children
+    # Regular Block, ForLoop, Loop, Average — flat .elements.
+    op_children = []
+    block_children = []
+    for el in block.elements:
+        if isinstance(el, Block):
+            block_children.append(el)
+        else:
+            op_children.append(el)
+    return op_children, block_children
+
+
+# ---------------------------------------------------------------------------
+# Per-node slot check (tokens + predicates)
+# ---------------------------------------------------------------------------
 
 
 def _check_node_self(
     node: Operation | Block,
     caps: PlatformCapabilities,
     ctx: ValidationContext,
-) -> tuple[frozenset[Domain], frozenset[Domain], list[Diagnostic]]:
-    """Per-node availability + support check (no recursion into children).
+) -> tuple[frozenset[Domain], list[Diagnostic], list[DomainConstraint]]:
+    """Run the node's slot-based token check and any registered predicates.
 
-    For each domain ``d`` of the routed slot, the domain is *available* iff the slot has a non-None
-    :class:`CompilerCapabilities` for ``d``, the node's required tokens are a subset, and no
-    predicate emits a :class:`Diagnostic` for ``d``. ``support`` then subtracts the union of
-    :class:`DomainConstraint` exclude sets.
+    Returns ``(available, diagnostics, domain_constraints)``:
+
+    - ``available``: domains where the node's required tokens fit the routed slot AND no
+      predicate emitted a :class:`Diagnostic`.
+    - ``diagnostics``: any ``Diagnostic`` outputs the predicates emitted, **only** if the result
+      ``available`` is empty (so per-domain noise is suppressed when at least one domain works).
+    - ``domain_constraints``: every ``DomainConstraint`` the predicates emitted, untouched —
+      they target blocks and are routed by the caller.
 
     Required-token routing splits along the ``expr.*`` namespace: expression tokens always check
     against ``caps.platform`` (they describe what Python AST node kinds the platform's compiler
     accepts, not what any particular bus's instrument can do), while every other token checks
-    against the node's primary routed slot. Predicates only run from the primary slot.
-
-    Diagnostics are emitted only when ``support`` is empty — when at least one domain works, the
-    per-domain Diagnostics from predicates are suppressed (the fallback worked).
+    against the node's primary routed slot.
     """
     bus_slots = _route(node, caps)
     required = node.required_capabilities()
@@ -216,11 +430,10 @@ def _check_node_self(
             continue
         platform_cc = caps.platform.get(d)
         if expr_required and platform_cc is None:
-            # Expression tokens to check, but the platform slot has no engine in this domain.
             continue
         domain_diags: list[Diagnostic] = []
         for cc in bus_ccs:
-            if cc is None:  # pragma: no cover - already filtered above; pleases the type checker
+            if cc is None:  # pragma: no cover — already filtered above; pleases the type checker
                 continue
             missing = sorted(other_required - cc.capabilities)
             domain_diags.extend(
@@ -266,18 +479,14 @@ def _check_node_self(
             available.add(d)
 
     available_set: frozenset[Domain] = frozenset(available)
-    excluded: set[Domain] = set()
-    for constraint in constraints:
-        excluded.update(constraint.exclude)
-    support: frozenset[Domain] = available_set - frozenset(excluded)
 
     diagnostics_out: list[Diagnostic] = []
-    if not support:
-        # Surface every per-domain diagnostic so the user sees why each domain failed.
+    if not available_set:
+        # Surface per-domain diagnostics so the user sees why each domain failed.
         for d in ("hw", "sw"):
             diagnostics_out.extend(per_domain_diags[d])
         if not diagnostics_out:
-            # No predicate or token complaints — the slot(s) had None engines in every domain.
+            # No predicate or token complaints — the slot(s) had ``None`` engines in every domain.
             diagnostics_out.append(
                 Diagnostic(
                     severity="error",
@@ -289,7 +498,7 @@ def _check_node_self(
                 ),
             )
 
-    return available_set, support, diagnostics_out
+    return available_set, diagnostics_out, constraints
 
 
 def _route(node: Operation | Block, caps: PlatformCapabilities) -> list[BusCapabilities]:
@@ -300,8 +509,7 @@ def _route(node: Operation | Block, caps: PlatformCapabilities) -> list[BusCapab
     - Bus-touching ops with one or more buses route to ``caps.for_bus(bus)`` per bus; the caller
       intersects across the returned list when multiple are present.
     - Bus-touching ops whose bus list resolves to empty (e.g. ``Sync(targets=None)``, which means
-      "sync every active bus") route to ``caps.default_bus_profile`` — the op needs *some* bus
-      slot to validate against, and the default is the platform-wide fallback.
+      "sync every active bus") route to ``caps.default_bus_profile``.
     """
     if isinstance(node, Block):
         return [caps.platform]
@@ -334,22 +542,21 @@ def _emit_forced_software(
     """Emit one ``severity="info"`` ``"forced-software"`` per highest forced-sw block.
 
     A block is *forced sw* when its final ``support`` is ``{sw}`` and its ``available`` contains
-    ``"hw"`` (so hw would have been viable without DomainConstraints). The *highest* block in a
+    ``"hw"`` (so HW would have been viable without DomainConstraints). The *highest* block in a
     forced-sw chain is the one whose parent isn't itself forced sw — emitting only there keeps
     the diagnostic output skimmable.
     """
-    sw_only: frozenset[Domain] = frozenset({"sw"})
     for node, sup in support.items():
         if not isinstance(node, Block):
             continue
-        if sup != sw_only:
+        if sup != _SW_ONLY:
             continue
-        if "hw" not in available[node]:
+        if "hw" not in available.get(node, frozenset()):
             continue
         p = parent.get(node)
         if (
             p is not None
-            and support.get(p) == sw_only
+            and support.get(p) == _SW_ONLY
             and "hw" in available.get(p, frozenset())
         ):
             continue
@@ -359,7 +566,8 @@ def _emit_forced_software(
                 code="forced-software",
                 message=(
                     f"Block '{type(node).__name__}' falls back to software execution; "
-                    f"a descendant excludes hardware-realtime."
+                    f"a contained operation references a swept variable the hardware "
+                    f"sequencer cannot iterate in real time."
                 ),
                 node=node,
                 domain="sw",
@@ -368,7 +576,7 @@ def _emit_forced_software(
 
 
 # ---------------------------------------------------------------------------
-# Context construction
+# Context construction (unchanged)
 # ---------------------------------------------------------------------------
 
 
@@ -434,7 +642,7 @@ def _build_context(qprogram: QProgram) -> ValidationContext:
 
 
 # ---------------------------------------------------------------------------
-# Whole-program limit checks
+# Whole-program limit checks (unchanged)
 # ---------------------------------------------------------------------------
 
 
@@ -525,7 +733,7 @@ def _pick_limits(slot: BusCapabilities) -> Mapping[str, float]:
 
 
 # ---------------------------------------------------------------------------
-# Universal Conditional checks
+# Universal Conditional checks (unchanged)
 # ---------------------------------------------------------------------------
 
 

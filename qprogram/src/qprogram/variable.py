@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal, Self, TypeAlias
 
 # Re-exported from qprogram.errors so legacy ``from qprogram.variable import InvalidVariableIdError``
 # imports keep working.
@@ -28,10 +28,10 @@ if TYPE_CHECKING:
 # and must be safe to embed without quoting.
 _ID_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-type BinaryOperator = Literal["+", "-", "*", "/"]
-type UnaryOperator = Literal["-", "+"]
-type ComparisonOperator = Literal["==", "!=", "<", "<=", ">", ">="]
-type LogicalBinaryOperator = Literal["and", "or"]
+BinaryOperator: TypeAlias = Literal["+", "-", "*", "/"]
+UnaryOperator: TypeAlias = Literal["-", "+"]
+ComparisonOperator: TypeAlias = Literal["==", "!=", "<", "<=", ">", ">="]
+LogicalBinaryOperator: TypeAlias = Literal["and", "or"]
 
 # Why this is a runtime set rather than a Literal type: vendors / future extensions can register
 # additional names at runtime without re-shipping the AST module.

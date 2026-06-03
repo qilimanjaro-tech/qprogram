@@ -21,6 +21,8 @@ from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
 from qprogram.buses import BusNaming, BusRef, BusSchema
 from qprogram.errors import QProgramError, ValidationError, VendorActivationError
+from qprogram.fragments import Fragment, bind_arguments
+from qprogram.operations.call import Call
 from qprogram.operations.operation import MeasurementOperation
 from qprogram.qprogram import QProgram
 from qprogram.result import MeasurementHandle
@@ -129,6 +131,11 @@ _BUS_PATH_RE = re.compile(r"^(\w+)\[(\d+(?:,\d+)*)\]\.(\w+)$")
 _ELEMENT_HEADER_RE = re.compile(r"^element\s+(\w+)\s*:\s*$")
 _BUS_LINE_RE = re.compile(r"^(\w+)\s+info=(\S+)\s*$")
 _FOR_HEADER_RE = re.compile(r"^for\s+(\w+)\s+in\s+(.*)$")
+_FRAGMENT_HEADER_RE = re.compile(r"^fragment\s+([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)\s*:$")
+# A whole statement of the shape ``name(args)`` — a fragment call. Operations never take this
+# form (their name is followed by whitespace-separated tokens) and block headers end with ``:``,
+# so the shape is unambiguous at statement position.
+_CALL_STMT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\((.*)\)$")
 
 # Operator alphabets — frozen sets so membership checks act as the
 # accept/reject gates for the ``cast`` calls in :meth:`_parse_paren_expression`.
@@ -153,6 +160,10 @@ class _Parser:
         self._handles: dict[str, MeasurementHandle] = {}
         self._required_vendors: set[str] = set()
         self._auto_activate = auto_activate
+        # Fragment definitions parsed so far, by name. Calls resolve against this table, which
+        # enforces define-before-use (and therefore topological definition order) for free.
+        self._fragment_defs: dict[str, Fragment] = {}
+        self._body_parsed = False
 
     # -- public entry point --------------------------------------------------
 
@@ -169,8 +180,11 @@ class _Parser:
                 self._parse_metadata()
             elif line.startswith("schema:"):
                 self._parse_schema_decl()
+            elif line.startswith("fragment ") or line == "fragment":
+                self._parse_fragment_def()
             elif line == "body:":
                 self._pos += 1
+                self._body_parsed = True
                 self._parse_body()
             elif line.startswith("require "):
                 msg = "`require` declarations must appear directly after the header, before any section"
@@ -178,7 +192,9 @@ class _Parser:
             else:
                 # Silently skipping an unrecognised top-level line would hide typos
                 # (`bodyy:`) behind an empty-but-valid program.
-                msg = f"unexpected top-level line {line!r}; expected `metadata:`, `schema:`, or `body:`"
+                msg = (
+                    f"unexpected top-level line {line!r}; expected `metadata:`, `schema:`, `fragment ...:`, or `body:`"
+                )
                 raise ParseError(msg, self._pos + 1)
         return self._program
 
@@ -476,12 +492,74 @@ class _Parser:
             raise ParseError(msg, self._pos + 1)
         return ref
 
+    # -- fragment definitions --------------------------------------------------
+
+    def _parse_fragment_def(self) -> None:
+        """Parse one ``fragment <name>(<params>):`` section into a :class:`Fragment`.
+
+        The fragment body is parsed with the same statement machinery as ``body:``, under a
+        swapped scope: ``var`` declarations land on the fragment, identifiers resolve to the
+        fragment's parameters and locals, and measurement auto-naming counts within the fragment.
+        The host program's schema is shared so bus paths in the fragment body resolve.
+        """
+        line = self._stripped()
+        if self._body_parsed:
+            msg = "fragment definitions must appear before the `body:` section"
+            raise ParseError(msg, self._pos + 1)
+        m = _FRAGMENT_HEADER_RE.match(line)
+        if not m:
+            msg = f"invalid fragment header {line!r}; expected `fragment <name>(<param>, ...):`"
+            raise ParseError(msg, self._pos + 1)
+        name, params_text = m.groups()
+        if name in self._fragment_defs:
+            msg = f"duplicate fragment definition {name!r}"
+            raise ParseError(msg, self._pos + 1)
+        try:
+            frag = Fragment(name)
+            if params_text.strip():
+                for raw in params_text.split(","):
+                    param_id = raw.strip()
+                    if not _ID_RE.match(param_id):
+                        msg = f"invalid fragment parameter {param_id!r}: must match [A-Za-z_][A-Za-z0-9_]*"
+                        raise ParseError(msg, self._pos + 1)
+                    frag.parameter(param_id)
+        except ValidationError as e:
+            raise ParseError(str(e), self._pos + 1) from e
+        # Share the host schema so `q[0].drive` paths inside the fragment body resolve. Fragments
+        # appear after the (optional) `schema:` section in writer output; hand-written files that
+        # use paths before declaring a schema simply keep them as raw strings.
+        frag._schema = self._program.schema  # noqa: SLF001
+        self._fragment_defs[name] = frag
+        self._program._fragments[name] = frag  # noqa: SLF001
+        self._pos += 1
+        # Scope swap: the fragment is itself a QProgram, so every statement helper (var decls,
+        # measurement allocation, block parsing) works unchanged against it.
+        saved = (self._program, self._variables, self._handles)
+        self._program = frag
+        self._variables = {p.id: p for p in frag.params}
+        self._handles = {}
+        try:
+            self._parse_statements(frag._body, min_indent=2)  # noqa: SLF001
+        finally:
+            self._program, self._variables, self._handles = saved
+
     # -- body ----------------------------------------------------------------
 
     def _parse_body(self) -> None:
-        self._parse_statements(self._program._body, min_indent=2)  # noqa: SLF001
+        self._parse_statements(self._program._body, min_indent=2, path=())  # noqa: SLF001
 
-    def _parse_statements(self, parent: Block, min_indent: int) -> None:
+    def _record_source(self, path: tuple[int | str, ...] | None, line_num: int) -> None:
+        """Record ``path → line`` in the program's source map (no-op outside the body scope)."""
+        if path is not None:
+            self._program._qp_source_map[path] = line_num  # noqa: SLF001
+
+    def _child_path(self, path: tuple[int | str, ...] | None, parent: Block) -> tuple[int | str, ...] | None:
+        """Path of the *next* element appended to ``parent`` (call before ``append``)."""
+        if path is None:
+            return None
+        return (*path, len(parent.elements))
+
+    def _parse_statements(self, parent: Block, min_indent: int, path: tuple[int | str, ...] | None = None) -> None:
         """Walk a block's children, dispatching by the first significant token.
 
         Order matters: ``var`` declarations come first because they share no
@@ -489,6 +567,10 @@ class _Parser:
         loop compositions, dispatched via the sweep-generator registry. All
         other ``<keyword>:`` lines hit the block registry. Anything left is
         an operation: vendor-prefixed lookup followed by core lookup.
+
+        ``path`` is the structural address of ``parent`` (see :mod:`qprogram.paths`); when given,
+        every appended child's path → 1-based line is recorded in the program's source map.
+        Fragment bodies pass ``None`` — only the ``body:`` section is mapped.
         """
         while self._pos < len(self._lines):
             line = self._stripped()
@@ -507,10 +589,17 @@ class _Parser:
                 self._variables[var_id] = var
                 self._pos += 1
                 continue
-            if self._try_parse_block_header(parent, line, min_indent):
+            if self._try_parse_block_header(parent, line, min_indent, path):
+                continue
+            call_match = _CALL_STMT_RE.match(line)
+            if call_match:
+                self._record_source(self._child_path(path, parent), self._pos + 1)
+                parent.append(self._parse_call_statement(call_match))
+                self._pos += 1
                 continue
             op = self._parse_operation(line)
             self._upgrade_busrefs(op)
+            self._record_source(self._child_path(path, parent), self._pos + 1)
             parent.append(op)
             # Track measurement handles so subsequent conditions can
             # resolve ``<name>.<field>`` references.
@@ -524,20 +613,86 @@ class _Parser:
                 self._handles[op.name] = op.handle
             self._pos += 1
 
-    def _try_parse_block_header(self, parent: Block, line: str, min_indent: int) -> bool:
+    def _parse_call_statement(self, match: re.Match[str]) -> Call:
+        """Parse a bare ``<name>(<args>)`` statement into a :class:`Call`.
+
+        Arguments follow the Python calling convention (positional in parameter order, then
+        ``key=value`` keywords) and accept the same token shapes as operation arguments: numbers,
+        quoted strings, bus paths, identifiers (variables/parameters), parenthesised expressions,
+        and inline waveform constructors.
+        """
+        name, args_text = match.groups()
+        frag = self._fragment_defs.get(name)
+        if frag is None:
+            if get_waveform_class(name) is not None:
+                msg = (
+                    f"waveform constructor {name!r} cannot stand alone as a statement; waveforms "
+                    f'appear as operation arguments (e.g. `play "bus" {name}(...)`)'
+                )
+            else:
+                msg = (
+                    f"unknown fragment {name!r}; fragments must be defined in a "
+                    f"`fragment {name}(...):` section before use"
+                )
+            raise ParseError(msg, self._pos + 1)
+        pos_args: list[object] = []
+        kw_args: dict[str, object] = {}
+        for raw in _split_args(args_text):
+            arg = raw.strip()
+            if not arg:
+                continue
+            # Same kwarg heuristic as waveform constructor args: a `key=` prefix that isn't
+            # the start of a quoted string or a parenthesised/bracketed expression.
+            if "=" in arg and not arg.startswith('"') and "(" not in arg.split("=")[0]:
+                key, _, val = arg.partition("=")
+                key = key.strip()
+                if key in kw_args:
+                    msg = f"fragment call {name!r}: duplicate keyword argument {key!r}"
+                    raise ParseError(msg, self._pos + 1)
+                kw_args[key] = self._parse_call_argument(val.strip())
+            else:
+                if kw_args:
+                    msg = f"fragment call {name!r}: positional argument after keyword argument"
+                    raise ParseError(msg, self._pos + 1)
+                pos_args.append(self._parse_call_argument(arg))
+        try:
+            bound = bind_arguments(frag, tuple(pos_args), kw_args)
+        except ValidationError as e:
+            raise ParseError(str(e), self._pos + 1) from e
+        # Mirror QProgram.call's registration on the current scope (host program or enclosing
+        # fragment) — a no-op for top-level calls, whose fragment registered at definition.
+        self._program._fragments.setdefault(frag.name, frag)  # noqa: SLF001
+        return Call(fragment=frag, arguments=bound)
+
+    def _parse_call_argument(self, token: str) -> object:
+        """Parse one call argument; bare path-shaped tokens promote to BusRefs like bus attrs do."""
+        value = self.parse_value(token)
+        if isinstance(value, str) and not isinstance(value, (BusRef, _QuotedStr)):
+            ref = self._resolve_bus_path(value)
+            if ref is not None:
+                return ref
+        return value
+
+    def _try_parse_block_header(
+        self,
+        parent: Block,
+        line: str,
+        min_indent: int,
+        path: tuple[int | str, ...] | None = None,
+    ) -> bool:
         """Return True iff ``line`` was a block header (and the block was parsed)."""
         if not line.endswith(":"):
             return False
         header = line[:-1].rstrip()
         # Loop family: ``for`` heads either a single loop or a parallel of loops.
         if header.startswith("for ") or ("|" in header and "for " in header):
-            self._parse_loop_or_parallel(parent, header, min_indent)
+            self._parse_loop_or_parallel(parent, header, min_indent, path)
             return True
         # Conditional family: ``if`` opens a chain; ``elif``/``else`` here
         # without a preceding ``if`` at the same level is a parse error
         # (the well-formed case is handled inside _parse_conditional).
         if header.startswith("if ") or header == "if":
-            self._parse_conditional(parent, header, min_indent)
+            self._parse_conditional(parent, header, min_indent, path)
             return True
         if header.startswith("elif ") or header in {"elif", "else"}:
             msg = f"{header.split()[0]!r} without a preceding `if:` at the same indent level"
@@ -555,12 +710,20 @@ class _Parser:
             raise ParseError(msg, self._pos + 1)
         tokens = _tokenize(rest) if rest.strip() else []
         block: Block = spec.parse_header(tokens, self) if spec.parse_header is not None else spec.cls()
+        block_path = self._child_path(path, parent)
+        self._record_source(block_path, self._pos + 1)
         parent.append(block)
         self._pos += 1
-        self._parse_statements(block, min_indent + 2)
+        self._parse_statements(block, min_indent + 2, block_path)
         return True
 
-    def _parse_conditional(self, parent: Block, header: str, min_indent: int) -> None:
+    def _parse_conditional(
+        self,
+        parent: Block,
+        header: str,
+        min_indent: int,
+        path: tuple[int | str, ...] | None = None,
+    ) -> None:
         """Parse an ``if`` block plus any ``elif`` / ``else`` continuation arms.
 
         Each arm is ``<keyword> [<condition>]:`` followed by an indented
@@ -571,8 +734,10 @@ class _Parser:
             msg = "`if` requires a condition: `if <expr>:`"
             raise ParseError(msg, self._pos + 1)
         cond = Conditional()
+        cond_path = self._child_path(path, parent)
+        self._record_source(cond_path, self._pos + 1)
         parent.append(cond)
-        self._parse_conditional_arm(cond, header, min_indent, keyword="if")
+        self._parse_conditional_arm(cond, header, min_indent, keyword="if", cond_path=cond_path)
         while self._pos < len(self._lines):
             line = self._stripped()
             indent = self._indent()
@@ -588,13 +753,13 @@ class _Parser:
                 if cond.else_body is not None:
                     msg = "`elif` cannot follow `else` in the same chain"
                     raise ParseError(msg, self._pos + 1)
-                self._parse_conditional_arm(cond, arm_header, min_indent, keyword="elif")
+                self._parse_conditional_arm(cond, arm_header, min_indent, keyword="elif", cond_path=cond_path)
                 continue
             if arm_header == "else":
                 if cond.else_body is not None:
                     msg = "multiple `else` arms in the same conditional chain"
                     raise ParseError(msg, self._pos + 1)
-                self._parse_conditional_else(cond, min_indent)
+                self._parse_conditional_else(cond, min_indent, cond_path=cond_path)
                 continue
             break
 
@@ -605,6 +770,7 @@ class _Parser:
         min_indent: int,
         *,
         keyword: str,
+        cond_path: tuple[int | str, ...] | None = None,
     ) -> None:
         """Parse one ``if``/``elif`` arm: condition + indented body."""
         expr_text = header[len(keyword) + 1 :].strip()
@@ -617,18 +783,34 @@ class _Parser:
         wrapped = expr_text if expr_text.startswith("(") and expr_text.endswith(")") else f"({expr_text})"
         condition = self._parse_paren_expression(wrapped)
         arm_body = self._program._body.__class__()  # noqa: SLF001  # build a bare Block instance
+        arm_path = None if cond_path is None else (*cond_path, f"arm:{len(cond.arms)}")
+        self._record_source(arm_path, self._pos + 1)
         cond.arms.append((condition, arm_body))
         self._pos += 1
-        self._parse_statements(arm_body, min_indent + 2)
+        self._parse_statements(arm_body, min_indent + 2, arm_path)
 
-    def _parse_conditional_else(self, cond: Conditional, min_indent: int) -> None:
+    def _parse_conditional_else(
+        self,
+        cond: Conditional,
+        min_indent: int,
+        *,
+        cond_path: tuple[int | str, ...] | None = None,
+    ) -> None:
         """Parse the terminal ``else:`` arm."""
         else_body = self._program._body.__class__()  # noqa: SLF001
+        else_path = None if cond_path is None else (*cond_path, "else")
+        self._record_source(else_path, self._pos + 1)
         cond.else_body = else_body
         self._pos += 1
-        self._parse_statements(else_body, min_indent + 2)
+        self._parse_statements(else_body, min_indent + 2, else_path)
 
-    def _parse_loop_or_parallel(self, parent: Block, header: str, min_indent: int) -> None:
+    def _parse_loop_or_parallel(
+        self,
+        parent: Block,
+        header: str,
+        min_indent: int,
+        path: tuple[int | str, ...] | None = None,
+    ) -> None:
         loop_parts = [p.strip() for p in header.split("|")]
         # Every built-in sweep generator produces a ForLoop or Loop, but the
         # registry is open — defensively narrow before constructing Parallel,
@@ -651,9 +833,15 @@ class _Parser:
             except ValidationError as e:
                 # Mismatched iteration counts etc. — surface with the line number.
                 raise ParseError(str(e), self._pos + 1) from e
+        block_path = self._child_path(path, parent)
+        self._record_source(block_path, self._pos + 1)
+        if isinstance(block, Parallel) and block_path is not None:
+            # Composed loop headers live on the same source line as the parallel header.
+            for i in range(len(block.loops)):
+                self._record_source((*block_path, f"loop:{i}"), self._pos + 1)
         parent.append(block)
         self._pos += 1
-        self._parse_statements(block, min_indent + 2)
+        self._parse_statements(block, min_indent + 2, block_path)
 
     def _parse_for_header(self, header: str) -> Block:
         """Parse a single ``for <var> in <generator>`` header into a loop block."""

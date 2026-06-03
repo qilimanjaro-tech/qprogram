@@ -25,6 +25,7 @@ from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
 from qprogram.buses import BusNaming, BusRef
 from qprogram.errors import SerializationError
+from qprogram.operations.call import Call
 from qprogram.operations.operation import Operation
 from qprogram.result import MeasurementHandle
 from qprogram.serialization import _specs
@@ -50,6 +51,7 @@ from qprogram.variable import (
 from qprogram.waveforms.waveform import IQWaveform, Waveform
 
 if TYPE_CHECKING:
+    from qprogram.fragments import Fragment
     from qprogram.qprogram import QProgram
 
 # Characters that break the unquoted ``<name>.<field>`` wire form of a MeasurementRef: token
@@ -70,8 +72,18 @@ def dumps(program: QProgram) -> str:
     Raises:
         SerializationError: If the program contains a node or value the format cannot represent
             faithfully (unregistered operation/block class, vendor without a registered version,
-            attribute value of an unsupported type). The writer never emits lossy output.
+            attribute value of an unsupported type), or if ``program`` is itself a
+            :class:`~qprogram.Fragment` — fragments serialize as sections of the host program
+            that calls them. The writer never emits lossy output.
     """
+    from qprogram.fragments import Fragment  # noqa: PLC0415
+
+    if isinstance(program, Fragment):
+        msg = (
+            f"cannot serialize Fragment {program.name!r} directly; fragments are emitted as "
+            f"`fragment ...:` sections of the host QProgram that calls them — serialize that program"
+        )
+        raise SerializationError(msg)
     return _Writer(program).dump()
 
 
@@ -112,6 +124,7 @@ class _Writer:
         self._write_requires()
         self._write_metadata()
         self._write_schema()
+        self._write_fragments()
         self._write_body()
         return self._out.getvalue()
 
@@ -128,6 +141,8 @@ class _Writer:
         compatibility semantics are defined at major.minor.
         """
         vendors = self._collect_vendors(self._program.body)
+        for frag in self._program.fragments.values():
+            vendors |= self._collect_vendors(frag.body)
         for vendor in sorted(vendors):
             version = get_vendor_version(vendor)
             if version is None:
@@ -178,6 +193,70 @@ class _Writer:
                 info = channel + "+acquires" if acquires else channel
                 self._out.write(f"    {kind} info={info}\n")
 
+    # -- fragment definitions --------------------------------------------------
+
+    def _write_fragments(self) -> None:
+        """Emit a ``fragment <name>(<params>):`` section per fragment, dependencies first.
+
+        Ordering is computed here (depth-first over nested :class:`Call` nodes) rather than
+        trusted from registration order, so the emitted file always defines a fragment before any
+        fragment that calls it — the define-before-use rule the parser enforces.
+        """
+        for frag in self._topo_fragments():
+            params = ", ".join(p.id for p in frag.params)
+            self._out.write(f"\nfragment {frag.name}({params}):\n")
+            # Fragment params/locals form their own identifier scope; ids are unique within the
+            # fragment by construction, so they map verbatim — shadowing host ids is fine because
+            # a fragment body can only reference its own params/locals.
+            saved_idents = self._var_idents
+            self._var_idents = dict(saved_idents)
+            for param in frag.params:
+                self._var_idents[param.id] = param.id
+            for var in frag.variables:
+                self._var_idents[var.id] = var.id
+            try:
+                for var in frag.variables:
+                    self._out.write(f"  {self._serialize_var_decl(var)}\n")
+                if frag.variables:
+                    self._out.write("\n")
+                self._write_block_contents(frag.body, indent=2)
+            finally:
+                self._var_idents = saved_idents
+
+    def _topo_fragments(self) -> list[Fragment]:
+        """Return the program's fragments in dependency order (callees before callers).
+
+        Raises:
+            SerializationError: On a fragment call cycle, or when two different fragments under
+                the same name are reachable from this program.
+        """
+        registered = self._program.fragments
+        ordered: list[Fragment] = []
+        emitted: dict[str, Fragment] = {}
+
+        def visit(frag: Fragment, stack: tuple[str, ...]) -> None:
+            if frag.name in stack:
+                msg = f"cannot serialize: fragment call cycle: {' -> '.join((*stack, frag.name))}"
+                raise SerializationError(msg)
+            previous = emitted.get(frag.name) or registered.get(frag.name)
+            if previous is not None and previous is not frag:
+                msg = (
+                    f"cannot serialize: two different fragments named {frag.name!r} are reachable "
+                    f"from this program; fragment names must be unique"
+                )
+                raise SerializationError(msg)
+            if frag.name in emitted:
+                return
+            for node in frag.body.walk():
+                if isinstance(node, Call):
+                    visit(node.fragment, (*stack, frag.name))
+            emitted[frag.name] = frag
+            ordered.append(frag)
+
+        for frag in registered.values():
+            visit(frag, ())
+        return ordered
+
     # -- body & variable declarations -----------------------------------------
 
     def _write_body(self) -> None:
@@ -219,6 +298,11 @@ class _Writer:
         """
         prefix = " " * indent
         for element in block.elements:
+            # Call before the generic Operation branch — it is an Operation subclass but has
+            # its own ``name(args)`` statement form rather than a registered OperationSpec.
+            if isinstance(element, Call):
+                self._out.write(f"{prefix}{self._serialize_call(element)}\n")
+                continue
             if isinstance(element, Operation):
                 self._out.write(f"{prefix}{self._serialize_operation(element)}\n")
                 continue
@@ -314,6 +398,17 @@ class _Writer:
         var_ident = self._var_idents[var.id]
         gen_text = gen_spec.write(loop, self)
         return f"for {var_ident} in {gen_text}"
+
+    def _serialize_call(self, call: Call) -> str:
+        """Emit a fragment call statement: ``<name>(<args>)``, positional in parameter order."""
+        frag = call.fragment
+        args: list[str] = []
+        for param in frag.params:
+            if param.id not in call.arguments:  # pragma: no cover — bind_arguments guarantees coverage
+                msg = f"cannot serialize call to fragment {frag.name!r}: parameter {param.id!r} is unbound"
+                raise SerializationError(msg)
+            args.append(self.serialize_value(call.arguments[param.id]))
+        return f"{frag.name}({', '.join(args)})"
 
     def _serialize_operation(self, op: Operation) -> str:
         """Look up the operation in the registry and dispatch to its serializer.

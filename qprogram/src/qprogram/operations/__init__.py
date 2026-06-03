@@ -5,6 +5,7 @@ Operations are typed nodes appended to the program's active block by the builder
 and waveforms (``WAVEFORM_ATTRS``) so the shared introspection contract works without per-class overrides.
 """
 
+from qprogram.operations.call import Call
 from qprogram.operations.get_parameter import GetParameter
 from qprogram.operations.measure import Measure
 from qprogram.operations.operation import Operation
@@ -20,6 +21,7 @@ from qprogram.operations.sync import Sync
 from qprogram.operations.wait import Wait
 
 __all__ = [
+    "Call",
     "GetParameter",
     "Measure",
     "Operation",

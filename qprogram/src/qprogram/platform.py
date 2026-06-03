@@ -16,10 +16,12 @@ class PlatformProtocol(ABC):
     """Abstract interface that execution platforms must implement.
 
     Splits into resource discovery (``get_*``) and capability + execution (:attr:`capabilities`,
-    :meth:`validate`, :meth:`plan`, :meth:`execute`). The convention is that :meth:`execute` calls
-    :meth:`validate` first and raises :class:`~qprogram.UnsupportedOperationError` on any
-    ``severity="error"`` diagnostic — concrete platforms aren't forced to follow it, but skipping
-    the check means cryptic compiler errors in place of structured diagnostics.
+    :meth:`validate`, :meth:`plan`, :meth:`explain`, :meth:`execute`). The convention is that
+    :meth:`execute` calls :meth:`validate` first, raises
+    :class:`~qprogram.UnsupportedOperationError` on any ``severity="error"`` diagnostic, and
+    surfaces ``"warning"`` / ``"info"`` diagnostics without raising — concrete platforms aren't
+    forced to follow it, but skipping the check means cryptic compiler errors in place of
+    structured diagnostics.
     """
 
     @abstractmethod
@@ -92,6 +94,24 @@ class PlatformProtocol(ABC):
 
         _, plan = _validate(qprogram, self.capabilities)
         return plan
+
+    def explain(self, qprogram: QProgram) -> str:
+        """Render the execution plan for ``qprogram`` as a human-readable tree.
+
+        Default delegates to :func:`qprogram.explain`: every body node is shown as its ``.qp``
+        text with the domain set it will execute in (``[hw|sw]`` / ``[hw]`` / ``[sw]`` /
+        ``[--]``), with errors, warnings (notably ``forced-sw`` and its reasons), and info
+        annotated inline. Programs with fragment calls are expanded first.
+
+        Args:
+            qprogram: Program to classify and render.
+
+        Returns:
+            The rendered tree.
+        """
+        from qprogram.explain import explain as _explain  # noqa: PLC0415
+
+        return _explain(qprogram, self.capabilities)
 
     @abstractmethod
     def execute(self, qprogram: QProgram, **kwargs) -> QProgramResult:

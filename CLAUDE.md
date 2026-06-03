@@ -17,7 +17,7 @@ If the user asks about behavior, syntax, vendor protocol, or design rationale, c
 
 A three-package demo showing how to decouple a vendor-agnostic core DSL (`qprogram/`) from vendor-specific extensions (`qprogram-qblox/`, `qprogram-qdac/`). Each package is its own uv project with its own `pyproject.toml`, `uv.lock`, and `.venv` — there is **no top-level workspace**. The vendor packages depend on `qprogram` as an editable path source (see their `pyproject.toml` `[tool.uv.sources]`).
 
-All three packages have substantial test suites (`qprogram/tests/` ~1,250 tests including hypothesis-based round-trip property tests in `tests/test_round_trip_property.py`; each vendor package ~95–100). `qprogram/tests/_dummy_vendor.py` is a complete in-tree vendor extension used as a fixture (`activate()`/`deactivate()` keep the global registries clean between tests).
+All three packages have substantial test suites (`qprogram/tests/` ~1,330 tests including hypothesis-based round-trip property tests in `tests/test_round_trip_property.py`; each vendor package ~95–100). `qprogram/tests/_dummy_vendor.py` is a complete in-tree vendor extension used as a fixture (`activate()`/`deactivate()` keep the global registries clean between tests).
 
 ## Common commands
 
@@ -52,6 +52,10 @@ Anywhere a numeric parameter is accepted, an `Expression` is also accepted (`var
 
 `Variable` ids must match `[A-Za-z_][A-Za-z0-9_]*`, must be unique within a program (`program.variable` enforces this), and are emitted verbatim as `.qp` identifiers — id-equality is what lets a whole program survive `deepcopy` and `loads(dumps(...))` while comparing equal to the original. All other expression nodes use plain structural equality.
 
+### Fragments (program composition, `fragments.py` + `operations/call.py`)
+
+`Fragment(QProgram)` is a named, parameterized sub-program — the whole builder surface works inside its body (vendor namespaces included), plus `parameter()` placeholders (`Parameter(Variable)`, untyped: the call-site binding determines value/bus/waveform kind). Two equal-billing definition styles: the `@fragment` decorator (signature = parameter list; the body runs **once** at decoration to record the AST) and the explicit `Fragment(...)`/`parameter()` API. `program.call(frag, *args, **kwargs)` binds with the Python calling convention and appends a **first-class `Call` node**; the fragment (and transitively its callees, deps first) is registered in `program._fragments`. Definitions and calls round-trip through `.qp` (`fragment <name>(<params>):` sections before `body:`; bare `name(args)` call statements — a statement shape only fragments use). `program.expand()` is the canonical lowering: deepcopy, then each `Call` becomes a plain `Block` with parameters substituted (raw in value positions, `Constant`-wrapped inside expression trees, kind-checked in bus/waveform positions incl. channel/acquires re-validation), fragment-local vars hygienically renamed (`{frag}_{id}` + numeric suffix), measurement names uniquified via handle rename (keeps `MeasurementRef`s consistent), nested calls recursed with cycle detection. `validate()` auto-expands when `Call`s are present; `Call.required_capabilities()` is empty by design — no platform token needed. The writer emits fragments in dependency order computed at write time (`_topo_fragments`); the parser enforces define-before-use and parses fragment bodies via a scope swap of `(self._program, self._variables, self._handles)` onto the Fragment instance. `dumps(fragment)` is rejected — serialize the host program.
+
 ### Vendor extensions (the decoupling pattern this repo demonstrates)
 
 `qprogram` itself has zero knowledge of any vendor. Vendor extensions hook in via three orthogonal mechanisms:
@@ -85,13 +89,15 @@ PlatformCapabilities
 - `Diagnostic` outputs → hard error in the slot's domain (surfaces only when no domain works; deduplicated when the same profile fills both halves).
 - `DomainConstraint(node, exclude, reason)` outputs → soft restriction. **Constraints must target a `Block`** — the binding loop of the swept variable (`ctx.binding_loop_of(var)`), never the op; an op-targeted constraint is reported as `bad-domain-constraint`.
 
-The validator runs a two-pass walk (see `.specs/qprogram-dsl.md` §9.7 for the full rules): per-node check, then post-order block classification by **op-children consensus** — (c) a block's natural domain is the intersection of its immediate op-children's supports (block-children act as units, with implicit SW propagation upward); (d) healthy op-children with disjoint singleton supports → `"mixed-domain"` error (an op-child whose own support is already empty silently empties the block instead — its own diagnostics explain why); (e1) an SW-only block-child inside a parent whose slot lacks an SW half → `"sw-in-hw"` error; (e2) a constraint stripping `"hw"` from an all-HW block drops the *block* to SW dispatch while its ops stay HW. Outputs `(list[Diagnostic], ExecutionPlan)`. `ExecutionPlan = Mapping[Node, frozenset[Domain]]` and is **identity-keyed** — one entry per node *instance*, looked up by `id()`, so structurally identical ops don't collapse. When a block's support loses `"hw"` and ends at `{sw}`, one `severity="info"` `"forced-software"` diagnostic surfaces on the highest such block (its parent isn't forced sw). Empty support → `"empty-domain"` (or the contributing predicate `Diagnostic`s, if any). `max_loop_nesting` counts repetition levels: `for_loop`/`loop`/`average` are one level each, `parallel` one total, `conditional`/`block` zero.
+The validator runs a two-pass walk (see `.specs/qprogram-dsl.md` §9.7 for the full rules): per-node check, then post-order block classification by **op-children consensus** — (c) a block's natural domain is the intersection of its immediate op-children's supports (block-children act as units, with implicit SW propagation upward); (d) healthy op-children with disjoint singleton supports → `"mixed-domain"` error (an op-child whose own support is already empty silently empties the block instead — its own diagnostics explain why); (e1) an SW-only block-child inside a parent whose slot lacks an SW half → `"sw-in-hw"` error; (e2) a constraint stripping `"hw"` from an all-HW block drops the *block* to SW dispatch while its ops stay HW. Outputs `(list[Diagnostic], ExecutionPlan)`. `ExecutionPlan = Mapping[Node, frozenset[Domain]]` and is **identity-keyed** — one entry per node *instance*, looked up by `id()`, so structurally identical ops don't collapse. When a block's support loses `"hw"` and ends at `{sw}`, one `severity="warning"` `"forced-software"` diagnostic surfaces on the highest such block (its parent isn't forced sw), with the `DomainConstraint` reasons from the forced subtree joined into the message. Empty support → `"empty-domain"` (or the contributing predicate `Diagnostic`s, if any). `max_loop_nesting` counts repetition levels: `for_loop`/`loop`/`average` are one level each, `parallel` one total, `conditional`/`block` zero.
+
+**Diagnostics UX** (`paths.py`, `explain.py`). Severities are `error` (cannot run) / `warning` (runs degraded — forced-software) / `info` (advisory). Every node-bearing `Diagnostic` is stamped with a structural `path` (rooted at `body` = `()`; int segments index `elements`, `"arm:<i>"`/`"else"` address Conditional arm bodies, `"loop:<i>"` Parallel loop headers) — helpers `node_path`/`resolve_path`/`format_path` are top-level exports. `loads()` records `program.source_map` (path → 1-based `.qp` line; cleared by `expand()`, empty for built programs, fragment internals unmapped), so `loads(dumps(p)).source_map[diag.path]` locates the offending line. `qp.explain(program, caps)` / `PlatformProtocol.explain()` renders the plan as a tree — nodes as `.qp` text via the writer's serializers (repr fallback), domain column (`[hw|sw]`/`[hw]`/`[sw]`/`[--]`), inline `!!`/`~`/`i` annotations, node-less diagnostics in a footer; fragments auto-expand.
 
 **Per-node methods are non-recursive** — the validator walks via `body.walk()` and unions per-node sets; recursing inside `required_capabilities()` would double-count.
 
 Vendors register **profile bundles** via `register_profile(Profile(name=..., capabilities=..., limits=..., predicates=..., extends=...))` as a side effect of importing the vendor package. Profiles are domain-agnostic; a platform decides which profile fills each (bus, domain) slot. Core qprogram ships `qprogram-base-v1` in `qprogram/profiles.py` (registered on `import qprogram`) — the canonical platform-level base of block/sweep/expression/bus-less-op tokens. Vendor platforms typically use it for the platform slot via `extends="qprogram-base-v1"` or `from_profile("qprogram-base-v1", ...)`.
 
-`PlatformProtocol` exposes `.capabilities: PlatformCapabilities`, `.validate(qp) -> list[Diagnostic]`, and `.plan(qp) -> ExecutionPlan` — both default to delegating into `qprogram.validation.validate`. The validator does not raise — callers (typically `execute()`) decide how to react; the convention is to raise `UnsupportedOperationError` on any `severity="error"` diagnostic and pass `severity="info"` through as advisory.
+`PlatformProtocol` exposes `.capabilities: PlatformCapabilities`, `.validate(qp) -> list[Diagnostic]`, `.plan(qp) -> ExecutionPlan`, and `.explain(qp) -> str` — all default to delegating into `qprogram.validation.validate` / `qprogram.explain`. The validator does not raise — callers (typically `execute()`) decide how to react; the convention is to raise `UnsupportedOperationError` on any `severity="error"` diagnostic, surface `severity="warning"` without raising, and pass `severity="info"` through as advisory.
 
 Design lineage: MLIR's SPIR-V dialect (distributed declaration + centralized check + per-op interface methods), MLIR's `addDynamicallyLegalOp` (operand-sensitive predicates), QIR profiles (named, hierarchical bundles), Vulkan (features/limits/extensions split).
 
@@ -105,11 +111,14 @@ require qblox 0.1                   # one per used vendor
 metadata:
   label: "..."
   description: "..."
+fragment x_pulse(drive, amp):       # zero or more, before body; called as bare `x_pulse(...)` statements
+  play drive Gaussian(amplitude=amp, duration=40, sigma=8)
 body:
   var freq label="Frequency"        # declarations: id + optional label/units/description kwargs
   average 1000:
     for freq in range(...):
       set_frequency q[0].drive freq
+      x_pulse(q[0].drive, 0.5)
       qblox.acquire "readout_q0" "weights" name="m0"
 ```
 

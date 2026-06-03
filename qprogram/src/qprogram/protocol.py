@@ -318,15 +318,23 @@ class Diagnostic:
     """One issue found by the validator.
 
     Attributes:
-        severity: ``"error"`` for hard failures (missing capability, exceeded limit, empty execution
-            domain); ``"info"`` for advisory output that callers should pass through (notably the
-            single ``forced-software`` notice attached to the highest block that lost ``"hw"`` from
-            its execution domain).
+        severity: ``"error"`` for hard failures the program cannot execute with (missing
+            capability, exceeded limit, empty execution domain); ``"warning"`` for programs that
+            *will* run but in a degraded or surprising way callers should surface prominently
+            (notably the ``forced-software`` notice attached to the highest block that lost
+            ``"hw"`` from its execution domain); ``"info"`` for purely advisory output. The
+            execution convention: ``execute()`` raises on errors, surfaces warnings without
+            raising, and passes info through.
         code: Short machine-readable identifier (``"missing-capability"``, ``"limit-exceeded"``,
             ``"empty-domain"``, ``"forced-software"``, or a vendor-prefixed code).
         message: Human-readable explanation.
         node: The offending AST node when one is available. Capability-missing diagnostics always
             have one; whole-program checks (total-measurement-count, ...) do not.
+        path: Structural address of :attr:`node` under the validated program's body (see
+            :mod:`qprogram.paths`). Stamped by ``validate()``; ``None`` when there is no node.
+            Because the ``.qp`` round-trip preserves structure, the same path resolves against
+            ``loads(dumps(p))`` — whose :attr:`~qprogram.QProgram.source_map` then maps it to a
+            1-based ``.qp`` line.
         capability: The token that was missing, when applicable.
         limit: ``(name, observed_value)`` tuple when a numeric limit was exceeded. The threshold
             itself lives in :attr:`CompilerCapabilities.limits`.
@@ -334,16 +342,22 @@ class Diagnostic:
             running in (typically ``"sw"``).
     """
 
-    severity: Literal["error", "info"]
+    severity: Literal["error", "warning", "info"]
     code: str
     message: str
     node: Operation | Block | None = None
+    path: tuple[int | str, ...] | None = None
     capability: str | None = None
     limit: tuple[str, float] | None = None
     domain: Domain | None = None
 
     def __str__(self) -> str:
-        return f"[{self.severity}] {self.code}: {self.message}"
+        location = ""
+        if self.path is not None:
+            from qprogram.paths import format_path  # noqa: PLC0415 — paths imports QProgram; lazy avoids a cycle
+
+            location = f" (at {format_path(self.path)})"
+        return f"[{self.severity}] {self.code}: {self.message}{location}"
 
 
 @dataclass(frozen=True)

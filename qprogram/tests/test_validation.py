@@ -454,9 +454,10 @@ def test_domain_constraint_targets_block_not_op() -> None:
     assert "hw" in plan[play_node]
 
 
-def test_forced_software_info_diagnostic_fires_once_on_highest_block() -> None:
+def test_forced_software_warning_fires_once_on_highest_block() -> None:
     """A DomainConstraint targeting an inner loop, with both the outer Average and the loop forced
-    to sw, surfaces exactly one ``forced-software`` info on the topmost forced block."""
+    to sw, surfaces exactly one ``forced-software`` warning on the topmost forced block, carrying
+    the constraint's reason text."""
     caps = _full_caps(bus_predicates=(_drag_sigma_excludes_hw,))
     p = QProgram()
     sigma = p.variable("sigma")
@@ -467,8 +468,10 @@ def test_forced_software_info_diagnostic_fires_once_on_highest_block() -> None:
     assert len(info_diags) == 1
     # The info attaches to Average — the topmost forced-sw block (its parent is the root body).
     assert type(info_diags[0].node).__name__ == "Average"
-    assert info_diags[0].severity == "info"
+    assert info_diags[0].severity == "warning"
     assert info_diags[0].domain == "sw"
+    # The reason from the subtree's DomainConstraint surfaces in the message.
+    assert "sigma" in info_diags[0].message
 
 
 def test_amplitude_sweep_stays_hw_when_only_sigma_is_constrained() -> None:

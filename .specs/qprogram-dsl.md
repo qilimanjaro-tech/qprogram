@@ -1,7 +1,7 @@
 # QProgram DSL Specification (Draft)
 
 > **Source / upstream:** https://www.notion.so/qilimanjaro/QProgram-DSL-Specification-Draft-32f7eec14c53815a8290d85478cdcaec
-> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03 (including the §5.4 entry-point vendor discovery / auto-activation addition). This file and the Notion page are in sync.
+> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03 (incl. vendor auto-activation, fragments, and diagnostics UX: §9.5/§9.7 severities, Diagnostic `path`, §9.8). This file and the Notion page are in sync.
 > **Status:** Draft (specification — the implementation matches this revision)
 
 ---
@@ -1059,6 +1059,45 @@ The QProgram language makes **no distinction** between hardware and software loo
 - Blocks containing `set_parameter`, `get_parameter`, or `set_crosstalk` **require** software orchestration
 - The same `for_loop` may run in hardware on one platform and in software on another.
 This is intentional. Users describe *what* they want; the compiler decides *how*. The mechanism is the classifier in §9.7 — each platform declares per-bus hw/sw capabilities, and the validator returns an `ExecutionPlan` mapping each block to the domain(s) it can run in.
+## 6.4 Fragments — Reusable Parameterized Sub-Programs
+A `Fragment` is a named, parameterized program template: define a gate, an echo sequence, or a readout block once, instantiate it many times. Fragments are **first-class**: definitions and call sites survive in the AST and round-trip through `.qp` (see the .qp File Format Specification §2.5/§4.7). `program.expand()` is the canonical lowering to a fragment-free program. The reserved keywords `fragment` / `def` / `gate` anticipated this feature; `fragment` is now in use.
+### Defining fragments
+Two equal-billing styles. **Decorator** — the function signature *is* the parameter list (first argument receives the builder; remaining arguments become parameters; the fragment name is the function name). The body runs **once**, at decoration, to record the AST:
+```python
+from qprogram import fragment
+
+@fragment
+def x_pulse(f, drive, amp):
+    f.play(drive, Gaussian(amplitude=amp, duration=40, sigma=8))
+```
+**Explicit** — mirror of `program.variable()`, for programmatic construction (e.g. generated per qubit):
+```python
+xp = Fragment("x_pulse")
+drive = xp.parameter("drive")
+amp = xp.parameter("amp")
+xp.play(drive, Gaussian(amplitude=amp, duration=40, sigma=8))
+```
+A `Fragment` subclasses `QProgram`, so the full builder surface is available inside a body: every operation, control flow, vendor namespaces (`frag.qblox.acquire(...)`), local variables (`frag.variable("n")`), and calls to *other* fragments (`f.call(other, ...)`). `*args`/`**kwargs`/defaults/keyword-only parameters are rejected in the decorator; fragment names follow identifier rules and must not be reserved keywords.
+### Parameters are untyped placeholders
+`Parameter` subclasses `Variable`: it participates in expressions (`amp * 2`), and may stand in **value**, **bus**, or **waveform** position. The *binding* at the call site determines the kind; mismatches (e.g. a waveform bound to a parameter used in arithmetic) raise `ValidationError` at expansion with the fragment and parameter named. Loop *bounds* cannot be parameterized (`for_loop` validates numeric bounds eagerly); loop bodies, operation arguments, and waveform constructor arguments can.
+### Calling
+```python
+p = qp.QProgram()
+g = p.variable("g")
+with p.average(1000), p.for_loop(g, 0, 1, 0.01):
+    p.call(x_pulse, "drive_q0", g)            # positional and/or keyword, Python convention
+    p.call(x_pulse, "drive_q1", amp=(g * 0.5))
+```
+`call()` binds arguments (missing/extra/duplicate → `ValidationError`; accepted kinds: numbers, expressions/variables, buses as strings or `BusRef`s, waveforms), appends a first-class `Call` node, and registers the fragment — plus, transitively, every fragment it calls, dependencies first — on `program.fragments`. Name clashes (two different fragments under one name) and call cycles are rejected. A fragment built against a `BusSchema` shares it with the host program (two *different* schemas are an error).
+### Expansion
+`program.expand()` returns a new fragment-free program; the original is untouched. Each call site becomes a plain `block:` containing the fragment body with:
+- **parameters substituted** — raw bindings in value positions, `Constant`-wrapped numbers inside expression trees, buses/waveforms in their positions (with channel/acquires re-validation against bound `BusRef`s);
+- **local variables hygienically renamed** onto the host (`{fragment}_{id}`, numeric suffix on collision) so repeated calls never clash;
+- **measurement names uniquified** (`m0`, `m0_2`, …) by renaming the shared `MeasurementHandle`, so `handle.state` conditionals inside the fragment stay consistent;
+- **nested calls expanded recursively** (cycles raise `ValidationError`).
+Expansion is deterministic (document order): expanding twice yields structurally equal programs.
+### Validation and execution
+`validate()` **auto-expands** programs containing `Call` nodes — capabilities are checked against the substituted bodies, and `Call` itself needs no capability token. Callers that need the identity-keyed `ExecutionPlan` for nodes they hold should call `expand()` explicitly and validate the expanded program. The platform convention is the same: `execute()` lowers via `expand()` before compilation.
 ---
 # 7. CrosstalkMatrix (?)
 A `CrosstalkMatrix` models flux crosstalk between buses. It can be applied at runtime via `set_crosstalk()`.
@@ -1279,7 +1318,7 @@ class DomainConstraint:
     reason: str
 ```
 
-`Diagnostic` is a hard outcome (the node is unsupported in the slot being validated). `DomainConstraint` is a soft outcome: the node *would* be supported, except in the listed domains. The classifier (§9.7) collects `DomainConstraint`s and intersects them with the node's domain set; an empty result becomes one error diagnostic, a `{hw,sw} → {sw}` reduction at a block becomes one info diagnostic.
+`Diagnostic` is a hard outcome (the node is unsupported in the slot being validated). `DomainConstraint` is a soft outcome: the node *would* be supported, except in the listed domains. The classifier (§9.7) collects `DomainConstraint`s and intersects them with the node's domain set; an empty result becomes one error diagnostic, a `{hw,sw} → {sw}` reduction at a block becomes one `severity="warning"` `forced-software` diagnostic carrying the constraint reasons.
 
 `DomainConstraint.node` **must be a `Block`** — typically the loop that binds the swept
 variable (via `ctx.binding_loop_of(var)`). The semantics are "this *loop* cannot iterate in
@@ -1374,13 +1413,15 @@ Profiles compose only by **single-parent extension**. `child.extends="parent-nam
 ```python
 @dataclass(frozen=True)
 class Diagnostic:
-    severity: Literal["error", "info"]
+    severity: Literal["error", "warning", "info"]   # error: cannot run; warning: runs degraded
+                                                    # (forced-software); info: advisory
     code: str                                       # "missing-capability", "limit-exceeded",
                                                     # "empty-domain", "mixed-domain",
                                                     # "sw-in-hw", "bad-domain-constraint",
                                                     # "forced-software", ...
     message: str
     node: Operation | Block | None
+    path: tuple[int | str, ...] | None = None       # structural address of `node` (see §9.8)
     capability: str | None = None
     limit: tuple[str, float] | None = None
     domain: Domain | None = None                    # single-domain attribution where meaningful
@@ -1425,15 +1466,35 @@ Then:
   diagnostics), emit one `severity="error"` `"empty-domain"` diagnostic listing the contributing
   constraint reasons.
 - If a block's support was reduced from a set containing `"hw"` to `{sw}`, emit one
-  `severity="info"` `"forced-software"` diagnostic attached to the **highest** such block.
+  `severity="warning"` `"forced-software"` diagnostic attached to the **highest** such block,
+  with the `DomainConstraint` reasons collected from the forced subtree joined into the message.
   Ancestors that are software-only purely because of this block are not separately reported —
   the highest-block rule keeps the output skimmable.
 - Whole-program limit checks (max nesting, max parallel arity, max measurements, min wait
   duration) fire against the relevant slot's limits.
+- Finally, every node-bearing diagnostic is stamped with its structural `path` (§9.8).
 
-Validation never raises. The convention remains: `execute()` calls `validate()` first and raises `UnsupportedOperationError` if any `severity="error"` diagnostic appears; `severity="info"` diagnostics are passed through as advisory output.
+Validation never raises. The convention: `execute()` calls `validate()` first and raises `UnsupportedOperationError` if any `severity="error"` diagnostic appears; `severity="warning"` diagnostics are surfaced prominently but never raise; `severity="info"` diagnostics are passed through as advisory output.
 
-The classifier output (the `ExecutionPlan`) is the platform's hand-off to the compiler. A `for_loop` classified `{hw}` becomes a real-time hardware loop; a `for_loop` classified `{sw}` is dispatched one iteration per shot by the lab server. The user writes the same program either way (§6.3: the DSL makes no distinction); the platform decides "how", and the user can see "how" by reading the plan.
+The classifier output (the `ExecutionPlan`) is the platform's hand-off to the compiler. A `for_loop` classified `{hw}` becomes a real-time hardware loop; a `for_loop` classified `{sw}` is dispatched one iteration per shot by the lab server. The user writes the same program either way (§6.3: the DSL makes no distinction); the platform decides "how", and the user can see "how" by reading the plan — see §9.8.
+## 9.8 Inspecting the plan: paths, source maps, and `explain()`
+Three facilities make diagnostics and the plan actionable.
+
+**Structural paths.** Every node-bearing `Diagnostic` carries `path: tuple[int | str, ...]` — a structural address rooted at `program.body` (whose path is `()`). Integer segments index `elements`; `"arm:<i>"` / `"else"` address a `Conditional`'s arm bodies; `"loop:<i>"` addresses a `Parallel`'s composed loop headers. Helpers in `qprogram.paths` (exported at top level): `node_path(root, node)` (identity match), `resolve_path(root, path)` (inverse; `KeyError` on dangling paths), and `format_path(path)` (`body[1][0].arm:0[2]`). Because the `.qp` round-trip preserves structure exactly, a path computed against one program resolves against any structurally-equal copy.
+
+**Source maps.** `loads()` / `load()` record `program.source_map`: a mapping from structural path to the 1-based `.qp` line that produced the node (conditional arm bodies map to their `if`/`elif`/`else:` header line; parallel loop headers share the parallel header's line). The headline flow: validate a built program, take `diag.path`, then `loads(dumps(p)).source_map[diag.path]` is the offending line in the serialized text. The map is empty for Python-built programs and cleared by `expand()` (the structure changed); fragment-internal statements are not mapped (diagnostics always target the expanded body).
+
+**`explain()`.** `PlatformProtocol.explain(qprogram)` (default delegates to top-level `qprogram.explain(program, caps)`) renders the plan as a tree: every body node printed as its `.qp` text, the domain set in an aligned column (`[hw|sw]`, `[hw]`, `[sw]`, `[--]` for no executable domain), and diagnostics annotated inline — `!!` errors, `~` warnings (`forced-sw` with its reasons), `i` info — with node-less diagnostics in a footer. Programs containing fragment calls are expanded first (the header notes it). Sample:
+
+```
+plan for 'rabi' — errors: 0 · warnings: 1 · info: 0
+body
+└─ average 1000:                              [sw]     ~ forced-sw: lo_frequency swept via set_parameter
+   └─ for g in range(0, 1, 0.01):             [sw]
+      ├─ set_frequency "drive_q0" g           [hw|sw]
+      ├─ set_parameter "cluster" "lo" g       [sw]
+      └─ measure "readout_q0" "ro" "w" name="m0"  [hw|sw]
+```
 
 ---
 # 10. File Format (`.qp`)
@@ -1513,5 +1574,5 @@ print(I_values)
 - [x] **Active reset**: **Resolved** — `active_reset` is a `qblox.*` vendor extension (complex orchestration), not a core operation.
 - [x] **`set_offset`**** dual path**: **Resolved** — core `set_offset` keeps a generic signature; Qblox-specific dual-path behavior is handled by the compiler.
 - [x] **Variable arithmetic**: **Resolved** — expressions support `+`, `-`, `*`, `/`, and unary `-` via the `Expression` AST (Section 3).
-- [x] **Error model**: **Resolved** — a structured `validate()` pass runs before compilation and returns a list of `Diagnostic` objects (Section 9). Platforms decide whether to raise on diagnostics; the typical `execute()` raises on `severity="error"` and passes `severity="info"` through as advisory. The validator also emits a `plan()` mapping each block/operation to its execution domain (`{hw}`, `{sw}`, or both).
+- [x] **Error model**: **Resolved** — a structured `validate()` pass runs before compilation and returns a list of `Diagnostic` objects (Section 9). Platforms decide whether to raise on diagnostics; the typical `execute()` raises on `severity="error"`, surfaces `severity="warning"` without raising, and passes `severity="info"` through as advisory. The validator also emits a `plan()` mapping each block/operation to its execution domain (`{hw}`, `{sw}`, or both).
 - [x] **Conditional execution / mid-circuit branching**: **Resolved** (v1) — `program.if_(condition) / elif_(condition) / else_()` with sequential `with` blocks. Conditions are restricted to `Comparison` with at least one `MeasurementRef` operand and `int` literals or other `MeasurementRef`s on the remaining side(s); both operator (`handle.state == 0`, `m1.state == m2.state`) and helper (`qp.eq(handle.state, 0)`) ergonomics are supported. Richer boolean shapes (variable comparisons, logical combinations) are a follow-up. AST: flat `Conditional(arms=[(cond, body), ...], else_body)`. See Section 6.1.

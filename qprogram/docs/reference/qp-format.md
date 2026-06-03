@@ -7,7 +7,7 @@ indentation-based, line-oriented, and has no external dependency.
 
 ## Top-level layout
 
-A file has up to three optional declarations followed by a required body:
+A file has up to four optional declarations followed by a required body:
 
 ```
 #!QProgram 1.0
@@ -16,6 +16,8 @@ require <vendor> <major.minor>     # zero or more
 metadata:                          # optional
   ...
 schema:                            # optional, at most one
+  ...
+fragment <name>(<params>):         # zero or more, before body
   ...
 body:                              # required
   ...
@@ -287,6 +289,33 @@ average 1000:
       measure "readout_q0" "readout" "weights" name="m0"
 ```
 
+## Fragments
+
+Reusable sub-programs are declared in top-level `fragment` sections (before
+`body:`) and instantiated by bare `name(args)` call statements:
+
+```
+fragment x_pulse(drive, amp):
+  play drive Gaussian(amplitude=amp, duration=40, sigma=8)
+
+body:
+  var g
+  for g in range(0, 1, 0.1):
+    x_pulse("drive_q0", g)
+    x_pulse("drive_q1", amp=(g * 0.5))
+```
+
+Fragment bodies use the same statement grammar as `body:` — including `var`
+declarations (fragment-local), control flow, vendor operations, and calls to
+*previously defined* fragments (define-before-use is enforced). Call
+arguments follow the Python calling convention: positionals in parameter
+order, then `key=value` keywords; argument tokens take the same shapes as
+operation arguments (numbers, quoted strings, bus paths, identifiers,
+parenthesised expressions, inline waveform constructors). Unknown call
+names, duplicate definitions, reserved names, and arity mismatches are hard
+`ParseError`s. See the [fragments guide](../guide/fragments.md) for the
+Python API and expansion semantics.
+
 ## Vendor operations
 
 Vendor operations use dot notation. The vendor must appear in a `require`
@@ -353,7 +382,10 @@ body:
 file           := header require* section*
 header         := "#!QProgram" VERSION
 require        := "require" IDENT VERSION
-section        := metadata_sec | schema_sec | body_sec
+section        := metadata_sec | schema_sec | fragment_sec | body_sec
+
+fragment_sec   := "fragment" IDENT "(" (IDENT ("," IDENT)*)? ")" ":" NEWLINE INDENT statement+
+                                                    # before body_sec; statement+ as in body
 
 metadata_sec   := "metadata:" NEWLINE INDENT kv_pair+
 kv_pair        := IDENT ":" value
@@ -374,7 +406,9 @@ KIND_NAME      := IDENT
 INDEX          := NUMBER | NUMBER ("," NUMBER)+
 
 body_sec       := "body:" NEWLINE INDENT statement+
-statement      := var_decl | operation | control_block
+statement      := var_decl | operation | control_block | call_stmt
+call_stmt      := FRAGMENT_NAME "(" (call_arg ("," call_arg)*)? ")"   # whole statement
+call_arg       := (IDENT "=")? (value | bus_path | expression)
 var_decl       := "var" ID var_attr*
 var_attr       := ("label" | "units" | "description") "=" STRING
 ID             := [A-Za-z_][A-Za-z0-9_]*

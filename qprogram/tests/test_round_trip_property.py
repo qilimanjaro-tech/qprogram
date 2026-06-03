@@ -13,7 +13,7 @@ import numpy as np
 from hypothesis import given, settings  # ty:ignore[unresolved-import]
 from hypothesis import strategies as st  # ty:ignore[unresolved-import]
 
-from qprogram import CrosstalkMatrix, QProgram, dumps, loads
+from qprogram import CrosstalkMatrix, Fragment, QProgram, dumps, loads
 from qprogram.buses import BusSchema
 from qprogram.waveforms import Arbitrary, Gaussian, IQDrag, IQPair, Square
 
@@ -219,6 +219,48 @@ def test_round_trip_long_sweeps_property(values: list[float]) -> None:
         p.set_gain("drive", v)
     reloaded = loads(dumps(p))
     assert np.array_equal(reloaded.body.elements[0].values, np.asarray(values))
+
+
+@st.composite
+def fragment_programs(draw: st.DrawFn) -> QProgram:
+    """A host program calling a generated fragment 1-3 times with adversarial bindings.
+
+    The fragment uses its parameters in every position kind (bus, raw value, expression,
+    waveform attribute) and optionally carries a local sweep variable, so the round-trip must
+    preserve definitions, call arguments, and expansion semantics together.
+    """
+    frag = Fragment("frag")
+    bus_p = frag.parameter("bus_p")
+    val_p = frag.parameter("val_p")
+    frag.wait(bus_p, val_p)  # raw value position
+    if draw(st.booleans()):
+        frag.set_gain(bus_p, val_p + draw(numbers))  # expression position
+    if draw(st.booleans()):
+        frag.play(bus_p, Gaussian(amplitude=val_p, duration=40, sigma=8))  # waveform attribute
+    if draw(st.booleans()):
+        n = frag.variable("n")
+        k = draw(st.integers(min_value=1, max_value=30))
+        with frag.loop(n, np.asarray(draw(st.lists(finite_floats, min_size=k, max_size=k)))):
+            frag.set_frequency(bus_p, n)
+
+    p = QProgram(label=draw(spicy_text))
+    g = p.variable("g")
+    with p.for_loop(g, 0.0, 1.0, 0.5):
+        for _ in range(draw(st.integers(min_value=1, max_value=3))):
+            val_arg = draw(st.one_of(numbers, st.just(g), st.just(g * draw(numbers))))
+            p.call(frag, draw(bus_names), val_arg)
+    return p
+
+
+@given(fragment_programs())
+@settings(max_examples=40, deadline=None)
+def test_fragment_round_trip_property(p: QProgram) -> None:
+    text = dumps(p)
+    reloaded = loads(text)
+    assert reloaded.body == p.body
+    assert reloaded.fragments == p.fragments
+    assert dumps(reloaded) == text
+    assert reloaded.expand().body == p.expand().body
 
 
 @given(st.sampled_from(["q[0].drive", "c[0,1].flux", "x[9].y"]))

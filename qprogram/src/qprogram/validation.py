@@ -24,17 +24,24 @@ The classification rules implemented here match the spec:
   block-children — an SW block-child inside an HW block-parent emits ``sw-in-hw`` error (spec
   (e1)). The reverse (HW block inside SW block) is always allowed.
 * A block whose natural ``{hw, sw}`` is reduced to ``{sw}`` by a constraint surfaces a single
-  ``severity="info"`` ``"forced-software"`` diagnostic on the highest such block in its chain.
+  ``severity="warning"`` ``"forced-software"`` diagnostic on the highest such block in its chain,
+  carrying the constraint reasons collected from the forced subtree.
+
+Every node-bearing diagnostic is stamped with a structural :attr:`Diagnostic.path` (see
+:mod:`qprogram.paths`) so tooling can locate it in a serialized ``.qp`` file via
+:attr:`QProgram.source_map`.
 
 The validator never raises — callers decide how to react. A typical
-:meth:`PlatformProtocol.execute` calls :func:`validate` and raises
-:class:`~qprogram.UnsupportedOperationError` on any ``severity="error"`` diagnostic.
+:meth:`PlatformProtocol.execute` calls :func:`validate`, raises
+:class:`~qprogram.UnsupportedOperationError` on any ``severity="error"`` diagnostic, and surfaces
+``"warning"`` / ``"info"`` diagnostics without raising.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import MutableMapping
+from dataclasses import replace
 from typing import TYPE_CHECKING, TypeVar
 
 from qprogram.blocks.average import Average
@@ -151,8 +158,9 @@ def validate(
     3. Whole-program limit checks (loop nesting, parallel arity, measurement count) against the
        platform slot's limits; ``min_wait_duration_ns`` checks against the bus slot's limits.
     4. Universal Conditional checks (unknown measurement, missing state classification).
-    5. Emit one ``"forced-software"`` info per highest-block whose ``support`` was reduced from
-       ``{hw, sw}`` to ``{sw}``.
+    5. Emit one ``"forced-software"`` warning per highest-block whose ``support`` was reduced
+       from ``{hw, sw}`` to ``{sw}``, with the subtree's constraint reasons in the message.
+    6. Stamp each node-bearing diagnostic with its structural :attr:`Diagnostic.path`.
 
     Args:
         qprogram: Program to validate.
@@ -163,7 +171,18 @@ def validate(
         body) and is **identity-keyed**: each node *instance* gets its own entry, even when two
         nodes are structurally identical (``plan[node]`` looks up by ``id``, and iterating the
         plan yields every instance).
+
+    Note:
+        Programs containing fragment :class:`~qprogram.operations.Call` nodes are **expanded
+        first** (:meth:`QProgram.expand`) — capabilities are checked against the substituted
+        fragment bodies, and diagnostics reference nodes of that internal expansion. Callers
+        that need the identity-keyed plan for nodes they hold should expand explicitly and
+        validate the expanded program.
     """
+    from qprogram.operations.call import Call  # noqa: PLC0415
+
+    if any(isinstance(node, Call) for node in qprogram.body.walk()):
+        qprogram = qprogram.expand()
     ctx = _build_context(qprogram)
     diagnostics: list[Diagnostic] = []
     available: _IdentityNodeMap[frozenset[Domain]] = _IdentityNodeMap()
@@ -186,9 +205,9 @@ def validate(
 
     diagnostics.extend(_check_limits(qprogram, ctx, caps))
     diagnostics.extend(_check_conditional_classification(qprogram, ctx))
-    _emit_forced_software(diagnostics, available, support, parent)
+    _emit_forced_software(diagnostics, available, support, parent, constraints_by_block)
 
-    return diagnostics, support
+    return _stamp_paths(diagnostics, qprogram), support
 
 
 # ---------------------------------------------------------------------------
@@ -629,7 +648,38 @@ def _route(
 
 
 # ---------------------------------------------------------------------------
-# Forced-software info emission
+# Diagnostic path stamping
+# ---------------------------------------------------------------------------
+
+
+def _stamp_paths(diagnostics: list[Diagnostic], qprogram: QProgram) -> list[Diagnostic]:
+    """Return ``diagnostics`` with each node-bearing entry's :attr:`Diagnostic.path` filled in.
+
+    One walk builds an identity-keyed node→path table; :class:`Diagnostic` is frozen, so entries
+    are rebuilt via :func:`dataclasses.replace`. A node that is no longer reachable from the body
+    (defensive — shouldn't happen) keeps ``path=None``.
+    """
+    if not any(d.node is not None for d in diagnostics):
+        return diagnostics
+    from qprogram.paths import iter_child_edges  # noqa: PLC0415 — paths imports QProgram; lazy avoids a cycle
+
+    paths_by_id: dict[int, tuple[int | str, ...]] = {id(qprogram.body): ()}
+
+    def collect(node: Block | Operation, prefix: tuple[int | str, ...]) -> None:
+        for segment, child in iter_child_edges(node):
+            child_path = (*prefix, segment)
+            paths_by_id[id(child)] = child_path
+            collect(child, child_path)
+
+    collect(qprogram.body, ())
+    return [
+        replace(d, path=paths_by_id.get(id(d.node))) if d.node is not None and d.path is None else d
+        for d in diagnostics
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Forced-software warning emission
 # ---------------------------------------------------------------------------
 
 
@@ -638,13 +688,19 @@ def _emit_forced_software(
     available: Mapping[Operation | Block, frozenset[Domain]],
     support: Mapping[Operation | Block, frozenset[Domain]],
     parent: Mapping[Operation | Block, Block | None],
+    constraints_by_block: Mapping[int, list[DomainConstraint]],
 ) -> None:
-    """Emit one ``severity="info"`` ``"forced-software"`` per highest forced-sw block.
+    """Emit one ``severity="warning"`` ``"forced-software"`` per highest forced-sw block.
 
     A block is *forced sw* when its final ``support`` is ``{sw}`` and its ``available`` contains
     ``"hw"`` (so HW would have been viable without DomainConstraints). The *highest* block in a
     forced-sw chain is the one whose parent isn't itself forced sw — emitting only there keeps
     the diagnostic output skimmable.
+
+    The message carries the *reasons*: the highest forced block typically lost ``"hw"`` via the
+    implicit sw-block-child propagation, so the human-readable causes are the
+    :class:`DomainConstraint` reasons recorded anywhere in its subtree. When no constraint is on
+    record (a purely propagated force), a generic explanation is used.
     """
     for node, sup in support.items():
         if not isinstance(node, Block):
@@ -656,15 +712,21 @@ def _emit_forced_software(
         p = parent.get(node)
         if p is not None and support.get(p) == _SW_ONLY and "hw" in available.get(p, frozenset()):
             continue
+        reasons: list[str] = []
+        for sub in node.walk():
+            for dc in constraints_by_block.get(id(sub), ()):
+                if dc.reason and dc.reason not in reasons:
+                    reasons.append(dc.reason)
+        detail = (
+            "; ".join(reasons)
+            if reasons
+            else "a contained operation or software-only sub-block requires software dispatch"
+        )
         diagnostics.append(
             Diagnostic(
-                severity="info",
+                severity="warning",
                 code="forced-software",
-                message=(
-                    f"Block '{type(node).__name__}' falls back to software execution; "
-                    f"a contained operation references a swept variable the hardware "
-                    f"sequencer cannot iterate in real time."
-                ),
+                message=f"Block '{type(node).__name__}' falls back to software execution: {detail}.",
                 node=node,
                 domain="sw",
             ),

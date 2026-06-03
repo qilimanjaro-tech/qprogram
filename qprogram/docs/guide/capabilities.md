@@ -107,13 +107,14 @@ bus-specific), while every other token checks against the primary slot.
 
 | Field         | Meaning                                                            |
 |---------------|--------------------------------------------------------------------|
-| `severity`    | `"error"` for hard failures; `"info"` for advisory events (the `forced-software` notice). |
+| `severity`    | `"error"`: the program cannot execute; `"warning"`: it runs but degraded/surprising (the `forced-software` notice); `"info"`: purely advisory. |
 | `code`        | Short machine-readable string (`missing-capability`, `limit-exceeded`, `empty-domain`, `forced-software`, vendor codes prefixed by the vendor name). |
 | `message`     | Human-readable explanation.                                        |
 | `node`        | The offending `Operation` / `Block`, when one is available.        |
+| `path`        | Structural address of `node` under the program body (`body[1][0].arm:0[2]` shape) — resolve with `qp.resolve_path`, or map to a `.qp` line via `loads(dumps(p)).source_map[path]`. |
 | `capability`  | The missing token, when applicable.                                |
 | `limit`       | A `(name, observed_value)` tuple, when a numeric limit fired.      |
-| `domain`      | The domain the node ended up in, on `forced-software` info events. |
+| `domain`      | The domain the node ended up in, on `forced-software` warnings.    |
 
 A diagnostic prints as `[error] missing-capability: …`:
 
@@ -139,6 +140,7 @@ for d in diagnostics:
 `validate` does **not** raise. It returns the diagnostic list and the execution plan so you can
 decide how to react. A platform's `execute()` typically calls `validate` first and raises
 `UnsupportedOperationError` if any `severity="error"` diagnostic is present;
+`severity="warning"` diagnostics are surfaced prominently without raising, and
 `severity="info"` diagnostics are passed through as advisory output.
 
 When at least one domain supports a node, the predicate diagnostics from the other domain are
@@ -225,13 +227,14 @@ Predicate authors choose:
 - *Hard error?* Yield a `Diagnostic`. The validator surfaces it when no domain can run the node.
 - *Just a domain restriction?* Yield a `DomainConstraint`. Silent if some domain fallback works.
 
-### `"forced-software"` info events
+### `"forced-software"` warnings
 
 When a block's support is reduced from `{hw, sw}` to `{sw}` (because of a DomainConstraint
-somewhere in its subtree), the validator emits one `severity="info"` `"forced-software"`
+somewhere in its subtree), the validator emits one `severity="warning"` `"forced-software"`
 diagnostic — on the *highest* block in that forced chain. Ancestors that are software-only purely
 because of this child are not separately reported; the highest-block rule keeps the diagnostic
-output skimmable, and the reason text walks down to the originating constraint.
+output skimmable, and the message joins the `DomainConstraint` reasons collected from the forced
+subtree.
 
 ```python
 program = qp.QProgram()
@@ -242,8 +245,8 @@ with program.average(100), program.for_loop(sigma, 1.0, 10.0, 1.0):
 diagnostics, plan = qp.validate(program, caps)
 for d in diagnostics:
     print(d)
-# [info] forced-software: Block 'Average' falls back to software execution;
-#        a descendant excludes hardware-realtime.
+# [warning] forced-software: Block 'Average' falls back to software execution:
+#           IQDrag.sigma sweep is not real-time. (at body[0])
 ```
 
 The plan shows the same conclusion structurally:
@@ -254,6 +257,35 @@ for node, domains in plan.items():
 # Average → {'sw'}
 # ForLoop → {'sw'}
 # Play    → {'sw'}
+```
+
+## Seeing the plan: `explain()`
+
+`platform.explain(program)` — or the functional form `qp.explain(program, caps)` — renders the
+plan as a tree: every body node as its `.qp` text, the domain set in an aligned column, and
+diagnostics annotated inline (`!!` errors, `~` warnings, `i` info; node-less diagnostics in a
+footer). Programs with fragment calls are expanded first.
+
+```python
+print(qp.explain(program, caps))
+# plan for 'rabi' — errors: 0 · warnings: 1 · info: 0
+# body
+# └─ average 100:                                  [sw]     ~ forced-sw: IQDrag.sigma sweep is not real-time
+#    └─ for sigma in range(1, 10, 1):              [sw]
+#       └─ play "drive_q0" IQDrag(...)             [hw|sw]
+```
+
+### From a diagnostic to a `.qp` line
+
+Every node-bearing diagnostic carries a structural `path`. Resolve it against the program with
+`qp.resolve_path(program, diag.path)`, or map it to a line in the serialized text: `loads()`
+records `program.source_map` (path → 1-based line), and since the round-trip preserves structure,
+a path computed against the built program looks up directly in the reloaded one:
+
+```python
+text = qp.dumps(program)
+line = qp.loads(text).source_map[diag.path]
+print(text.splitlines()[line - 1])
 ```
 
 ## Numeric limits

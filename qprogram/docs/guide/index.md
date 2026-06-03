@@ -11,6 +11,7 @@ is self-contained and ends with cross-references.
 | [Waveforms](waveforms.md)                              | Built-in pulse shapes, IQ pairs, variable-aware parameters, custom waveforms.                |
 | [Operations](operations.md)                            | Every core operation, in one place.                                                          |
 | [Control flow](control-flow.md)                        | `for_loop`, `loop`, `average`, parallel loops, generic blocks, nesting.                       |
+| [Fragments](fragments.md)                              | Reusable parameterized sub-programs: `@fragment`, `Fragment`, `call`, `expand`.               |
 | [Measurements and results](measurements.md)            | `measure`, `MeasurementHandle`, `QProgramResult`, name allocation rules.                     |
 | [Capabilities, diagnostics, and profiles](capabilities.md) | What a platform supports, how to ask, what diagnostics look like.                          |
 | [Saving and loading](serialization.md)                 | `dumps`, `loads`, `save`, `load`, round-trip guarantees.                                      |

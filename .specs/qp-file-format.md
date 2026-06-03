@@ -1,7 +1,7 @@
 # .qp File Format Specification (Draft)
 
 > **Source / upstream:** https://www.notion.so/qilimanjaro/qp-File-Format-Specification-Draft-3307eec14c5381948e39e397b2062803
-> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03 (including the §2.2 / §9.2 entry-point vendor discovery / auto-activation addition). This file and the Notion page are in sync.
+> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03 (incl. vendor auto-activation, fragments, and the §8 source-map note). This file and the Notion page are in sync.
 > **Status:** Draft (specification — the implementation matches this revision)
 
 ---
@@ -26,7 +26,7 @@ Design goals:
 
 # 2. File Structure
 
-A `.qp` file has up to three kinds of optional declarations plus a required body, in order. `metadata` is optional; **at most one** `schema` declaration may appear (zero or one); `body` is required.
+A `.qp` file has up to four kinds of optional declarations plus a required body, in order. `metadata` is optional; **at most one** `schema` declaration may appear (zero or one); `fragment` definitions are optional (any number, each with a unique name; Section 2.5); `body` is required.
 
 ```
 #!QProgram 1.0
@@ -37,6 +37,9 @@ metadata:
   ...
 
 schema:                          # optional, at most one (Section 3a)
+  ...
+
+fragment <name>(<params>):       # optional, any number (Section 2.5)
   ...
 
 body:
@@ -99,6 +102,32 @@ play "drive_q0" pi_pulse  # inline comment
 ## 2.4 Indentation
 
 Indentation is **2 spaces** per level. Tabs are not allowed. Indentation defines block structure (like Python).
+
+## 2.5 Fragment Definitions
+
+A fragment is a named, parameterized sub-program defined once and instantiated by bare call statements (Section 4.7). Definitions appear at the top level, **before `body:`**, after the (optional) `schema:` section when bus paths are used inside fragment bodies:
+
+```
+fragment x_pulse(drive, amp):
+  play drive Gaussian(amplitude=amp, duration=40, sigma=8)
+
+fragment rabi_point(drive, readout, amp):
+  x_pulse(drive, amp)
+  sync
+  measure readout "ro_wf" "weights" name="m0"
+```
+
+- The header is `fragment <name>(<param>, ...):` — `<name>` and each `<param>` follow identifier rules (`[A-Za-z_][A-Za-z0-9_]*`, not reserved). Zero parameters is written `fragment reset():`.
+- The body uses the **same statement grammar as `body:`** (operations, control flow blocks, `var` declarations, vendor dot-notation, calls to *previously defined* fragments), indented 2 spaces.
+- Parameters are untyped placeholders referenced as bare identifiers; a parameter may stand in value, bus, or waveform position. The call site's argument determines the kind.
+- `var` declarations inside a fragment are **fragment-local**: on expansion they are renamed onto the host program (`{fragment}_{id}`, numeric suffix on collision).
+- Fragments may call previously-defined fragments — define-before-use is enforced, which makes the definition order topological by construction. Cycles are impossible to express in a file (and rejected everywhere else).
+- The writer emits every fragment registered on the program, dependencies first; an unused definition in a hand-written file is preserved on round-trip.
+- Errors (all `ParseError`): a definition after `body:`, duplicate fragment names, reserved/invalid names or parameters, duplicate parameters, malformed headers.
+
+## 2.6 Parser strictness for fragments
+
+A statement of the shape `name(args)` is **only** a fragment call. An unknown name in that shape is a hard error (with a dedicated hint when `name` is a registered waveform class — waveform constructors cannot stand alone as statements).
 
 ---
 
@@ -383,6 +412,24 @@ average 1000:
       measure "readout_q0" "readout" "default"
 ```
 
+## 4.7 Fragment Calls
+
+A fragment defined in a `fragment` section (Section 2.5) is instantiated by a bare call statement — the name followed immediately by a parenthesised argument list:
+
+```
+body:
+  var g
+  average 1000:
+    for g in range(0, 1, 0.01):
+      rabi_point(q[0].drive, q[0].readout, g)
+      rabi_point("drive_q1", "readout_q1", amp=(g * 0.5))
+```
+
+- Arguments follow the **Python calling convention**: positional in parameter order, then `key=value` keywords. Duplicate bindings, unknown keywords, missing or excess arguments, and positionals after a keyword are all errors.
+- Argument tokens use the same shapes as operation arguments: numbers, quoted strings, bare bus paths (promoted to `BusRef`s against the schema; quoted path-lookalikes stay strings), identifiers (variables — or enclosing-fragment parameters when the call appears inside another fragment), parenthesised expressions, and inline waveform constructors.
+- The statement shape `name(args)` is unambiguous: operations separate their arguments with spaces, and block headers end with `:`.
+- On the Python side a call appears as a first-class `Call` node; `program.expand()` replaces it with the substituted fragment body (DSL spec §6.4).
+
 ---
 
 # 5. Complete Example
@@ -447,7 +494,10 @@ body:
 file           := header require* section*
 header         := "#!QProgram" VERSION
 require        := "require" IDENT VERSION
-section        := metadata_sec | schema_sec | body_sec
+section        := metadata_sec | schema_sec | fragment_sec | body_sec
+
+fragment_sec   := "fragment" IDENT "(" (IDENT ("," IDENT)*)? ")" ":" NEWLINE INDENT statement+
+                                                    # before body_sec; statement+ as in body
 
 metadata_sec   := "metadata:" NEWLINE INDENT kv_pair+
 kv_pair        := IDENT ":" value
@@ -467,7 +517,9 @@ KIND_NAME      := IDENT
 INDEX          := NUMBER | NUMBER ("," NUMBER)+
 
 body_sec       := "body:" NEWLINE INDENT statement+
-statement      := var_decl | operation | control_block
+statement      := var_decl | operation | control_block | call_stmt
+call_stmt      := FRAGMENT_NAME "(" (call_arg ("," call_arg)*)? ")"   # whole statement
+call_arg       := (IDENT "=")? (value | bus_path | expression)
 var_decl       := "var" ID var_attr*
 var_attr       := ("label" | "units" | "description") "=" STRING
 ID             := [A-Za-z_][A-Za-z0-9_]*
@@ -524,6 +576,8 @@ program = qp.loads(text)
 ```
 
 The parser is implemented in pure Python with no external dependencies (no `ruamel.yaml`, no `pyyaml`, no `lark`). It is a simple recursive-descent parser following the grammar in Section 7.
+
+While parsing the `body:` section, the loader records a **source map** on the returned program — `program.source_map` maps each node's structural path (DSL spec §9.8) to the 1-based line that produced it, so a `Diagnostic.path` computed against a structurally-equal program locates the offending `.qp` line. Fragment-internal statements are not mapped.
 
 ---
 

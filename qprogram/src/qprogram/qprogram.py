@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 
     from qprogram.buses import BusSchema
     from qprogram.crosstalk_matrix import CrosstalkMatrix
+    from qprogram.fragments import Fragment
     from qprogram.vendor import VendorNamespace
 
 
@@ -234,6 +235,14 @@ class QProgram:
         self._block_stack: deque[Block] = deque([self._body])
         self._variables: list[Variable] = []
         self._schema = schema
+        # Fragments used by this program, keyed by name. Populated by :meth:`call` (transitively,
+        # dependencies first — so iteration order is topological) and by the ``.qp`` parser (file
+        # order, which is topological too since fragments must be defined before use).
+        self._fragments: dict[str, Fragment] = {}
+        # Structural-path → 1-based ``.qp`` line for every body node, filled by ``loads()``/
+        # ``load()``. Empty for programs built in Python; cleared by :meth:`expand` (the
+        # expansion restructures the tree, invalidating the recorded paths).
+        self._qp_source_map: dict[tuple[int | str, ...], int] = {}
         # Holds the open if_/elif_/else_ chain so a following elif_/else_ can find the right
         # Conditional. The tuple is (open Conditional, parent block); it's cleared whenever something
         # else is appended at that parent level by :meth:`_append_to_active`.
@@ -265,6 +274,30 @@ class QProgram:
     def variables(self) -> list[Variable]:
         """Return the list of :class:`Variable` s declared on this program (declaration order)."""
         return list(self._variables)
+
+    @property
+    def source_map(self) -> dict[tuple[int | str, ...], int]:
+        """Return the ``.qp`` source map: structural path → 1-based line in the parsed file.
+
+        Filled by ``loads()`` / ``load()`` for every node in the ``body:`` section (paths follow
+        :mod:`qprogram.paths` — ``()`` is the body, ints index ``elements``, ``arm:<i>`` /
+        ``else`` / ``loop:<i>`` address conditional arms and parallel loop headers). Empty for
+        programs built in Python and after :meth:`expand`. Because the ``.qp`` round-trip
+        preserves structure, a :attr:`~qprogram.Diagnostic.path` computed against a built program
+        looks up directly in ``loads(dumps(p)).source_map``. Fragment-internal statements are not
+        mapped (diagnostics always target the expanded body).
+        """
+        return dict(self._qp_source_map)
+
+    @property
+    def fragments(self) -> dict[str, Fragment]:
+        """Return the :class:`~qprogram.Fragment` s used by this program, keyed by name.
+
+        Populated by :meth:`call` (including each fragment's own dependencies, registered first) and
+        by ``loads()`` for every ``fragment`` section in a ``.qp`` file. Iteration order is
+        topological: a fragment always appears before any fragment that calls it.
+        """
+        return dict(self._fragments)
 
     @property
     def _active_block(self) -> Block:
@@ -605,6 +638,91 @@ class QProgram:
         """Append a :class:`~qprogram.operations.SetCrosstalk` — install a program-wide crosstalk matrix."""
         self._append_to_active(SetCrosstalk(crosstalk=crosstalk))
 
+    # --- Fragments ---
+
+    def call(self, fragment: Fragment, *args: object, **kwargs: object) -> None:
+        """Instantiate a :class:`~qprogram.Fragment` at the current position.
+
+        Appends a first-class :class:`~qprogram.operations.Call` node — the fragment definition and
+        the call site both survive serialization and round-trip through ``.qp``. Use
+        :meth:`expand` to lower every call into the substituted fragment body.
+
+        Arguments bind to the fragment's parameters with the Python calling convention (positional
+        in declaration order, then keywords). Accepted values: numbers, expressions/variables,
+        buses (strings or :class:`~qprogram.BusRef`), and waveforms.
+
+        The fragment (and, transitively, any fragment it calls) is registered on this program so
+        the ``.qp`` writer can emit its definition.
+
+        Args:
+            fragment: The fragment to call.
+            *args: Positional arguments.
+            **kwargs: Keyword arguments.
+
+        Raises:
+            ValidationError: On a non-Fragment argument, a binding error (missing/extra/duplicate
+                parameter, unsupported value type), a name clash with a different fragment already
+                used by this program, a schema mismatch, or a call cycle.
+        """
+        from qprogram.fragments import Fragment, bind_arguments  # noqa: PLC0415
+        from qprogram.operations.call import Call  # noqa: PLC0415
+
+        if not isinstance(fragment, Fragment):
+            msg = f"call() expects a Fragment, got {type(fragment).__name__}"
+            raise ValidationError(msg)
+        if fragment is self:
+            msg = f"fragment {fragment.name!r} cannot call itself"
+            raise ValidationError(msg)
+        bound = bind_arguments(fragment, args, kwargs)
+        for value in bound.values():
+            if isinstance(value, BusRef):
+                self._validate_bus(value)
+        self._reconcile_fragment_schema(fragment)
+        self._register_fragment(fragment, _stack=())
+        self._append_to_active(Call(fragment=fragment, arguments=bound))
+
+    def _reconcile_fragment_schema(self, fragment: Fragment) -> None:
+        """Adopt the fragment's schema (or vice versa); reject two different schemas.
+
+        A program and the fragments it calls must agree on a single :class:`~qprogram.BusSchema`
+        so the ``.qp`` writer's one ``schema:`` section can resolve every bus path.
+        """
+        frag_schema = fragment.schema
+        if frag_schema is None:
+            return
+        if self._schema is None:
+            self._schema = frag_schema
+            return
+        if frag_schema is not self._schema:
+            msg = (
+                f"fragment {fragment.name!r} was built against a different BusSchema than this "
+                f"program's; a program and its fragments must share one schema"
+            )
+            raise ValidationError(msg)
+
+    def _register_fragment(self, fragment: Fragment, _stack: tuple[str, ...]) -> None:
+        """Record ``fragment`` (dependencies first) in :attr:`_fragments`; detect cycles and clashes."""
+        from qprogram.operations.call import Call  # noqa: PLC0415
+
+        if fragment.name in _stack:
+            cycle = " -> ".join((*_stack, fragment.name))
+            msg = f"fragment call cycle: {cycle}"
+            raise ValidationError(msg)
+        existing = self._fragments.get(fragment.name)
+        if existing is not None and existing is not fragment:
+            msg = (
+                f"a different fragment named {fragment.name!r} is already used by this program; "
+                f"fragment names must be unique within a program"
+            )
+            raise ValidationError(msg)
+        # Walk dependencies even when already registered — the fragment may have gained nested
+        # calls since the first registration.
+        for node in fragment.body.walk():
+            if isinstance(node, Call):
+                self._register_fragment(node.fragment, (*_stack, fragment.name))
+        if existing is None:
+            self._fragments[fragment.name] = fragment
+
     # --- Control flow ---
 
     def for_loop(
@@ -732,6 +850,30 @@ class QProgram:
                 raise ValidationError(msg)
 
     # --- Transformations ---
+
+    def expand(self) -> QProgram:
+        """Return a deep copy with every fragment :class:`~qprogram.operations.Call` inlined.
+
+        The canonical lowering from the composed form to a fragment-free program: each call site is
+        replaced by a plain :class:`Block` containing the fragment body with parameters substituted
+        by the bound arguments. Fragment-local variables are hygienically renamed onto this program
+        (``{fragment}_{id}``, numeric suffix on collision); colliding measurement names gain a
+        ``_2`` / ``_3`` suffix (the shared handle is renamed, keeping ``handle.state`` conditionals
+        consistent). Nested calls expand recursively; expansion is deterministic, so expanding twice
+        yields structurally equal programs.
+
+        Programs without calls return an ordinary deep copy.
+
+        Returns:
+            A new, fragment-free :class:`QProgram`; the original is untouched.
+
+        Raises:
+            ValidationError: On a fragment call cycle or a binding used in an incompatible
+                position (e.g. a waveform bound to a parameter used inside arithmetic).
+        """
+        from qprogram.fragments import expand_program  # noqa: PLC0415
+
+        return expand_program(self)
 
     def with_bus_mapping(self, bus_mapping: dict[str, str]) -> QProgram:
         """Return a deep copy with bus references rewritten by ``bus_mapping``.

@@ -16,6 +16,10 @@ from qprogram.errors import (
     VendorActivationError,
     WaveformResolutionError,
 )
+from qprogram.explain import explain
+from qprogram.fragments import Fragment, Parameter, fragment
+from qprogram.operations.call import Call
+from qprogram.paths import AstPath, format_path, node_path, resolve_path
 from qprogram.platform import PlatformProtocol
 from qprogram.profiles import QPROGRAM_BASE_V1
 from qprogram.protocol import (
@@ -82,6 +86,7 @@ __all__ = [
     "QPROGRAM_BASE_V1",
     "RESERVED_KEYWORDS",
     "UNASSIGNED",
+    "AstPath",
     "BinaryOp",
     "BusCapabilities",
     "BusNaming",
@@ -89,6 +94,7 @@ __all__ = [
     "BusRef",
     "BusSchema",
     "BusSelector",
+    "Call",
     "Comparison",
     "CompilationError",
     "CompilerCapabilities",
@@ -99,6 +105,7 @@ __all__ = [
     "DomainConstraint",
     "ExecutionPlan",
     "Expression",
+    "Fragment",
     "HardwareError",
     "InvalidVariableIdError",
     "LogicalBinaryOp",
@@ -107,6 +114,7 @@ __all__ = [
     "MeasurementHandle",
     "MeasurementRef",
     "MeasurementResult",
+    "Parameter",
     "ParseError",
     "PlatformCapabilities",
     "PlatformProtocol",
@@ -133,12 +141,16 @@ __all__ = [
     "dumps",
     "eq",
     "exp",
+    "explain",
+    "format_path",
+    "fragment",
     "load",
     "loads",
     "log",
     "maximum",
     "minimum",
     "ne",
+    "node_path",
     "not_",
     "or_",
     "register_capability_tokens",
@@ -147,6 +159,7 @@ __all__ = [
     "register_vendor_version",
     "register_waveform",
     "register_waveform_token",
+    "resolve_path",
     "resolve_profile",
     "save",
     "sin",

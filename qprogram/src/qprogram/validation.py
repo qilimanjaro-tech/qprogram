@@ -34,8 +34,10 @@ The validator never raises — callers decide how to react. A typical
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import TYPE_CHECKING
+from collections.abc import MutableMapping
+from typing import TYPE_CHECKING, TypeVar
 
+from qprogram.blocks.average import Average
 from qprogram.blocks.block import Block
 from qprogram.blocks.conditional import Conditional
 from qprogram.blocks.for_loop import ForLoop
@@ -75,6 +77,55 @@ _ALL_DOMAINS: frozenset[Domain] = frozenset({"hw", "sw"})
 _HW_ONLY: frozenset[Domain] = frozenset({"hw"})
 _SW_ONLY: frozenset[Domain] = frozenset({"sw"})
 
+_V = TypeVar("_V")
+
+
+class _IdentityNodeMap(MutableMapping["Operation | Block", _V]):
+    """A mapping over AST nodes keyed by **object identity**, not structural equality.
+
+    AST nodes use structural ``__eq__`` / ``__hash__`` (two identical ``play`` ops compare equal),
+    which is right for round-trip comparison but wrong for the classifier's bookkeeping: a plain
+    ``dict`` would collapse repeated identical operations into a single entry, so a three-op
+    program could come back with a two-entry :data:`~qprogram.ExecutionPlan`. Keying by ``id()``
+    keeps one entry per node *instance* while still satisfying the public ``Mapping`` contract
+    (iteration yields the node objects; ``plan[node]`` looks up by identity).
+
+    Holds a reference to every key, so ``id()`` values can't be recycled while the map lives.
+    """
+
+    __slots__ = ("_entries",)
+
+    def __init__(self) -> None:
+        self._entries: dict[int, tuple[Operation | Block, _V]] = {}
+
+    def __getitem__(self, key: Operation | Block) -> _V:
+        try:
+            return self._entries[id(key)][1]
+        except KeyError:
+            raise KeyError(key) from None
+
+    def __setitem__(self, key: Operation | Block, value: _V) -> None:
+        self._entries[id(key)] = (key, value)
+
+    def __delitem__(self, key: Operation | Block) -> None:
+        try:
+            del self._entries[id(key)]
+        except KeyError:
+            raise KeyError(key) from None
+
+    def __iter__(self):  # noqa: ANN204 — Iterator[Operation | Block]
+        return (node for node, _ in self._entries.values())
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+    def __contains__(self, key: object) -> bool:
+        return id(key) in self._entries
+
+    def __repr__(self) -> str:
+        items = ", ".join(f"{type(node).__name__}: {value!r}" for node, value in self._entries.values())
+        return f"{type(self).__name__}({{{items}}})"
+
 
 def validate(
     qprogram: QProgram,
@@ -108,13 +159,16 @@ def validate(
         caps: Platform capability descriptor.
 
     Returns:
-        ``(diagnostics, plan)``. The plan covers every visited AST node (excluding the root body).
+        ``(diagnostics, plan)``. The plan covers every visited AST node (excluding the root
+        body) and is **identity-keyed**: each node *instance* gets its own entry, even when two
+        nodes are structurally identical (``plan[node]`` looks up by ``id``, and iterating the
+        plan yields every instance).
     """
     ctx = _build_context(qprogram)
     diagnostics: list[Diagnostic] = []
-    available: dict[Operation | Block, frozenset[Domain]] = {}
-    support: dict[Operation | Block, frozenset[Domain]] = {}
-    parent: dict[Operation | Block, Block | None] = {}
+    available: _IdentityNodeMap[frozenset[Domain]] = _IdentityNodeMap()
+    support: _IdentityNodeMap[frozenset[Domain]] = _IdentityNodeMap()
+    parent: _IdentityNodeMap[Block | None] = _IdentityNodeMap()
     constraints_by_block: dict[int, list[DomainConstraint]] = defaultdict(list)
 
     for child in qprogram.body.elements:
@@ -134,7 +188,7 @@ def validate(
     diagnostics.extend(_check_conditional_classification(qprogram, ctx))
     _emit_forced_software(diagnostics, available, support, parent)
 
-    return diagnostics, dict(support)
+    return diagnostics, support
 
 
 # ---------------------------------------------------------------------------
@@ -148,9 +202,9 @@ def _classify_node(  # noqa: PLR0913
     caps: PlatformCapabilities,
     ctx: ValidationContext,
     diagnostics: list[Diagnostic],
-    available: dict[Operation | Block, frozenset[Domain]],
-    support: dict[Operation | Block, frozenset[Domain]],
-    parent: dict[Operation | Block, Block | None],
+    available: _IdentityNodeMap[frozenset[Domain]],
+    support: _IdentityNodeMap[frozenset[Domain]],
+    parent: _IdentityNodeMap[Block | None],
     constraints_by_block: dict[int, list[DomainConstraint]],
 ) -> None:
     """Recursively classify ``node`` and its descendants in post-order.
@@ -162,11 +216,24 @@ def _classify_node(  # noqa: PLR0913
 
     if isinstance(node, Block):
         _classify_block(
-            node, caps, ctx, diagnostics, available, support, parent, constraints_by_block,
+            node,
+            caps,
+            ctx,
+            diagnostics,
+            available,
+            support,
+            parent,
+            constraints_by_block,
         )
     else:
         _classify_operation(
-            node, caps, ctx, diagnostics, available, support, constraints_by_block,
+            node,
+            caps,
+            ctx,
+            diagnostics,
+            available,
+            support,
+            constraints_by_block,
         )
 
 
@@ -175,8 +242,8 @@ def _classify_operation(  # noqa: PLR0913
     caps: PlatformCapabilities,
     ctx: ValidationContext,
     diagnostics: list[Diagnostic],
-    available: dict[Operation | Block, frozenset[Domain]],
-    support: dict[Operation | Block, frozenset[Domain]],
+    available: _IdentityNodeMap[frozenset[Domain]],
+    support: _IdentityNodeMap[frozenset[Domain]],
     constraints_by_block: dict[int, list[DomainConstraint]],
 ) -> None:
     """Classify a leaf operation.
@@ -197,9 +264,9 @@ def _classify_block(  # noqa: PLR0913
     caps: PlatformCapabilities,
     ctx: ValidationContext,
     diagnostics: list[Diagnostic],
-    available: dict[Operation | Block, frozenset[Domain]],
-    support: dict[Operation | Block, frozenset[Domain]],
-    parent: dict[Operation | Block, Block | None],
+    available: _IdentityNodeMap[frozenset[Domain]],
+    support: _IdentityNodeMap[frozenset[Domain]],
+    parent: _IdentityNodeMap[Block | None],
     constraints_by_block: dict[int, list[DomainConstraint]],
 ) -> None:
     """Classify a block from its immediate op-children plus any DomainConstraints targeting it.
@@ -215,7 +282,15 @@ def _classify_block(  # noqa: PLR0913
     # in place before we classify this block.
     for child in (*block_children, *op_children):
         _classify_node(
-            child, block, caps, ctx, diagnostics, available, support, parent, constraints_by_block,
+            child,
+            block,
+            caps,
+            ctx,
+            diagnostics,
+            available,
+            support,
+            parent,
+            constraints_by_block,
         )
 
     # 3. Block's own check (block tokens against the platform slot).
@@ -224,9 +299,15 @@ def _classify_block(  # noqa: PLR0913
     _route_constraints(own_dcs, block, diagnostics, constraints_by_block)
 
     # 4. Op-children consensus → block's natural domain (spec (c) + (d)).
-    if op_children:
+    # Op-children whose own support is already empty are excluded from the consensus: they were
+    # diagnosed at their own node (missing-capability / predicate error), and folding their empty
+    # set in would manufacture a misleading extra "mixed-domain" error on the parent. The block
+    # still can't execute, so its support goes empty — silently, the child diagnostic explains it.
+    healthy_ops = [op for op in op_children if support[op]]
+    has_defective_op = len(healthy_ops) < len(op_children)
+    if healthy_ops:
         ops_consensus = _ALL_DOMAINS
-        for op in op_children:
+        for op in healthy_ops:
             ops_consensus &= support[op]
         if not ops_consensus:
             diagnostics.append(
@@ -236,7 +317,7 @@ def _classify_block(  # noqa: PLR0913
                     message=(
                         f"Block '{type(block).__name__}' has op-children with incompatible "
                         f"domain singletons: "
-                        f"{[(type(op).__name__, sorted(support[op])) for op in op_children]}"
+                        f"{[(type(op).__name__, sorted(support[op])) for op in healthy_ops]}"
                     ),
                     node=block,
                 ),
@@ -249,8 +330,14 @@ def _classify_block(  # noqa: PLR0913
         # fallback below.
         natural_from_ops = ops_consensus
     else:
-        # No op-children — the block's domain is unconstrained by content.
+        # No (healthy) op-children — the block's domain is unconstrained by content.
         natural_from_ops = _ALL_DOMAINS
+    if has_defective_op:
+        # At least one op-child can run nowhere: the block as a whole cannot execute. The child's
+        # own diagnostics already say why — no additional block-level diagnostic.
+        available[block] = frozenset()
+        support[block] = frozenset()
+        return
 
     # 5. Combine with own slot availability.
     avail = own_avail & natural_from_ops
@@ -285,12 +372,9 @@ def _classify_block(  # noqa: PLR0913
     # 7. Empty-domain error if support is empty.
     if not sup:
         if avail:
-            reasons = "; ".join(
-                f"{dc.reason}" for dc in constraints_by_block.get(id(block), ())
-            )
-            msg = (
-                f"Block '{type(block).__name__}' has no executable domain after DomainConstraints"
-                + (f": {reasons}" if reasons else ".")
+            reasons = "; ".join(f"{dc.reason}" for dc in constraints_by_block.get(id(block), ()))
+            msg = f"Block '{type(block).__name__}' has no executable domain after DomainConstraints" + (
+                f": {reasons}" if reasons else "."
             )
         elif not own_avail:
             msg = (
@@ -325,6 +409,16 @@ def _classify_block(  # noqa: PLR0913
                 )
 
 
+def _constraint_seen(dc: DomainConstraint, existing: list[DomainConstraint]) -> bool:
+    """Whether an equivalent constraint is already recorded.
+
+    Equivalence is *identity* on the target node plus structural equality on the restriction —
+    plain dataclass equality would compare nodes structurally and could merge constraints that
+    target two different (but identical-looking) loop instances.
+    """
+    return any(e.node is dc.node and e.exclude == dc.exclude and e.reason == dc.reason for e in existing)
+
+
 def _route_constraints(
     dcs: list[DomainConstraint],
     source_node: Operation | Block,
@@ -335,11 +429,15 @@ def _route_constraints(
 
     A constraint must target a :class:`Block` — predicates that emit ``DomainConstraint`` with
     ``node`` set to something else are a programming error in the predicate author's code; we
-    emit a meta-diagnostic explaining that and drop the constraint on the floor.
+    emit a meta-diagnostic explaining that and drop the constraint on the floor. Equivalent
+    constraints already in the bucket are skipped (a profile filling both halves of a slot runs
+    its predicates once per domain).
     """
     for dc in dcs:
         if isinstance(dc.node, Block):
-            constraints_by_block[id(dc.node)].append(dc)
+            bucket = constraints_by_block[id(dc.node)]
+            if not _constraint_seen(dc, bucket):
+                bucket.append(dc)
         else:
             diagnostics.append(
                 Diagnostic(
@@ -405,23 +503,30 @@ def _check_node_self(
 
     - ``available``: domains where the node's required tokens fit the routed slot AND no
       predicate emitted a :class:`Diagnostic`.
-    - ``diagnostics``: any ``Diagnostic`` outputs the predicates emitted, **only** if the result
-      ``available`` is empty (so per-domain noise is suppressed when at least one domain works).
-    - ``domain_constraints``: every ``DomainConstraint`` the predicates emitted, untouched —
-      they target blocks and are routed by the caller.
+    - ``diagnostics``: the per-domain failure reasons, **only** if the result ``available`` is
+      empty (so per-domain noise is suppressed when at least one domain works). Deduplicated:
+      a token missing in both domains produces one diagnostic naming both, and a predicate
+      registered on both halves of a slot contributes its (equal) Diagnostic once.
+    - ``domain_constraints``: the ``DomainConstraint`` outputs the predicates emitted,
+      deduplicated by equality — the same profile filling both the hw and sw halves runs its
+      predicates twice and would otherwise double every constraint (and double the reason text
+      in downstream ``empty-domain`` messages).
 
     Required-token routing splits along the ``expr.*`` namespace: expression tokens always check
     against ``caps.platform`` (they describe what Python AST node kinds the platform's compiler
     accepts, not what any particular bus's instrument can do), while every other token checks
     against the node's primary routed slot.
     """
-    bus_slots = _route(node, caps)
+    bus_slots = _route(node, caps, ctx)
     required = node.required_capabilities()
     expr_required = {t for t in required if t.startswith("expr.")}
     other_required = required - expr_required
 
     available: set[Domain] = set()
-    per_domain_diags: dict[Domain, list[Diagnostic]] = {"hw": [], "sw": []}
+    # token -> [(domain, profile_name, is_expr)] in domain order; merged into one diagnostic per
+    # token at the end so a token missing in both domains isn't reported twice.
+    missing_by_token: dict[str, list[tuple[Domain, str, bool]]] = {}
+    predicate_diags: list[Diagnostic] = []
     constraints: list[DomainConstraint] = []
 
     for d in ("hw", "sw"):
@@ -431,69 +536,56 @@ def _check_node_self(
         platform_cc = caps.platform.get(d)
         if expr_required and platform_cc is None:
             continue
-        domain_diags: list[Diagnostic] = []
+        domain_failed = False
         for cc in bus_ccs:
             if cc is None:  # pragma: no cover — already filtered above; pleases the type checker
                 continue
-            missing = sorted(other_required - cc.capabilities)
-            domain_diags.extend(
-                Diagnostic(
-                    severity="error",
-                    code="missing-capability",
-                    message=(
-                        f"'{type(node).__name__}' requires capability "
-                        f"{token!r} which is not supported by profile "
-                        f"{cc.profile!r} in domain {d!r}"
-                    ),
-                    node=node,
-                    capability=token,
-                    domain=d,
-                )
-                for token in missing
-            )
+            for token in sorted(other_required - cc.capabilities):
+                missing_by_token.setdefault(token, []).append((d, cc.profile, False))
+                domain_failed = True
             for predicate in cc.predicates:
                 for output in predicate(node, ctx):
                     if isinstance(output, Diagnostic):
-                        domain_diags.append(output)
-                    else:
+                        if output not in predicate_diags:
+                            predicate_diags.append(output)
+                        domain_failed = True
+                    elif not _constraint_seen(output, constraints):
                         constraints.append(output)
         if expr_required and platform_cc is not None:
-            missing_expr = sorted(expr_required - platform_cc.capabilities)
-            domain_diags.extend(
-                Diagnostic(
-                    severity="error",
-                    code="missing-capability",
-                    message=(
-                        f"'{type(node).__name__}' requires expression capability "
-                        f"{token!r} which is not supported by platform profile "
-                        f"{platform_cc.profile!r} in domain {d!r}"
-                    ),
-                    node=node,
-                    capability=token,
-                    domain=d,
-                )
-                for token in missing_expr
-            )
-        per_domain_diags[d] = domain_diags
-        if not any(diag.severity == "error" for diag in domain_diags):
+            for token in sorted(expr_required - platform_cc.capabilities):
+                missing_by_token.setdefault(token, []).append((d, platform_cc.profile, True))
+                domain_failed = True
+        if not domain_failed:
             available.add(d)
 
     available_set: frozenset[Domain] = frozenset(available)
 
     diagnostics_out: list[Diagnostic] = []
     if not available_set:
-        # Surface per-domain diagnostics so the user sees why each domain failed.
-        for d in ("hw", "sw"):
-            diagnostics_out.extend(per_domain_diags[d])
+        # Surface the failure reasons — one diagnostic per missing token (not per domain).
+        for token in sorted(missing_by_token):
+            sites = missing_by_token[token]
+            domains = sorted({d for d, _, _ in sites})
+            where = " / ".join(f"{profile!r} ({d})" for d, profile, _ in sites)
+            kind = "expression capability" if sites[0][2] else "capability"
+            diagnostics_out.append(
+                Diagnostic(
+                    severity="error",
+                    code="missing-capability",
+                    message=(f"'{type(node).__name__}' requires {kind} {token!r} which is not supported by {where}"),
+                    node=node,
+                    capability=token,
+                    domain=domains[0] if len(domains) == 1 else None,
+                ),
+            )
+        diagnostics_out.extend(predicate_diags)
         if not diagnostics_out:
             # No predicate or token complaints — the slot(s) had ``None`` engines in every domain.
             diagnostics_out.append(
                 Diagnostic(
                     severity="error",
                     code="empty-domain",
-                    message=(
-                        f"'{type(node).__name__}' has no executable domain on its routed slot."
-                    ),
+                    message=(f"'{type(node).__name__}' has no executable domain on its routed slot."),
                     node=node,
                 ),
             )
@@ -501,15 +593,21 @@ def _check_node_self(
     return available_set, diagnostics_out, constraints
 
 
-def _route(node: Operation | Block, caps: PlatformCapabilities) -> list[BusCapabilities]:
+def _route(
+    node: Operation | Block,
+    caps: PlatformCapabilities,
+    ctx: ValidationContext,
+) -> list[BusCapabilities]:
     """Return the :class:`BusCapabilities` slots that ``node`` routes to.
 
     - Blocks always route to ``caps.platform``.
     - Bus-less ops (``BUS_ATTRS = ()``) route to ``caps.platform``.
     - Bus-touching ops with one or more buses route to ``caps.for_bus(bus)`` per bus; the caller
       intersects across the returned list when multiple are present.
-    - Bus-touching ops whose bus list resolves to empty (e.g. ``Sync(targets=None)``, which means
-      "sync every active bus") route to ``caps.default_bus_profile``.
+    - Broadcast ops whose bus list resolves to empty (``Sync(targets=None)``, which means "sync
+      every active bus") route across **every** bus in the program — the intersection semantics
+      then match the explicit-targets form. A broadcast in a program with no buses at all, or a
+      non-broadcast op with an empty bus list, falls back to ``caps.default_bus_profile``.
     """
     if isinstance(node, Block):
         return [caps.platform]
@@ -524,6 +622,8 @@ def _route(node: Operation | Block, caps: PlatformCapabilities) -> list[BusCapab
         elif isinstance(value, list):
             bus_values.extend(v for v in value if isinstance(v, str))
     if not bus_values:
+        if type(node).BROADCASTS_WHEN_NO_BUS and ctx.program_buses:
+            return [caps.for_bus(b) for b in sorted(ctx.program_buses)]
         return [caps.default_bus_profile]
     return [caps.for_bus(b) for b in bus_values]
 
@@ -554,11 +654,7 @@ def _emit_forced_software(
         if "hw" not in available.get(node, frozenset()):
             continue
         p = parent.get(node)
-        if (
-            p is not None
-            and support.get(p) == _SW_ONLY
-            and "hw" in available.get(p, frozenset())
-        ):
+        if p is not None and support.get(p) == _SW_ONLY and "hw" in available.get(p, frozenset()):
             continue
         diagnostics.append(
             Diagnostic(
@@ -583,9 +679,14 @@ def _emit_forced_software(
 def _build_context(qprogram: QProgram) -> ValidationContext:
     """Walk the program once to gather the cross-op data-flow facts predicates need.
 
-    Why max_loop_nesting counts Parallel as one level: depth measures how many sweeps wrap a leaf
-    operation, not how many sweep variables exist — a parallel composing two for-loops still
-    contributes one nesting level.
+    ``max_loop_nesting`` counts how many *repetition levels* wrap a leaf operation — every
+    construct that consumes a hardware loop register contributes one level:
+
+    - :class:`ForLoop` / :class:`Loop` — one level each.
+    - :class:`Parallel` — one level total: it composes its loops in lockstep, not nested.
+    - :class:`Average` — one level: it compiles to a repetition loop just like a sweep does.
+    - :class:`Conditional` arms and plain :class:`Block` groupings — zero levels: branching and
+      grouping don't iterate.
     """
     variable_bindings: dict[Variable, Block] = {}
     sweep_kinds: dict[Variable, SweepKind] = {}
@@ -614,13 +715,19 @@ def _build_context(qprogram: QProgram) -> ValidationContext:
                 sweep_kinds[header.variable] = "linear" if isinstance(header, ForLoop) else "arbitrary"
             for child in node.elements:
                 visit(child, depth + 1)
+        elif isinstance(node, Average):
+            # An average repeats its body shots-times — it occupies a loop level on the
+            # sequencer exactly like a sweep does.
+            for child in node.elements:
+                visit(child, depth + 1)
         elif isinstance(node, Conditional):
+            # Branching selects a body; it doesn't iterate — no extra loop level.
             for _, body in node.arms:
                 for child in body.elements:
-                    visit(child, depth + 1)
+                    visit(child, depth)
             if node.else_body is not None:
                 for child in node.else_body.elements:
-                    visit(child, depth + 1)
+                    visit(child, depth)
         elif isinstance(node, Block):
             for child in node.elements:
                 visit(child, depth)
@@ -638,6 +745,7 @@ def _build_context(qprogram: QProgram) -> ValidationContext:
         max_parallel_arity=max_parallel_arity,
         measurement_count=measurement_count,
         measurement_returns=measurement_returns,
+        program_buses=frozenset(qprogram.buses),
     )
 
 
@@ -674,10 +782,7 @@ def _check_limits(
             ),
         )
 
-    if (
-        "max_parallel_loops" in platform_limits
-        and ctx.max_parallel_arity > platform_limits["max_parallel_loops"]
-    ):
+    if "max_parallel_loops" in platform_limits and ctx.max_parallel_arity > platform_limits["max_parallel_loops"]:
         diagnostics.append(
             Diagnostic(
                 severity="error",

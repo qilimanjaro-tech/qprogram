@@ -16,11 +16,12 @@ class FlatTop(Waveform):
 
     Args:
         amplitude: Pulse amplitude. Accepts an :class:`~qprogram.Expression`.
-        duration: Total pulse duration in nanoseconds (including the smoothed edges). Accepts an
-            :class:`~qprogram.Expression`.
+        duration: Pulse duration in nanoseconds, including the smoothed edges but excluding the
+            ``buffer`` padding. Accepts an :class:`~qprogram.Expression`.
         smooth_duration: Length of each edge (rise and fall) in nanoseconds. Accepts an
             :class:`~qprogram.Expression`.
-        buffer: Optional padding added on both sides of the pulse in nanoseconds.
+        buffer: Zero-amplitude padding added on **each** side of the pulse, in nanoseconds. The
+            total duration is ``duration + 2 * buffer``.
     """
 
     def __init__(
@@ -48,8 +49,12 @@ class FlatTop(Waveform):
         t = np.arange(n_samples)
         rise = 0.5 * (1 + np.vectorize(erf)((t - smooth) / (smooth / 3)))
         fall = 0.5 * (1 + np.vectorize(erf)((n_samples - 1 - smooth - t) / (smooth / 3)))
-        return amplitude * rise * fall
+        pulse = amplitude * rise * fall
+        if self.buffer:
+            pad = np.zeros(int(self.buffer / resolution))
+            return np.concatenate([pad, pulse, pad])
+        return pulse
 
     def get_duration(self) -> int:
         duration = self.duration.evaluate_or_raise() if isinstance(self.duration, Expression) else self.duration
-        return int(duration)
+        return int(duration) + 2 * self.buffer

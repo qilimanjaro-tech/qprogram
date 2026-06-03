@@ -1,9 +1,8 @@
 # QProgram DSL Specification (Draft)
 
-> **Source:** https://www.notion.so/qilimanjaro/QProgram-DSL-Specification-Draft-32f7eec14c53815a8290d85478cdcaec
-> **Fetched:** 2026-05-07
-> **Reconciled:** 2026-05-15
-> **Status:** Draft (specification — code may not yet match)
+> **Source / upstream:** https://www.notion.so/qilimanjaro/QProgram-DSL-Specification-Draft-32f7eec14c53815a8290d85478cdcaec
+> **Reconciled:** 2026-06-02 with the reference implementation; **pushed to the Notion page 2026-06-03** (this file and the Notion page are now in sync).
+> **Status:** Draft (specification — the implementation matches this revision)
 
 ---
 
@@ -65,7 +64,7 @@ mapped = program.with_bus_mapping({"drive_q0": "drive_q1", "readout_q0": "readou
 **Waveform mapping** — resolve string waveform aliases to concrete waveforms:
 ```python
 resolved = program.with_waveforms({
-    "pi_pulse": IQDrag(0.5, 40, 2.5, 0.1),
+    "pi_pulse": IQDrag(0.5, 40, 8, 0.1),
     "readout": IQPair(Square(1.0, 2000), Square(0.0, 2000)),
     "weights": IQPair(Square(1.0, 2000), Square(1.0, 2000)),
 })
@@ -130,7 +129,7 @@ bus = q[0].drive
 print(bus)              # "q0/drive"
 isinstance(bus, str)    # True
 bus.element             # "q"
-bus.index               # 0      (the slot shadows str.index — see note below)
+bus.idx                 # 0      (named `idx`, not `index` — see note below)
 bus.kind                # "drive"
 bus.channel             # "IQ"
 bus.acquires            # False
@@ -138,8 +137,8 @@ bus.acquires            # False
 q[0].readout.acquires   # True   (readout has ADC)
 ```
 
-> The ``index`` slot shadows the inherited ``str.index()`` method on `BusRef`
-> instances. Use plain ``str(bus).index(...)`` for substring searches.
+> The metadata slot is named ``idx`` rather than ``index`` so it does not shadow the
+> inherited ``str.index()`` method — substring searches on a `BusRef` keep working.
 
 `BusRef` carries no back-pointer to its schema. Each `QProgram` holds at most
 one schema (passed to its constructor); the writer reads `program.schema`
@@ -163,10 +162,10 @@ User-typed subclasses (`MyChipSchema` etc.) serialize through the same inline fo
 When a bus is referenced through the schema, operations validate at program-construction time:
 **Waveform channel type** — `play()` checks waveform type matches the bus channel:
 ```python
-program.play(q[0].drive, IQDrag(0.5, 40, 2.5, 0.1))   # OK: IQ waveform on IQ bus
+program.play(q[0].drive, IQDrag(0.5, 40, 8, 0.1))   # OK: IQ waveform on IQ bus
 program.play(q[0].flux, FlatTop(0.5, 200, 20))         # OK: single waveform on single bus
 program.play(q[0].drive, Square(0.5, 100))              # TypeError: single waveform on IQ bus
-program.play(q[0].flux, IQDrag(0.5, 40, 2.5, 0.1))     # TypeError: IQ waveform on single bus
+program.play(q[0].flux, IQDrag(0.5, 40, 8, 0.1))     # TypeError: IQ waveform on single bus
 ```
 **Acquisition support** — `measure()` checks the bus has an ADC:
 ```python
@@ -272,9 +271,10 @@ from qprogram.buses import (
 )
 
 # 1. Define a bus accessor — one @property per bus type.
-#    `_ref(type, channel, *, acquires=False)` builds the BusRef and
-#    automatically tags it with the schema instance, so it serialises
-#    as `my_chip.q[0].drive` rather than a bare string.
+#    `_ref(kind, channel, *, acquires=False)` builds the BusRef and
+#    automatically tags it with the producing schema instance (the
+#    accessor's `_parent`), so program-side validation can reject refs
+#    from a different schema.
 class MyQubitBuses(_TypedElementAccessor):
     @property
     def drive(self) -> BusRef:
@@ -288,12 +288,13 @@ class MyQubitBuses(_TypedElementAccessor):
     def charge(self) -> BusRef:
         return self._ref("charge", "single")
 
-# 2. Define a factory — returns the accessor on subscript.
+# 2. Define a factory — returns the accessor on subscript. The factory
+#    threads (element, index, naming, parent schema) into the accessor.
 class MyQubitFactory(_TypedElementFactory):
     _accessor_cls = MyQubitBuses
 
     def __getitem__(self, index: int) -> MyQubitBuses:
-        return MyQubitBuses(self._element, index, self._naming)
+        return MyQubitBuses(self._element, index, self._naming, self._parent)
 
 # 3. Define the typed schema — set KIND, populate _elements in __init__,
 #    and expose one @property per element type for IDE autocomplete.
@@ -313,11 +314,11 @@ class MyChipSchema(BusSchema):
 
     @property
     def q(self) -> MyQubitFactory:
-        return MyQubitFactory("q", self._naming)
+        return MyQubitFactory("q", self._naming, self)
 
     @property
     def c(self) -> CouplerFactory:
-        return CouplerFactory("c", self._naming)
+        return CouplerFactory("c", self._naming, self)
 
 # Usage — full IDE autocomplete
 schema = MyChipSchema()
@@ -474,7 +475,7 @@ program.wait(bus, 100 + t)                    # int | Expression
 program.set_frequency(bus, 5e9 + t * 1e6)     # float | Expression
 program.set_gain(bus, amp / 2)
 program.set_offset(bus, -amp)
-program.play(bus, Gaussian(amplitude=amp, duration=40 + t, num_sigmas=2.5))
+program.play(bus, Gaussian(amplitude=amp, duration=40 + t, sigma=8))
 ```
 Waveform parameters accept Expressions on the same basis (Section 4.2).
 ## 3.5 Variables hold values; evaluating expressions
@@ -526,7 +527,7 @@ except UnassignedVariableError as e:
 Waveforms use `evaluate_or_raise()` internally on each parameter, so users can build them with symbolic parameters and call `.envelope()` once values are bound:
 ```python
 amp = program.variable("amp")
-g = Gaussian(amplitude=amp, duration=40, num_sigmas=2.5)
+g = Gaussian(amplitude=amp, duration=40, sigma=8)
 
 g.envelope()              # UnassignedVariableError: amp is UNASSIGNED
 amp.set_value(0.7)
@@ -566,7 +567,7 @@ amp = program.variable("amp")
 
 with program.for_loop(amp, start=0.0, stop=1.0, step=0.01):
     # amplitude is a Variable — swept each iteration
-    program.play("drive_q0", Gaussian(amplitude=amp, duration=40, num_sigmas=2.5))
+    program.play("drive_q0", Gaussian(amplitude=amp, duration=40, sigma=8))
 ```
 All numeric parameters in waveform constructors also accept `Variable`.
 ## 4.3 Built-in Waveforms
@@ -575,19 +576,23 @@ All numeric parameters in waveform constructors also accept `Variable`.
 ```python
 Square(amplitude: float | Expression, duration: int | Expression)
 ```
-**Gaussian** — Gaussian-shaped pulse
+**Gaussian** — Gaussian-shaped pulse. `sigma` is the standard deviation **in nanoseconds**
+(see the *waveform-parameter rename* migration guide: the former dimensionless `num_sigmas`
+truncation ratio was replaced by the physical `sigma`).
 ```python
-Gaussian(amplitude: float | Expression, duration: int | Expression, num_sigmas: float | Expression)
+Gaussian(amplitude: float | Expression, duration: int | Expression, sigma: float | Expression)
 ```
-**GaussianDragCorrection** — derivative of Gaussian (DRAG Q component)
+**GaussianDragCorrection** — derivative of Gaussian (DRAG Q component). `beta` is the DRAG
+scaling (β in the Motzoi parameterisation; formerly `drag_coefficient`).
 ```python
-GaussianDragCorrection(amplitude: float | Expression, duration: int | Expression, num_sigmas: float | Expression, drag_coefficient: float | Expression)
+GaussianDragCorrection(amplitude: float | Expression, duration: int | Expression, sigma: float | Expression, beta: float | Expression)
 ```
 **Ramp** — linear interpolation between two amplitudes
 ```python
 Ramp(from_amplitude: float | Expression, to_amplitude: float | Expression, duration: int | Expression)
 ```
-**FlatTop** — square pulse with smoothed (erf) edges
+**FlatTop** — square pulse with smoothed (erf) edges. `buffer` adds zero-amplitude padding of
+that many nanoseconds on **each** side; the total duration is `duration + 2 * buffer`.
 ```python
 FlatTop(amplitude: float | Expression, duration: int | Expression, smooth_duration: int | Expression, buffer: int = 0)
 ```
@@ -595,22 +600,51 @@ FlatTop(amplitude: float | Expression, duration: int | Expression, smooth_durati
 ```python
 SuddenNetZero(amplitude: float | Expression, duration: int | Expression, b: float | Expression, t_phi: int | Expression)
 ```
+**Sine** / **Cosine** — sinusoidal envelopes `amplitude · sin/cos(2π·frequency·t + phase)`
+```python
+Sine(amplitude: float | Expression, duration: int | Expression, frequency: float | Expression, phase: float | Expression = 0.0)
+Cosine(amplitude: float | Expression, duration: int | Expression, frequency: float | Expression, phase: float | Expression = 0.0)
+```
+**Sech** — hyperbolic-secant envelope (adiabatic-passage pulses); `tau` is the width in ns
+```python
+Sech(amplitude: float | Expression, duration: int | Expression, tau: float | Expression)
+```
+**Tukey** — rectangular pulse with cosine-tapered edges; `alpha` ∈ [0, 1] is the combined
+rise+fall fraction (`0` = rectangle, `1` = Hann window)
+```python
+Tukey(amplitude: float | Expression, duration: int | Expression, alpha: float | Expression = 0.5)
+```
 **Arbitrary** — user-provided sample array
 ```python
 Arbitrary(samples: np.ndarray)
 ```
-**Chained** — sequential concatenation of waveforms
+**Chained** — sequential concatenation of waveforms (also built by the `+` operator on any two
+single-channel waveforms)
 ```python
 Chained(waveforms: list[Waveform])
 ```
 ### IQ waveforms
-**IQPair** — pairs any two single-channel waveforms as I and Q
+**IQPair** — pairs any two single-channel waveforms as I and Q. Mismatched concrete durations
+raise `ValidationError` at construction; symbolic (unassigned) durations defer the check to the
+platform compiler.
 ```python
-IQPair(I: Waveform, Q: Waveform)   # I and Q must have same duration
+IQPair(I: Waveform, Q: Waveform)   # I and Q must have the same duration
 ```
 **IQDrag** — DRAG pulse (Gaussian I + GaussianDragCorrection Q)
 ```python
-IQDrag(amplitude: float | Expression, duration: int | Expression, num_sigmas: float | Expression, drag_coefficient: float | Expression)
+IQDrag(amplitude: float | Expression, duration: int | Expression, sigma: float | Expression, beta: float | Expression)
+```
+**Modulated** — IF-modulates a real envelope onto I/Q (`I = env·cos`, `Q = env·sin`)
+```python
+Modulated(envelope: Waveform, frequency: float | Expression, phase: float | Expression = 0.0)
+```
+**IQRotation** — rotates an existing IQWaveform's I/Q channels by `phase` radians (virtual-Z)
+```python
+IQRotation(base: IQWaveform, phase: float | Expression)
+```
+**IQZero** — lifts a real waveform onto an IQ bus with a zero Q channel
+```python
+IQZero(envelope: Waveform)
 ```
 ## 4.4 Extensibility
 Users can define custom waveforms by subclassing `Waveform` or `IQWaveform` and implementing the required abstract methods.
@@ -645,6 +679,10 @@ program.wait(bus: str, duration: int | Expression)
 ```python
 program.sync(buses: list[str] | None = None)
 ```
+An explicit empty list is rejected with `ValidationError` (ambiguous between "sync nothing" and
+"sync everything"); pass `None` for the sync-all form. The validator routes the sync-all form
+across **every** bus the program touches, so its capability requirements intersect over all of
+them — identical semantics to listing the buses explicitly.
 ## 5.2 Parameter Control Operations
 These modify real-time parameters on a bus.
 **`set_frequency(bus, frequency)`** — set NCO/oscillator frequency (Hz)
@@ -930,6 +968,11 @@ with program.for_loop(freq, start=4e9, stop=6e9, step=1e6):
     program.measure("readout_q0", readout, weights)
 ```
 The compiler decides whether this runs as a hardware loop or software loop.
+
+Construction-time validation: `start`/`stop`/`step` must be finite numbers (no `bool`, no
+`inf`/`nan`), `step` must be non-zero, and `step` must point from `start` toward `stop`
+(descending sweeps use a negative step). Violations raise `ValidationError` at the `with`
+statement. The number of points is `round((stop - start) / step) + 1`, both ends inclusive.
 **`loop(variable, values)`** — sweep over an arbitrary array
 ```python
 amp = program.variable("amp")
@@ -937,8 +980,9 @@ with program.loop(amp, values=np.linspace(0.0, 1.0, 100)):
     program.set_gain("drive_q0", amp)
     program.play("drive_q0", pulse)
 ```
+`values` must be a non-empty 1-D sequence; anything else raises `ValidationError`.
 **Parallel loops via ****`|`**** operator** — run multiple loops concurrently (replaces the current `parallel()` API)
-Loops can be combined with the `|` operator to run in parallel. This works with any combination of loop types (`for_loop`, `loop`) as long as they have the same number of iterations.
+Loops can be combined with the `|` operator to run in parallel. This works with any combination of loop types (`for_loop`, `loop`) as long as they have the same number of iterations — the requirement is **enforced at construction**: entering a `with` over mismatched loops raises `ValidationError` naming each loop's count.
 ```python
 freq = program.variable("freq")
 gain = program.variable("gain")
@@ -953,10 +997,11 @@ freq = program.variable("freq")
 amp = program.variable("amp")
 with program.for_loop(freq, 4e9, 6e9, 1e6) | program.loop(amp, values=custom_array):
     program.set_frequency("drive_q0", freq)
-    program.play("drive_q0", Gaussian(amplitude=amp, duration=40, num_sigmas=2.5))
+    program.play("drive_q0", Gaussian(amplitude=amp, duration=40, sigma=8))
 ```
 Chaining is supported: `a | b | c` creates a parallel block with three concurrent loops.
-**`average(shots)`** — repeat and average results
+**`average(shots)`** — repeat and average results. `shots` must be an integer ≥ 1
+(`ValidationError` otherwise).
 ```python
 with program.average(shots=1000):
     program.play("drive_q0", pulse)
@@ -1228,18 +1273,31 @@ class DomainConstraint:
 
 `Diagnostic` is a hard outcome (the node is unsupported in the slot being validated). `DomainConstraint` is a soft outcome: the node *would* be supported, except in the listed domains. The classifier (§9.7) collects `DomainConstraint`s and intersects them with the node's domain set; an empty result becomes one error diagnostic, a `{hw,sw} → {sw}` reduction at a block becomes one info diagnostic.
 
-Example — the canonical Qblox IQDrag-sigma case, expressed as a domain constraint (this combination *can* run, but only via software dispatch):
+`DomainConstraint.node` **must be a `Block`** — typically the loop that binds the swept
+variable (via `ctx.binding_loop_of(var)`). The semantics are "this *loop* cannot iterate in
+hardware"; the operation inside it keeps its own classification (qblox executes the Play as a
+single hardware shot per software-dispatched iteration). A predicate that emits a constraint
+targeting an `Operation` is an authoring error: the validator reports it with a
+`bad-domain-constraint` diagnostic and drops the constraint.
+
+Example — the canonical Qblox IQDrag-sigma case, expressed as a domain constraint on the
+**binding loop** (this combination *can* run, but only via software dispatch):
 
 ```python
 def _drag_sigma_in_loop_is_software_only(node, ctx):
     if not isinstance(node, Play) or not isinstance(node.waveform, IQDrag):
         return
-    if isinstance(node.waveform.sigma, Variable):
-        yield DomainConstraint(
-            node=node,
-            exclude=frozenset({"hw"}),
-            reason="IQDrag.sigma swept by ForLoop is not real-time on qblox-drive",
-        )
+    sigma = node.waveform.sigma
+    if not isinstance(sigma, Variable):
+        return
+    binding_loop = ctx.binding_loop_of(sigma)
+    if binding_loop is None:
+        return  # not loop-bound — constant at upload time
+    yield DomainConstraint(
+        node=binding_loop,
+        exclude=frozenset({"hw"}),
+        reason="IQDrag.sigma swept by ForLoop is not real-time on qblox-drive",
+    )
 ```
 
 A `Wait.duration` swept by an arbitrary `loop` stays a `Diagnostic` because qblox cannot run it at all — neither in hw nor as a software dispatch loop:
@@ -1263,6 +1321,13 @@ The validator builds a `ValidationContext` once per call by pre-walking the AST.
 - `binding_loop_of(var) -> Block | None`
 - `max_loop_nesting`, `max_parallel_arity`, `measurement_count` (also drive the limit checks)
 - `measurement_returns(name) -> tuple[str, ...] | None`
+- `program_buses -> frozenset[str]` — every bus the program touches (used to route broadcast
+  ops such as `sync()` across all of them)
+
+`max_loop_nesting` counts **repetition levels**: `for_loop`, `loop`, and `average` each
+contribute one level (an average occupies a sequencer loop register exactly like a sweep);
+`parallel` contributes one level total; `conditional` arms and plain `block()` groupings
+contribute none.
 
 Predicates run on every visited node, see the same context, and emit zero or more `Diagnostic | DomainConstraint` objects.
 
@@ -1303,27 +1368,60 @@ Profiles compose only by **single-parent extension**. `child.extends="parent-nam
 class Diagnostic:
     severity: Literal["error", "info"]
     code: str                                       # "missing-capability", "limit-exceeded",
-                                                    # "empty-domain", "forced-software", ...
+                                                    # "empty-domain", "mixed-domain",
+                                                    # "sw-in-hw", "bad-domain-constraint",
+                                                    # "forced-software", ...
     message: str
     node: Operation | Block | None
     capability: str | None = None
     limit: tuple[str, float] | None = None
-    domain: Domain | None = None                    # set on "forced-software" info diagnostics
+    domain: Domain | None = None                    # single-domain attribution where meaningful
 
 ExecutionPlan = Mapping[Operation | Block, frozenset[Domain]]
 ```
 
-**Pass 1 — per-node check.** Walk the AST in pre-order. For each node:
+**The plan is identity-keyed.** AST nodes use structural equality (two identical `play` ops
+compare equal), so the plan maps node **instances**: `plan[node]` looks up by object identity,
+iteration yields every instance, and a program with three structurally-identical ops gets three
+plan entries. A structurally-equal node that is not part of the program is not in the plan.
 
-1. Route the node's `required_capabilities()` via `caps.for_bus(node.bus)` for bus-touching ops, `caps.platform` for others. `Sync` and other multi-bus ops intersect over every touched bus.
-2. Compute the per-domain support set: `{d ∈ {hw, sw} : required ⊆ d.capabilities, no predicate emits a Diagnostic for d}`. A `None` slot contributes the empty set.
-3. Run predicates against each non-`None` slot. `Diagnostic` outputs disqualify the slot's domain (and contribute to the diagnostic list); `DomainConstraint(exclude=…)` outputs subtract their listed domains from the support set without producing a diagnostic.
-4. Whole-program limit checks (max nesting, max parallel arity, max measurements, min wait duration) fire after the walk against the relevant slot's limits.
+**Pass 1 — per-node check.** For each node:
 
-**Pass 2 — domain classification.** Walk the AST in post-order. Each block's domain is the **intersection** of its children's domains. Then:
+1. Route the node's `required_capabilities()` via `caps.for_bus(node.bus)` for bus-touching ops, `caps.platform` for blocks and bus-less ops. Multi-bus ops intersect over every touched bus; broadcast ops with no explicit targets (`Sync(targets=None)`) intersect over **every bus in the program**. `expr.*` tokens always check against `caps.platform` regardless of where the op routes.
+2. Compute the node's *available* set: `{d ∈ {hw, sw} : required ⊆ slot[d].capabilities and no predicate emits a Diagnostic when run against slot[d]}`. A `None` slot half contributes nothing.
+3. Predicate `DomainConstraint` outputs are collected per **target block** (they must target a `Block` — see §9.5; an op-targeted constraint produces a `bad-domain-constraint` error instead).
+4. Diagnostics are deduplicated: a token missing in both domains yields **one** `missing-capability` naming both slots; a predicate registered on both halves of a slot contributes its (equal) outputs once. Per-node failure reasons surface only when *no* domain works — if one domain succeeds, the other domain's failures are silent (the fallback worked).
 
-- If a node's domain set is empty, emit one `severity="error"` diagnostic with code `"empty-domain"` listing the contributing exclusions; the offending node is the lowest one whose domain went empty.
-- If a block's domain was reduced from `{hw, sw}` to `{sw}`, emit one `severity="info"` diagnostic with code `"forced-software"` attached to the **highest** such block. Ancestors that are software-only purely because of this block are not separately reported — the highest-block rule keeps the output skimmable, with the reason text pointing down to the originating constraint.
+**Pass 2 — block classification (post-order).** Block domains derive from **op-children
+consensus**; block-children act as units rather than entering the consensus:
+
+- **(c) Consensus.** A block's *natural* domain is the intersection of its immediate
+  op-children's supports: all-HW op-children make the block HW-or-SW-dispatched; all-SW
+  op-children make it SW. A block with no op-children is unconstrained by content. Op-children
+  whose own support is already empty (they were diagnosed in pass 1) are excluded from the
+  consensus — the block's support goes empty without an extra diagnostic.
+- **(d) Mixed domain.** Healthy op-children with disjoint singleton supports (one `{hw}`-only,
+  one `{sw}`-only at the same level) cannot share a block: one `severity="error"`
+  `"mixed-domain"` diagnostic on the block.
+- **(e1) Nesting.** An SW-only block-child inside a parent implies the parent must also run SW —
+  the propagation is implicit (`exclude={"hw"}` on the parent). Only when the parent's slot has
+  no SW half at all does the explicit `"sw-in-hw"` error fire: the FPGA cannot host a software
+  sub-block (HW-in-SW is always allowed).
+- **(e2) HW→SW fallback.** A `DomainConstraint` excluding `"hw"` from an all-HW block shifts the
+  *block* to SW dispatch (one hardware shot per software iteration); the op-children's
+  classification is untouched — variables influence the block's class, never the op's.
+
+Then:
+
+- If a node's final support is empty (and the emptiness isn't already explained by a child's
+  diagnostics), emit one `severity="error"` `"empty-domain"` diagnostic listing the contributing
+  constraint reasons.
+- If a block's support was reduced from a set containing `"hw"` to `{sw}`, emit one
+  `severity="info"` `"forced-software"` diagnostic attached to the **highest** such block.
+  Ancestors that are software-only purely because of this block are not separately reported —
+  the highest-block rule keeps the output skimmable.
+- Whole-program limit checks (max nesting, max parallel arity, max measurements, min wait
+  duration) fire against the relevant slot's limits.
 
 Validation never raises. The convention remains: `execute()` calls `validate()` first and raises `UnsupportedOperationError` if any `severity="error"` diagnostic appears; `severity="info"` diagnostics are passed through as advisory output.
 
@@ -1385,7 +1483,7 @@ qp.save(program, "rabi.qp")
 
 # Resolve waveform aliases with concrete values (e.g. from calibration data)
 resolved = program.with_waveforms({
-    "pi_pulse": IQDrag(0.5, 40, 2.5, 0.1),
+    "pi_pulse": IQDrag(0.5, 40, 8, 0.1),
     "readout": IQPair(Square(1.0, 2000), Square(0.0, 2000)),
     "weights": IQPair(Square(1.0, 2000), Square(1.0, 2000)),
 })

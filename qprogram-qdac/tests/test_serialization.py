@@ -52,7 +52,7 @@ def test_set_trigger_minimal_round_trip():
     p.qdac.set_trigger("flux_q0", duration=50)
     text = dumps(p)
     assert "qdac.set_trigger" in text
-    assert "outputs" not in text   # empty defaults to ()
+    assert "outputs" not in text  # empty defaults to ()
     assert "position" not in text  # default "start" suppressed
     reloaded = loads(text)
     op = reloaded.body.elements[0]
@@ -64,7 +64,7 @@ def test_set_trigger_with_outputs_round_trip():
     p = QdacQProgram()
     p.qdac.set_trigger("flux_q0", 50, outputs={3, 1, 2})
     text = dumps(p)
-    assert "outputs=[1,2,3]" in text  # sorted, no spaces (tokenizer-friendly)
+    assert "outputs=[1, 2, 3]" in text  # sorted, deduplicated, bracket literal
     reloaded = loads(text)
     op = reloaded.body.elements[0]
     assert op.outputs == (1, 2, 3)
@@ -189,7 +189,10 @@ def test_full_features_round_trip(flux_tunable_schema):
         with p.for_loop(v, 0.0, 1.0, 0.1):
             p.qdac.set_offset(flux_tunable_schema.q[0].flux, v)
             p.qdac.set_trigger(
-                flux_tunable_schema.q[0].flux, duration=20, position="step", outputs={1, 2},
+                flux_tunable_schema.q[0].flux,
+                duration=20,
+                position="step",
+                outputs={1, 2},
             )
             p.qdac.play(flux_tunable_schema.q[0].flux, Ramp(0.0, 1.0, 500), dwell=10, stepped=True)
             p.qdac.wait_trigger(flux_tunable_schema.q[0].flux, port=1)

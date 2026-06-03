@@ -21,6 +21,9 @@ class IQZero(IQWaveform):
     WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ("envelope",)
 
     def __init__(self, envelope: Waveform) -> None:
+        if not isinstance(envelope, Waveform):
+            msg = f"IQZero envelope must be a Waveform, got {type(envelope).__name__}"
+            raise TypeError(msg)
         self.envelope = envelope
 
     def get_I(self) -> Waveform:

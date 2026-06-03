@@ -102,6 +102,22 @@ class UnassignedVariableError(ValidationError, ValueError):
 
 
 # ---------------------------------------------------------------------------
+# Serialization
+# ---------------------------------------------------------------------------
+
+
+class SerializationError(QProgramError):
+    """The ``.qp`` writer cannot faithfully serialise a program.
+
+    Raised instead of emitting lossy or unparseable output — e.g. an operation or block class that
+    was never registered with the serialization registry, a vendor operation whose extension forgot
+    to call :func:`~qprogram.register_vendor_version`, or an attribute value of a type the format
+    has no representation for. The write-side counterpart of ``ParseError``: a ``.qp`` file that was
+    produced without error is guaranteed to parse back into an equal program.
+    """
+
+
+# ---------------------------------------------------------------------------
 # Platform-side error contracts
 # ---------------------------------------------------------------------------
 #

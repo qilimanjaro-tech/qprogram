@@ -242,6 +242,30 @@ def test_from_profile_merges_extends_chain() -> None:
 
 
 @pytest.mark.usefixtures("isolated_registry")
+def test_from_profile_merges_vendor_versions_through_chain() -> None:
+    """A parent's vendor_versions survive resolution; the child may override per vendor."""
+    base = Profile(
+        name="vv-base",
+        version=(1, 0, 0),
+        extends=None,
+        capabilities=frozenset(),
+        vendor_versions={"qblox": (0, 1, 0), "qdac": (0, 1, 0)},
+    )
+    child = Profile(
+        name="vv-child",
+        version=(1, 1, 0),
+        extends="vv-base",
+        capabilities=frozenset(),
+        vendor_versions={"qblox": (0, 2, 0)},
+    )
+    register_profile(base)
+    register_profile(child)
+
+    caps = CompilerCapabilities.from_profile("vv-child")
+    assert caps.vendor_versions == {"qblox": (0, 2, 0), "qdac": (0, 1, 0)}
+
+
+@pytest.mark.usefixtures("isolated_registry")
 def test_from_profile_limit_overrides_apply_last() -> None:
     base = Profile(
         name="base",

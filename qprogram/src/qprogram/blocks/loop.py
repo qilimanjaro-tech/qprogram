@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from qprogram.blocks.block import Block
+from qprogram.errors import ValidationError
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -22,12 +23,26 @@ class Loop(Block):
     Args:
         variable: The :class:`~qprogram.Variable` rebound on each iteration.
         values: Sequence of values to iterate through. Anything ``np.asarray`` accepts.
+
+    Raises:
+        ValidationError: If ``values`` is empty or not 1-D.
     """
 
     def __init__(self, variable: Variable, values: npt.ArrayLike) -> None:
         super().__init__()
+        array = np.asarray(values)
+        if array.ndim != 1:
+            msg = f"Loop values must be a 1-D sequence, got a {array.ndim}-D array"
+            raise ValidationError(msg)
+        if array.size == 0:
+            msg = "Loop values must be non-empty (an empty sweep never executes its body)"
+            raise ValidationError(msg)
         self.variable = variable
-        self.values = np.asarray(values)
+        self.values = array
+
+    def num_iterations(self) -> int:
+        """Number of sweep points — one per element of :attr:`values`."""
+        return int(self.values.size)
 
     def variables(self) -> set[Variable]:
         return super().variables() | {self.variable}

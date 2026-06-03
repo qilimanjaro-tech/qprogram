@@ -5,8 +5,9 @@ from __future__ import annotations
 import copy
 
 import numpy as np
+import pytest
 
-from qprogram import Variable
+from qprogram import ValidationError, Variable
 from qprogram.blocks import Average, Block, ForLoop, Loop, Parallel
 from qprogram.operations import Play, Wait
 from qprogram.waveforms import Square
@@ -274,8 +275,10 @@ def test_parallel_variables_includes_each_loop_var():
 
 def test_parallel_walk_yields_loops_and_body():
     v = Variable("x")
+    w = Variable("y")
     fl = ForLoop(v, 0.0, 1.0, 0.1)
-    par = Parallel([fl])
+    fl2 = ForLoop(w, 0.0, 1.0, 0.1)
+    par = Parallel([fl, fl2])
     body_op = Wait("bus", 100)
     par.append(body_op)
     walked = list(par.walk())
@@ -286,18 +289,108 @@ def test_parallel_walk_yields_loops_and_body():
 
 def test_parallel_with_nested_body_variable():
     v = Variable("x")
+    v2 = Variable("x2")
     w = Variable("y")
-    par = Parallel([ForLoop(v, 0.0, 1.0, 0.1)])
+    par = Parallel([ForLoop(v, 0.0, 1.0, 0.1), ForLoop(v2, 0.0, 1.0, 0.1)])
     par.append(Wait("bus", w))
-    assert par.variables() == {v, w}
+    assert par.variables() == {v, v2, w}
 
 
 def test_parallel_structural_equality():
     v = Variable("x")
-    a = Parallel([ForLoop(v, 0.0, 1.0, 0.1)])
-    b = Parallel([ForLoop(v, 0.0, 1.0, 0.1)])
+    w = Variable("y")
+    a = Parallel([ForLoop(v, 0.0, 1.0, 0.1), ForLoop(w, 0.0, 1.0, 0.1)])
+    b = Parallel([ForLoop(v, 0.0, 1.0, 0.1), ForLoop(w, 0.0, 1.0, 0.1)])
     assert a == b
     assert hash(a) == hash(b)
+
+
+def test_parallel_rejects_single_loop():
+    v = Variable("x")
+    with pytest.raises(ValidationError, match="at least two loops"):
+        Parallel([ForLoop(v, 0.0, 1.0, 0.1)])
+
+
+def test_parallel_rejects_mismatched_iteration_counts():
+    v = Variable("x")
+    w = Variable("y")
+    with pytest.raises(ValidationError, match="same number of iterations"):
+        Parallel([ForLoop(v, 0.0, 1.0, 0.1), ForLoop(w, 0.0, 1.0, 0.5)])
+
+
+def test_parallel_accepts_mixed_loop_kinds_with_equal_counts():
+    v = Variable("x")
+    w = Variable("y")
+    par = Parallel([ForLoop(v, 0.0, 1.0, 0.5), Loop(w, np.array([1.0, 2.0, 3.0]))])
+    assert [lp.num_iterations() for lp in par.loops] == [3, 3]
+
+
+# ---------------------------------------------------------------------------
+# Constructor validation: ForLoop / Loop / Average
+# ---------------------------------------------------------------------------
+
+
+def test_for_loop_rejects_zero_step():
+    with pytest.raises(ValidationError, match="non-zero"):
+        ForLoop(Variable("x"), 0.0, 1.0, 0)
+
+
+def test_for_loop_rejects_non_finite_bounds():
+    with pytest.raises(ValidationError, match="finite"):
+        ForLoop(Variable("x"), 0.0, float("inf"), 1.0)
+    with pytest.raises(ValidationError, match="finite"):
+        ForLoop(Variable("x"), float("nan"), 1.0, 1.0)
+
+
+def test_for_loop_rejects_wrong_step_direction():
+    with pytest.raises(ValidationError, match="moves away from stop"):
+        ForLoop(Variable("x"), 0.0, 10.0, -1.0)
+
+
+def test_for_loop_rejects_non_numeric_bounds():
+    with pytest.raises(ValidationError, match="int or float"):
+        ForLoop(Variable("x"), "0", 10.0, 1.0)
+    with pytest.raises(ValidationError, match="int or float"):
+        ForLoop(Variable("x"), 0.0, 10.0, True)  # noqa: FBT003 — bool-as-step is the case under test
+
+
+def test_for_loop_descending_sweep_accepted():
+    fl = ForLoop(Variable("x"), 10.0, 0.0, -2.0)
+    assert fl.num_iterations() == 6
+
+
+def test_for_loop_num_iterations_handles_float_noise():
+    assert ForLoop(Variable("x"), 0.0, 1.0, 0.01).num_iterations() == 101
+    assert ForLoop(Variable("x"), 4e9, 6e9, 1e6).num_iterations() == 2001
+    assert ForLoop(Variable("x"), 5.0, 5.0, 1.0).num_iterations() == 1
+
+
+def test_loop_rejects_empty_values():
+    with pytest.raises(ValidationError, match="non-empty"):
+        Loop(Variable("x"), np.array([]))
+
+
+def test_loop_rejects_2d_values():
+    with pytest.raises(ValidationError, match="1-D"):
+        Loop(Variable("x"), np.zeros((2, 2)))
+
+
+def test_loop_num_iterations():
+    assert Loop(Variable("x"), np.array([1.0, 2.0, 3.0])).num_iterations() == 3
+
+
+def test_average_rejects_non_positive_shots():
+    with pytest.raises(ValidationError, match=">= 1"):
+        Average(shots=0)
+    with pytest.raises(ValidationError, match=">= 1"):
+        Average(shots=-5)
+
+
+def test_average_rejects_non_integer_shots():
+    with pytest.raises(ValidationError, match="integer"):
+        Average(shots=10.5)
+    with pytest.raises(ValidationError, match="integer"):
+        Average(shots=True)
 
 
 # ---------------------------------------------------------------------------

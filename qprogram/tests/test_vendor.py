@@ -143,3 +143,48 @@ def test_append_validates_list_of_busrefs():
             p.listns.list_op([schema_b.q[0].drive])  # ty:ignore[unresolved-attribute]
     finally:
         QProgram._vendor_registry.pop("listns", None)
+
+
+# ---------------------------------------------------------------------------
+# register_vendor enforcement
+# ---------------------------------------------------------------------------
+
+
+def test_register_vendor_rejects_reserved_names():
+    with pytest.raises(ValueError, match="reserved"):
+        QProgram.register_vendor("core", _ToyNamespace)
+    with pytest.raises(ValueError, match="reserved"):
+        QProgram.register_vendor("if", _ToyNamespace)
+
+
+def test_register_vendor_rejects_qprogram_attribute_collision():
+    """A vendor named like a QProgram attribute would be silently shadowed forever.
+
+    Covers both class attributes (methods, properties) and the public *instance* attributes
+    assigned in ``__init__`` (``label``, ``description``) — instance lookup also wins over
+    ``__getattr__`` vendor dispatch.
+    """
+    for taken in ("play", "measure", "body", "variables", "register_vendor", "label", "description"):
+        with pytest.raises(ValueError, match="collides with a QProgram attribute"):
+            QProgram.register_vendor(taken, _ToyNamespace)
+
+
+def test_register_vendor_rejects_different_class_under_taken_name():
+    class _OtherNamespace(VendorNamespace):
+        pass
+
+    QProgram.register_vendor("collide_ns", _ToyNamespace)
+    try:
+        with pytest.raises(ValueError, match="already registered"):
+            QProgram.register_vendor("collide_ns", _OtherNamespace)
+    finally:
+        QProgram._vendor_registry.pop("collide_ns", None)
+
+
+def test_register_vendor_same_class_is_idempotent():
+    QProgram.register_vendor("idem_ns", _ToyNamespace)
+    try:
+        QProgram.register_vendor("idem_ns", _ToyNamespace)  # no raise
+        assert QProgram._vendor_registry["idem_ns"] is _ToyNamespace
+    finally:
+        QProgram._vendor_registry.pop("idem_ns", None)

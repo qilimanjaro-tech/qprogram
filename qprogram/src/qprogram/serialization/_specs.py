@@ -16,6 +16,7 @@ contract.
 from __future__ import annotations
 
 import inspect
+import math
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -25,6 +26,7 @@ from qprogram.blocks.block import Block
 from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.crosstalk_matrix import CrosstalkMatrix
+from qprogram.errors import ValidationError
 from qprogram.operations.get_parameter import GetParameter
 from qprogram.operations.measure import Measure
 from qprogram.operations.play import Play
@@ -39,6 +41,7 @@ from qprogram.operations.sync import Sync
 from qprogram.operations.wait import Wait
 from qprogram.serialization.registry import (
     OperationSpec,
+    get_operation_spec_by_class,
     register_block,
     register_operation,
     register_sweep_generator,
@@ -47,7 +50,7 @@ from qprogram.serialization.registry import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from qprogram.operations.operation import Operation
+    from qprogram.operations.operation import MeasurementOperation, Operation
     from qprogram.variable import Variable
 
 
@@ -87,23 +90,23 @@ def default_serialize_operation(op: Operation, spec: OperationSpec, ctx: Any) ->
     return " ".join([spec.qualified_name, *pos_parts, *kw_parts])
 
 
-def default_parse_operation(spec: OperationSpec, tokens: list[str], ctx: Any) -> Operation:
-    """Signature-driven parser used by most operations.
+def _bind_signature_tokens(
+    cls: type[Operation],
+    tokens: list[str],
+    ctx: Any,
+) -> dict[str, Any]:
+    """Bind operation-line tokens to ``cls.__init__``'s parameters.
 
     A token is a kwarg iff it contains ``=`` outside any parenthesised group and outside leading
-    quotes. Positional tokens bind by index to the constructor signature; the operation is always
-    constructed via ``**kwargs`` so positional ordering can't drift.
+    quotes. Positional tokens bind by index to the constructor signature; the result dict is used
+    for an all-keyword construction so positional ordering can't drift.
 
-    Args:
-        spec: The :class:`OperationSpec` describing the target class.
-        tokens: Tokens of the operation body (the leading keyword has been consumed).
-        ctx: Parser instance — exposes ``parse_value``, ``get_or_create_handle``, etc.
-
-    Returns:
-        A freshly-constructed :class:`Operation` instance.
+    Raises:
+        ParseError: If there are more positional tokens than the constructor has parameters —
+            silently dropping the excess would load a *different* program without any error.
     """
-    sig = inspect.signature(spec.cls.__init__)
-    params = list(sig.parameters.values())[1:]
+    sig = inspect.signature(cls.__init__)
+    params = list(sig.parameters.values())[1:]  # skip self
     positional: list[Any] = []
     kwargs: dict[str, Any] = {}
     for tok in tokens:
@@ -114,23 +117,92 @@ def default_parse_operation(spec: OperationSpec, tokens: list[str], ctx: Any) ->
             key, _, val = tok_stripped.partition("=")
             kwargs[key.strip()] = ctx.parse_value(val.strip())
         else:
-            positional.append(ctx.parse_value(tok_stripped))
+            positional.append(tok_stripped)
+    if len(positional) > len(params):
+        extra = positional[len(params) :]
+        msg = (
+            f"too many arguments for {cls.__name__!r}: {len(positional)} positional tokens but "
+            f"the operation takes at most {len(params)}; unexpected: {extra!r}. If you meant an "
+            f"arithmetic expression, parenthesise it: `(100 - t)`."
+        )
+        raise ctx.parse_error(msg)
     final: dict[str, Any] = {}
-    for i, value in enumerate(positional):
-        if i < len(params):
-            final[params[i].name] = value
+    for i, tok_stripped in enumerate(positional):
+        final[params[i].name] = ctx.parse_value(tok_stripped)
     final.update(kwargs)
-    return spec.cls(**final)
+    return final
+
+
+def _construct_operation(cls: type[Operation], final: dict[str, Any], ctx: Any) -> Operation:
+    """Instantiate ``cls(**final)``, converting constructor ``TypeError`` into a line-tagged error.
+
+    Raises:
+        ParseError: When the bound arguments don't fit the constructor (unknown kwarg, missing
+            required parameter) — surfacing the raw ``TypeError`` would lose the line number.
+    """
+    try:
+        return cls(**final)
+    except TypeError as e:
+        msg = f"cannot construct {cls.__name__!r} from the given arguments: {e}"
+        raise ctx.parse_error(msg) from e
+
+
+def default_parse_operation(spec: OperationSpec, tokens: list[str], ctx: Any) -> Operation:
+    """Signature-driven parser used by most operations.
+
+    Args:
+        spec: The :class:`OperationSpec` describing the target class.
+        tokens: Tokens of the operation body (the leading keyword has been consumed).
+        ctx: Parser instance — exposes ``parse_value``, ``get_or_create_handle``, etc.
+
+    Returns:
+        A freshly-constructed :class:`Operation` instance.
+
+    Raises:
+        ParseError: On excess positional tokens or arguments the constructor rejects.
+    """
+    final = _bind_signature_tokens(spec.cls, tokens, ctx)
+    return _construct_operation(spec.cls, final, ctx)
+
+
+def measurement_op_serialize(op: MeasurementOperation, ctx: Any) -> str:
+    """Signature-driven serializer for :class:`MeasurementOperation` subclasses.
+
+    Mirrors :func:`default_serialize_operation` but skips the ``handle`` constructor parameter and
+    emits the measurement name as a ``name="..."`` kwarg instead — the wire format reads as intent
+    (``measure "ro" "r" "w" name="q0/readout/m0"``) rather than as a bare positional string. The
+    parse side (:func:`make_measurement_op_parse`) resolves ``name=`` back to the canonical
+    handle instance.
+    """
+    spec = get_operation_spec_by_class(type(op))
+    qualified = spec.qualified_name if spec is not None else type(op).__name__
+    sig = inspect.signature(type(op).__init__)
+    params = list(sig.parameters.values())[1:]  # skip self
+    pos_parts: list[str] = []
+    kw_parts: list[str] = []
+    for p in params:
+        if p.name == "handle" or not hasattr(op, p.name):
+            continue
+        value = getattr(op, p.name)
+        if p.default is inspect.Parameter.empty:
+            pos_parts.append(ctx.serialize_value(value))
+        elif value != p.default:
+            kw_parts.append(f"{p.name}={ctx.serialize_value(value)}")
+    name_part = f"name={ctx.serialize_value(op.handle.name)}"
+    return " ".join([qualified, *pos_parts, name_part, *kw_parts])
 
 
 def make_measurement_op_parse(cls: type[Operation]) -> Callable[[list[str], Any], Operation]:
     """Build a parse callback for a :class:`MeasurementOperation` subclass.
 
-    The returned callback mirrors :func:`default_parse_operation` but resolves the ``handle``
-    parameter from its name token to the canonical :class:`~qprogram.MeasurementHandle` via
-    ``ctx.get_or_create_handle``. This is what lets every measurement op and every
-    :class:`MeasurementRef` referring to the same name share one Python instance after a ``.qp``
-    load.
+    The returned callback mirrors :func:`default_parse_operation` but resolves the measurement
+    name to the canonical :class:`~qprogram.MeasurementHandle` via ``ctx.get_or_create_handle``.
+    This is what lets every measurement op and every :class:`MeasurementRef` referring to the
+    same name share one Python instance after a ``.qp`` load. Three accepted spellings:
+
+    - ``name="..."`` kwarg — the canonical form the writer emits.
+    - a quoted handle name bound to the ``handle`` positional slot — legacy files.
+    - neither — the parser auto-allocates a name with the same convention the builder uses.
 
     Vendor measurement ops register with this factory the same way ``measure`` does::
 
@@ -138,6 +210,7 @@ def make_measurement_op_parse(cls: type[Operation]) -> Callable[[list[str], Any]
             "myvendor",
             "acquire",
             Acquire,
+            serialize=measurement_op_serialize,
             parse=make_measurement_op_parse(Acquire),
         )
 
@@ -149,27 +222,20 @@ def make_measurement_op_parse(cls: type[Operation]) -> Callable[[list[str], Any]
     """
 
     def parse(tokens: list[str], ctx: Any) -> Operation:
-        sig = inspect.signature(cls.__init__)
-        params = list(sig.parameters.values())[1:]
-        positional: list[Any] = []
-        kwargs: dict[str, Any] = {}
-        for tok in tokens:
-            tok_stripped = tok.strip()
-            if not tok_stripped:
-                continue
-            if _looks_like_kwarg(tok_stripped):
-                key, _, val = tok_stripped.partition("=")
-                kwargs[key.strip()] = ctx.parse_value(val.strip())
-            else:
-                positional.append(ctx.parse_value(tok_stripped))
-        final: dict[str, Any] = {}
-        for i, value in enumerate(positional):
-            if i < len(params):
-                final[params[i].name] = value
-        final.update(kwargs)
-        if "handle" in final and isinstance(final["handle"], str):
+        final = _bind_signature_tokens(cls, tokens, ctx)
+        name = final.pop("name", None)
+        if name is not None:
+            if not isinstance(name, str):
+                msg = f"measurement name= must be a quoted string, got {name!r}"
+                raise ctx.parse_error(msg)
+            final["handle"] = ctx.get_or_create_handle(name)
+        elif "handle" in final and isinstance(final["handle"], str):
+            # Legacy positional form: the handle name as a bare quoted token.
             final["handle"] = ctx.get_or_create_handle(final["handle"])
-        return cls(**final)
+        elif "handle" not in final:
+            # Hand-written file without a name — allocate one exactly like the builder would.
+            final["handle"] = ctx.allocate_measurement_handle(final.get("bus", ""))
+        return _construct_operation(cls, final, ctx)
 
     return parse
 
@@ -250,14 +316,62 @@ def get_parameter_parse(tokens: list[str], ctx: Any) -> GetParameter:
     )
 
 
-def set_crosstalk_serialize(op: SetCrosstalk, ctx: Any) -> str:  # noqa: ARG001
-    """Serialise as the stub ``set_crosstalk crosstalk`` — matrix content is not serialised yet."""
-    return "set_crosstalk crosstalk"
+def set_crosstalk_serialize(op: SetCrosstalk, ctx: Any) -> str:
+    """Serialise the full crosstalk matrix as dict-literal kwargs.
+
+    Wire form: ``set_crosstalk matrix={"flux_q0": {"flux_q0": 1.0, ...}, ...}`` plus optional
+    ``offsets={...}`` and ``resistances={...}`` sections (each omitted when empty). An entirely
+    empty matrix serialises as the bare keyword. ``None`` resistances emit as ``null``.
+    """
+    xtalk = op.crosstalk
+    parts: list[str] = ["set_crosstalk"]
+    if xtalk.matrix:
+        parts.append(f"matrix={ctx.serialize_value(xtalk.matrix)}")
+    if xtalk.flux_offsets:
+        parts.append(f"offsets={ctx.serialize_value(xtalk.flux_offsets)}")
+    if xtalk.resistances:
+        parts.append(f"resistances={ctx.serialize_value(xtalk.resistances)}")
+    return " ".join(parts)
 
 
-def set_crosstalk_parse(tokens: list[str], ctx: Any) -> SetCrosstalk:  # noqa: ARG001
-    """Parse to a :class:`SetCrosstalk` wrapping an empty matrix — matches the writer stub."""
-    return SetCrosstalk(crosstalk=CrosstalkMatrix())
+def set_crosstalk_parse(tokens: list[str], ctx: Any) -> SetCrosstalk:
+    """Inverse of :func:`set_crosstalk_serialize` — rebuild the full :class:`CrosstalkMatrix`.
+
+    Raises:
+        ParseError: On positional tokens, unknown kwargs, or section values that aren't
+            dict literals of the expected shape.
+    """
+    xtalk = CrosstalkMatrix()
+    for tok in tokens:
+        tok_stripped = tok.strip()
+        if not tok_stripped:
+            continue
+        if not _looks_like_kwarg(tok_stripped):
+            msg = (
+                f"set_crosstalk takes only matrix= / offsets= / resistances= sections; "
+                f"unexpected token {tok_stripped!r}"
+            )
+            raise ctx.parse_error(msg)
+        key, _, val = tok_stripped.partition("=")
+        key = key.strip()
+        parsed = ctx.parse_value(val.strip())
+        if not isinstance(parsed, dict):
+            msg = f"set_crosstalk {key}= must be a dict literal, got {parsed!r}"
+            raise ctx.parse_error(msg)
+        if key == "matrix":
+            for src, row in parsed.items():
+                if not isinstance(row, dict):
+                    msg = f"set_crosstalk matrix= rows must be dicts, got {row!r} for {src!r}"
+                    raise ctx.parse_error(msg)
+                xtalk.matrix[src] = {tgt: float(coeff) for tgt, coeff in row.items()}
+        elif key == "offsets":
+            xtalk.flux_offsets.update({bus: float(v) for bus, v in parsed.items()})
+        elif key == "resistances":
+            xtalk.resistances.update({bus: (None if v is None else float(v)) for bus, v in parsed.items()})
+        else:
+            msg = f"set_crosstalk has no {key!r} section; allowed: matrix, offsets, resistances"
+            raise ctx.parse_error(msg)
+    return SetCrosstalk(crosstalk=xtalk)
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +388,8 @@ def average_parse_header(tokens: list[str], ctx: Any) -> Average:
     """Parse ``average <shots>`` — single positional integer.
 
     Raises:
-        ParseError: If ``shots`` is missing or non-integer.
+        ParseError: If ``shots`` is missing, non-integer, or fails Average's own validation
+            (``shots >= 1``).
     """
     if not tokens:
         msg = "average requires a shot count"
@@ -284,7 +399,10 @@ def average_parse_header(tokens: list[str], ctx: Any) -> Average:
     except ValueError as e:
         msg = f"average: invalid shots count {tokens[0]!r}"
         raise ctx.parse_error(msg) from e
-    return Average(shots=shots)
+    try:
+        return Average(shots=shots)
+    except ValidationError as e:
+        raise ctx.parse_error(str(e)) from e
 
 
 # ---------------------------------------------------------------------------
@@ -293,14 +411,20 @@ def average_parse_header(tokens: list[str], ctx: Any) -> Average:
 
 
 def range_parse(var: Variable, args_text: str, ctx: Any) -> ForLoop:
-    """Parse ``range(start, stop[, step])`` into a :class:`ForLoop`."""
+    """Parse ``range(start, stop[, step])`` into a :class:`ForLoop`.
+
+    Construction-time validation failures (zero step, non-finite bounds, wrong step direction)
+    are re-raised as line-tagged parse errors.
+    """
     parts = [_parse_number(a.strip()) for a in args_text.split(",")]
-    if len(parts) == 2:
-        return ForLoop(variable=var, start=parts[0], stop=parts[1], step=1)
-    if len(parts) == 3:
-        return ForLoop(variable=var, start=parts[0], stop=parts[1], step=parts[2])
-    msg = "range() expects 2 or 3 arguments"
-    raise ctx.parse_error(msg)
+    if len(parts) not in (2, 3):
+        msg = "range() expects 2 or 3 arguments"
+        raise ctx.parse_error(msg)
+    step = parts[2] if len(parts) == 3 else 1
+    try:
+        return ForLoop(variable=var, start=parts[0], stop=parts[1], step=step)
+    except ValidationError as e:
+        raise ctx.parse_error(str(e)) from e
 
 
 def range_write(loop: ForLoop, ctx: Any) -> str:
@@ -310,22 +434,28 @@ def range_write(loop: ForLoop, ctx: Any) -> str:
     )
 
 
-def values_parse(var: Variable, args_text: str, ctx: Any) -> Loop:  # noqa: ARG001
+def values_parse(var: Variable, args_text: str, ctx: Any) -> Loop:
     """Parse a ``[v0, v1, ...]`` literal into a :class:`Loop`.
 
     ``args_text`` arrives with the brackets so the helper stays self-contained. Values must be
     numeric literals — symbolic expressions aren't allowed inside array literals at parse time.
+    Construction-time validation failures (empty list) become line-tagged parse errors.
     """
     inner = args_text.strip().removeprefix("[").removesuffix("]")
     values = np.array([_parse_number(v.strip()) for v in inner.split(",") if v.strip()])
-    return Loop(variable=var, values=values)
+    try:
+        return Loop(variable=var, values=values)
+    except ValidationError as e:
+        raise ctx.parse_error(str(e)) from e
 
 
 def values_write(loop: Loop, ctx: Any) -> str:
-    """Serialise a :class:`Loop` as a ``[v0, v1, ...]`` literal; truncate after 50 values."""
-    items = ", ".join(ctx.serialize_value(v) for v in loop.values[:50])
-    if len(loop.values) > 50:
-        items += ", ..."
+    """Serialise a :class:`Loop` as a ``[v0, v1, ...]`` literal.
+
+    Never truncated: the literal must reload to exactly the same sweep. (An earlier revision cut
+    the list at 50 values with a ``...`` marker, which made every longer sweep's file unparseable.)
+    """
+    items = ", ".join(ctx.serialize_value(v) for v in loop.values)
     return f"[{items}]"
 
 
@@ -349,11 +479,12 @@ def _parse_number(s: str) -> int | float:
     """Parse a numeric literal preserving ``int`` vs ``float``.
 
     Why this preserves the distinction: round-tripping must not silently promote integer sweep bounds
-    to floats — that would visibly change the rewritten ``.qp`` file.
+    to floats — that would visibly change the rewritten ``.qp`` file. Non-finite values (``inf``,
+    ``nan``) stay floats — calling ``int()`` on them would raise ``OverflowError`` / ``ValueError``.
     """
     s = s.strip()
     val = float(s)
-    if val == int(val) and "." not in s and "e" not in s.lower():
+    if math.isfinite(val) and val == int(val) and "." not in s and "e" not in s.lower():
         return int(val)
     return val
 
@@ -371,7 +502,12 @@ def _register_core_specs() -> None:
     """
     # Default callbacks handle the regular shapes; explicit callbacks for the special-form ops.
     register_operation("play", Play)
-    register_operation("measure", Measure, parse=make_measurement_op_parse(Measure))
+    register_operation(
+        "measure",
+        Measure,
+        serialize=measurement_op_serialize,
+        parse=make_measurement_op_parse(Measure),
+    )
     register_operation("wait", Wait)
     register_operation("sync", Sync, serialize=sync_serialize, parse=sync_parse)
     register_operation("set_frequency", SetFrequency)

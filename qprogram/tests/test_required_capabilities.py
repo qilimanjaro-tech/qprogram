@@ -204,7 +204,7 @@ def test_parallel_emits_block_parallel_only() -> None:
     v2 = Variable("b")
     p = Parallel(
         loops=[
-            ForLoop(variable=v1, start=0, stop=1, step=0.1),
+            ForLoop(variable=v1, start=0, stop=1, step=1),
             Loop(variable=v2, values=np.array([0.0, 1.0])),
         ],
     )

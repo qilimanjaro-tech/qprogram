@@ -12,6 +12,7 @@ from qprogram import (
     BusSchema,
     CrosstalkMatrix,
     QProgram,
+    SerializationError,
     cos,
     dumps,
     eq,
@@ -191,7 +192,8 @@ def test_dumps_measure_default():
     p = QProgram()
     p.measure("readout", "r", "w")
     text = dumps(p)
-    assert 'measure "readout" "r" "w" "m0"' in text
+    # The measurement name travels as a ``name=`` kwarg, not a bare positional.
+    assert 'measure "readout" "r" "w" name="m0"' in text
 
 
 def test_dumps_measure_with_custom_returns():
@@ -309,12 +311,25 @@ def test_dumps_get_parameter_with_channel_id():
     assert "->" in text
 
 
-def test_dumps_set_crosstalk_stub():
-
+def test_dumps_set_crosstalk_empty_matrix_bare_keyword():
     p = QProgram()
     p.set_crosstalk(CrosstalkMatrix())
     text = dumps(p)
-    assert "set_crosstalk crosstalk" in text
+    assert "set_crosstalk\n" in text
+
+
+def test_dumps_set_crosstalk_full_matrix():
+    m = CrosstalkMatrix()
+    m["flux_q0"] = {"flux_q0": 1.0, "flux_q1": 0.03}
+    m.set_offset({"flux_q0": 0.1})
+    m.set_resistances({"flux_q0": 100.0})
+    m.resistances["flux_q1"] = None
+    p = QProgram()
+    p.set_crosstalk(m)
+    text = dumps(p)
+    assert 'matrix={"flux_q0": {"flux_q0": 1.0, "flux_q1": 0.03}}' in text
+    assert 'offsets={"flux_q0": 0.1}' in text
+    assert 'resistances={"flux_q0": 100.0, "flux_q1": null}' in text
 
 
 # ---------------------------------------------------------------------------
@@ -424,14 +439,15 @@ def test_dumps_loop_values():
     assert "for amp in [" in text
 
 
-def test_dumps_loop_values_truncated_when_long():
-
+def test_dumps_loop_values_never_truncated():
+    """Every value is emitted — truncation would make the file unparseable."""
     p = QProgram()
     v = p.variable("amp")
     with p.loop(v, np.arange(100)):
         pass
     text = dumps(p)
-    assert "..." in text
+    assert "..." not in text
+    assert "99" in text  # the last value survives
 
 
 def test_dumps_parallel():
@@ -519,21 +535,22 @@ def test_dumps_gaussian_with_variable_amp():
     assert "amplitude=amp" in text
 
 
-def test_dumps_arbitrary_truncates_long_samples():
-
+def test_dumps_arbitrary_never_truncates_samples():
+    """All samples are emitted — truncation destroyed the waveform on reload."""
     p = QProgram()
     p.play("bus", Arbitrary(np.arange(50)))
     text = dumps(p)
     assert "Arbitrary(samples=[" in text
-    assert "..." in text
+    assert "..." not in text
+    assert "49" in text  # the last sample survives
 
 
-def test_dumps_arbitrary_short_samples_not_truncated():
+def test_dumps_arbitrary_short_samples():
 
     p = QProgram()
     p.play("bus", Arbitrary(np.array([0.1, 0.2])))
     text = dumps(p)
-    assert "..." not in text or text.count("...") == 0  # truncation absent
+    assert "Arbitrary(samples=[0.1, 0.2])" in text
 
 
 # ---------------------------------------------------------------------------
@@ -561,12 +578,50 @@ def test_writer_serialize_value_handles_bool():
     assert w.serialize_value(False) == "false"  # noqa: FBT003
 
 
-def test_writer_serialize_value_fallback_to_str():
+def test_writer_serialize_value_unknown_type_raises():
     p = QProgram()
     w = _Writer(p)
-    # Unknown type → str() fallback.
-    result = w.serialize_value(object())
-    assert isinstance(result, str)
+    # Unknown type → loud SerializationError; a str() fallback would write a token
+    # the parser silently mis-types on reload.
+    with pytest.raises(SerializationError, match="no representation"):
+        w.serialize_value(object())
+
+
+def test_writer_serialize_value_none_emits_null():
+    w = _Writer(QProgram())
+    assert w.serialize_value(None) == "null"
+
+
+def test_writer_serialize_value_list_of_ints():
+    w = _Writer(QProgram())
+    assert w.serialize_value([1, 2, 3]) == "[1, 2, 3]"
+
+
+def test_writer_serialize_value_numeric_tuple_as_list():
+    w = _Writer(QProgram())
+    assert w.serialize_value((1, 2)) == "[1, 2]"
+
+
+def test_writer_serialize_value_ndarray_full():
+    w = _Writer(QProgram())
+    assert w.serialize_value(np.array([0.5, 1.5])) == "[0.5, 1.5]"
+
+
+def test_writer_serialize_value_2d_ndarray_raises():
+    w = _Writer(QProgram())
+    with pytest.raises(SerializationError, match="1-D"):
+        w.serialize_value(np.zeros((2, 2)))
+
+
+def test_writer_serialize_value_dict():
+    w = _Writer(QProgram())
+    assert w.serialize_value({"a": 1.0, "b": None}) == '{"a": 1.0, "b": null}'
+
+
+def test_writer_serialize_value_dict_non_string_keys_raises():
+    w = _Writer(QProgram())
+    with pytest.raises(SerializationError, match="non-string keys"):
+        w.serialize_value({1: 2.0})
 
 
 # ---------------------------------------------------------------------------
@@ -616,8 +671,26 @@ def test_dumps_raises_when_vendor_version_missing():
         p = QProgram()
         op = _OrphanOp(bus="anything")
         p._active_block.append(op)
-        with pytest.raises(RuntimeError, match="no version is registered"):
+        with pytest.raises(SerializationError, match="no version is registered"):
             dumps(p)
     finally:
         registry._operation_specs_by_qualified.pop(("_orphan", "op"), None)
         registry._operation_specs_by_class.pop(_OrphanOp, None)
+
+
+def test_dumps_collects_vendor_inside_conditional_arm(dummy_vendor):  # noqa: ARG001
+    """A vendor op used only inside an if_/elif_/else_ arm still emits its require line.
+
+    Conditional keeps arm bodies on ``.arms`` / ``.else_body`` rather than ``_elements``;
+    the vendor collector must walk via ``Block.walk()`` to see them.
+    """
+    from _dummy_vendor import DummyQProgram  # noqa: PLC0415
+
+    p = DummyQProgram()
+    h = p.measure("ro", "wf", "wt", returns="iq,state")
+    with p.if_(h.state == 1):
+        p.dummy.set_markers("bus", "0001")
+    with p.else_():
+        p.dummy.set_markers("bus", "0010")
+    text = dumps(p)
+    assert "require dummy" in text

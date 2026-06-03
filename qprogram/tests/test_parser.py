@@ -46,6 +46,8 @@ from qprogram.waveforms import Square
         ("# leading", 0),
         ("#!header", -1),  # shebang is not a comment
         ('text with "#" inside', -1),  # # in string doesn't count
+        ('label: "a \\"#1\\""', -1),  # escaped quote does not end the string
+        ('label: "a \\"b\\"" # real', 17),  # comment after a string with escapes
     ],
 )
 def test_find_comment(line, expected):
@@ -163,9 +165,19 @@ def test_parse_arg_true_false():
 
 
 def test_parse_arg_list_literal():
+    # Plain Python list (not ndarray): list-typed op attributes round-trip
+    # type-faithfully; array consumers (Arbitrary, Loop) convert themselves.
     result = _parse_arg("[1, 2, 3]")
-    assert isinstance(result, np.ndarray)
-    assert np.array_equal(result, np.array([1, 2, 3]))
+    assert result == [1, 2, 3]
+    assert isinstance(result, list)
+
+
+def test_parse_arg_nested_list_literal():
+    assert _parse_arg("[[1, 2], [3]]") == [[1, 2], [3]]
+
+
+def test_parse_arg_null():
+    assert _parse_arg("null") is None
 
 
 def test_parse_arg_number():
@@ -284,6 +296,45 @@ def test_loads_metadata_description():
     text = '#!QProgram 1.0\n\nmetadata:\n  label: "x"\n  description: "desc"\n\nbody:\n'
     p = loads(text)
     assert p.description == "desc"
+
+
+def test_loads_metadata_unescapes_quotes_and_backslashes():
+    text = '#!QProgram 1.0\n\nmetadata:\n  label: "say \\"hi\\""\n  description: "back\\\\slash"\n\nbody:\n'
+    p = loads(text)
+    assert p.label == 'say "hi"'
+    assert p.description == "back\\slash"
+
+
+def test_loads_metadata_value_with_colon():
+    text = '#!QProgram 1.0\n\nmetadata:\n  label: "rabi: trial 2"\n\nbody:\n'
+    p = loads(text)
+    assert p.label == "rabi: trial 2"
+
+
+def test_loads_metadata_hash_inside_string_not_a_comment():
+    """A ``#`` inside a quoted value — even after an escaped quote — is content."""
+    text = '#!QProgram 1.0\n\nmetadata:\n  label: "a \\"#1\\""\n\nbody:\n'
+    p = loads(text)
+    assert p.label == 'a "#1"'
+
+
+def test_loads_metadata_unquoted_label_raises():
+    text = "#!QProgram 1.0\n\nmetadata:\n  label: rabi\n\nbody:\n"
+    with pytest.raises(ParseError, match="must be a quoted string"):
+        loads(text)
+
+
+def test_loads_metadata_invalid_line_raises():
+    text = "#!QProgram 1.0\n\nmetadata:\n  garbage\n\nbody:\n"
+    with pytest.raises(ParseError, match="invalid metadata line"):
+        loads(text)
+
+
+def test_loads_metadata_unknown_key_tolerated():
+    """Unknown metadata keys are forward-compatible — ignored, not an error."""
+    text = '#!QProgram 1.0\n\nmetadata:\n  label: "x"\n  author: "someone"\n\nbody:\n'
+    p = loads(text)
+    assert p.label == "x"
 
 
 # ---------------------------------------------------------------------------
@@ -443,14 +494,11 @@ def test_loads_variable_unexpected_token():
         loads(text)
 
 
-def test_loads_variable_bare_var_is_silently_skipped():
-    """`var` alone (no id) doesn't match `var ` prefix-detection and falls
-    through to the operation branch, which returns None for unknown ops.
-    Effectively: no parse error, no variable declared. Documented here so
-    future work that tightens this surface has a test to flip."""
+def test_loads_variable_bare_var_raises():
+    """`var` alone (no id) is a malformed declaration, not a silent no-op."""
     text = "#!QProgram 1.0\n\nbody:\n  var\n"
-    p = loads(text)
-    assert p.variables == []
+    with pytest.raises(ParseError, match="`var` declaration must have the form"):
+        loads(text)
 
 
 def test_loads_variable_duplicate_id():
@@ -477,19 +525,42 @@ def test_loads_play_with_inline_waveform():
     assert isinstance(op.waveform, Square)
 
 
-def test_loads_measure_default_returns():
-    text = '#!QProgram 1.0\n\nbody:\n  measure "readout" "r" "w" "m0"\n'
+def test_loads_measure_name_kwarg():
+    """The canonical writer form: the measurement name travels as ``name=``."""
+    text = '#!QProgram 1.0\n\nbody:\n  measure "readout" "r" "w" name="m0"\n'
     p = loads(text)
     op = p.body.elements[0]
     assert op.returns == ("iq",)
     assert op.name == "m0"
 
 
+def test_loads_measure_legacy_positional_handle():
+    """Older files carried the handle name as a bare 4th positional — still accepted."""
+    text = '#!QProgram 1.0\n\nbody:\n  measure "readout" "r" "w" "m0"\n'
+    p = loads(text)
+    op = p.body.elements[0]
+    assert op.name == "m0"
+
+
+def test_loads_measure_without_name_auto_allocates():
+    """Hand-written files may omit the name; the parser allocates like the builder."""
+    text = '#!QProgram 1.0\n\nbody:\n  measure "readout" "r" "w"\n  measure "readout" "r" "w"\n'
+    p = loads(text)
+    names = [op.name for op in p.body.elements]
+    assert names == ["m0", "m1"]
+
+
 def test_loads_measure_with_returns_kwarg():
-    text = '#!QProgram 1.0\n\nbody:\n  measure "readout" "r" "w" "m0" returns="iq,raw"\n'
+    text = '#!QProgram 1.0\n\nbody:\n  measure "readout" "r" "w" name="m0" returns="iq,raw"\n'
     p = loads(text)
     op = p.body.elements[0]
     assert op.returns == ("iq", "raw")
+
+
+def test_loads_measure_non_string_name_raises():
+    text = '#!QProgram 1.0\n\nbody:\n  measure "readout" "r" "w" name=42\n'
+    with pytest.raises(ParseError, match="quoted string"):
+        loads(text)
 
 
 def test_loads_wait_with_int():
@@ -594,18 +665,70 @@ def test_loads_get_parameter_missing_alias_raises():
         loads(text)
 
 
-def test_loads_set_crosstalk_stub():
+def test_loads_set_crosstalk_bare():
+    text = "#!QProgram 1.0\n\nbody:\n  set_crosstalk\n"
+    p = loads(text)
+    op = p.body.elements[0]
+    assert op.crosstalk.matrix == {}
+
+
+def test_loads_set_crosstalk_full():
+    text = (
+        "#!QProgram 1.0\n\nbody:\n"
+        '  set_crosstalk matrix={"flux_q0": {"flux_q0": 1.0, "flux_q1": 0.03}} '
+        'offsets={"flux_q0": 0.1} resistances={"flux_q0": 100.0, "flux_q1": null}\n'
+    )
+    p = loads(text)
+    op = p.body.elements[0]
+    assert op.crosstalk.matrix == {"flux_q0": {"flux_q0": 1.0, "flux_q1": 0.03}}
+    assert op.crosstalk.flux_offsets == {"flux_q0": 0.1}
+    assert op.crosstalk.resistances == {"flux_q0": 100.0, "flux_q1": None}
+
+
+def test_loads_set_crosstalk_rejects_positional_token():
     text = "#!QProgram 1.0\n\nbody:\n  set_crosstalk crosstalk\n"
-    p = loads(text)
-    assert p.body.elements[0] is not None
+    with pytest.raises(ParseError, match="matrix= / offsets= / resistances="):
+        loads(text)
 
 
-def test_loads_skips_unknown_operation():
-    """An operation name not in any registry is silently skipped."""
+def test_loads_set_crosstalk_rejects_unknown_section():
+    text = '#!QProgram 1.0\n\nbody:\n  set_crosstalk bogus={"a": 1.0}\n'
+    with pytest.raises(ParseError, match="no 'bogus' section"):
+        loads(text)
+
+
+def test_loads_set_crosstalk_rejects_non_dict_section():
+    text = "#!QProgram 1.0\n\nbody:\n  set_crosstalk matrix=42\n"
+    with pytest.raises(ParseError, match="must be a dict literal"):
+        loads(text)
+
+
+def test_loads_unknown_operation_raises():
+    """An operation name not in any registry is a hard error — silently skipping the
+    line would load a different program than the file describes."""
     text = '#!QProgram 1.0\n\nbody:\n  unknown_op "bus" 42\n'
-    p = loads(text)
-    # No ops produced.
-    assert len(p.body.elements) == 0
+    with pytest.raises(ParseError, match="unknown operation 'unknown_op'"):
+        loads(text)
+
+
+def test_loads_unknown_vendor_operation_raises_with_hint():
+    """A dotted op whose vendor namespace isn't registered names the missing extension."""
+    text = '#!QProgram 1.0\n\nbody:\n  ghostvendor.acquire "bus" "w"\n'
+    with pytest.raises(ParseError, match="Import the 'ghostvendor' extension"):
+        loads(text)
+
+
+def test_loads_unknown_block_keyword_raises():
+    text = '#!QProgram 1.0\n\nbody:\n  repeat 5:\n    play "bus" "wf"\n'
+    with pytest.raises(ParseError, match="unknown block keyword 'repeat'"):
+        loads(text)
+
+
+def test_loads_excess_positional_tokens_raise():
+    """Spec-style unparenthesised arithmetic must error, not silently drop tokens."""
+    text = '#!QProgram 1.0\n\nbody:\n  var t\n  wait "bus" 100 - t\n'
+    with pytest.raises(ParseError, match="parenthesise"):
+        loads(text)
 
 
 # ---------------------------------------------------------------------------
@@ -913,3 +1036,87 @@ def test_loads_invalid_bus_path_raises():
     text = '#!QProgram 1.0\n\nschema:\n  element q:\n    drive info=IQ\n\nbody:\n  play q[0].nonexistent "wf"\n'
     with pytest.raises(ParseError, match="does not resolve"):
         loads(text)
+
+
+def test_loads_path_like_string_outside_bus_attrs_untouched():
+    """Bus-path promotion only applies to BUS_ATTRS — a set_parameter alias that merely
+    *looks* like a path (``cluster[0].module``) must stay a plain string."""
+    text = (
+        "#!QProgram 1.0\n\n"
+        "schema:\n"
+        "  element q:\n"
+        "    drive info=IQ\n"
+        "\n"
+        "body:\n"
+        '  play q[0].drive "wf"\n'
+        '  set_parameter "cluster[0].module" "lo_freq" 5000000000.0\n'
+    )
+    p = loads(text)
+    sp = p.body.elements[1]
+    assert sp.alias == "cluster[0].module"
+    assert not isinstance(sp.alias, BusRef)
+
+
+def test_loads_tokenizer_keeps_list_kwarg_whole():
+    """``outputs=[1, 2]`` (with a space) survives as one token via bracket nesting."""
+    from qprogram.serialization.parser import _tokenize  # noqa: PLC0415
+
+    assert _tokenize('op "bus" outputs=[1, 2] position="start"') == [
+        "op",
+        '"bus"',
+        "outputs=[1, 2]",
+        'position="start"',
+    ]
+
+
+def test_loads_tokenizer_keeps_dict_kwarg_whole():
+    from qprogram.serialization.parser import _tokenize  # noqa: PLC0415
+
+    assert _tokenize('set_crosstalk matrix={"a": {"b": 1.0}}') == [
+        "set_crosstalk",
+        'matrix={"a": {"b": 1.0}}',
+    ]
+
+
+def test_tokenize_bracket_inside_quotes_does_not_nest():
+    from qprogram.serialization.parser import _tokenize  # noqa: PLC0415
+
+    assert _tokenize('play "a)b" "wf"') == ["play", '"a)b"', '"wf"']
+
+
+def test_parse_value_dict_literal():
+    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p._parse_header()
+    assert p.parse_value('{"a": 1.0, "b": {"c": null}}') == {"a": 1.0, "b": {"c": None}}
+
+
+def test_parse_value_dict_unquoted_key_raises():
+    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p._parse_header()
+    with pytest.raises(ParseError, match="quoted strings"):
+        p.parse_value("{a: 1.0}")
+
+
+def test_parse_value_dict_missing_colon_raises():
+    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p._parse_header()
+    with pytest.raises(ParseError, match="invalid dict entry"):
+        p.parse_value('{"a" 1.0}')
+
+
+def test_parse_value_list_is_plain_list():
+    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p._parse_header()
+    assert p.parse_value("[1, 2, 3]") == [1, 2, 3]
+
+
+def test_parse_value_null():
+    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p._parse_header()
+    assert p.parse_value("null") is None
+
+
+def test_parse_number_inf_nan_stay_float():
+    assert _parse_number("inf") == float("inf")
+    assert _parse_number("-inf") == float("-inf")
+    assert np.isnan(_parse_number("nan"))

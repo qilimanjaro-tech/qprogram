@@ -165,7 +165,7 @@ set_offset "flux_q0" 0.1
 set_offset "flux_q0" 0.1 0.2
 set_parameter "cluster" "lo_frequency" 5e9
 get_parameter "cluster" "lo_frequency" -> lo_freq
-set_crosstalk crosstalk
+set_crosstalk matrix={"flux_q0": {"flux_q0": 1.0, "flux_q1": 0.03}} offsets={"flux_q0": 0.1}
 ```
 
 Key rules:
@@ -174,6 +174,13 @@ Key rules:
 - Variable references are bare identifiers.
 - Inline waveforms use constructor syntax.
 - `get_parameter` uses `->` to assign the result to a variable.
+- Sequence kwargs are bracket literals (`outputs=[1, 2]`), dict kwargs are brace literals
+  (`matrix={"a": 1.0}`), and `null` is the literal for Python `None`.
+- `set_crosstalk` carries its full matrix in `matrix=` / `offsets=` / `resistances=` sections,
+  each omitted when empty (an empty matrix is the bare keyword).
+- Unknown operations, unknown block keywords, and excess positional tokens are hard parse
+  errors — a file never loads with content silently missing. Symmetrically, the writer raises
+  `SerializationError` for anything it cannot represent faithfully (and never truncates arrays).
 
 ## Inline waveform constructors
 
@@ -186,20 +193,24 @@ measure "readout_q0" IQPair(Square(1.0, 2000), Square(0.0, 2000)) IQPair(Square(
 
 Arguments are positional or named. Variables work everywhere a number does.
 Built-in waveform types: `Square`, `Gaussian`, `GaussianDragCorrection`,
-`Ramp`, `FlatTop`, `SuddenNetZero`, `Arbitrary`, `Chained`, `IQPair`,
-`IQDrag`. Custom waveforms registered with `@qp.register_waveform` work the
-same way.
+`Ramp`, `FlatTop`, `SuddenNetZero`, `Sine`, `Cosine`, `Sech`, `Tukey`,
+`Arbitrary`, `Chained`, `IQPair`, `IQDrag`, `Modulated`, `IQRotation`,
+`IQZero`. Custom waveforms registered with `@qp.register_waveform` work the
+same way. Sample arrays (`Arbitrary`, `Loop` values) are always written in
+full — the format never truncates.
 
 ## Expressions
 
-Arithmetic, comparison, logical, math, and `where` expressions appear
-inline:
+Arithmetic, comparison, and logical expressions appear inline in their canonical
+**parenthesised** form (the only form the parser accepts — an unparenthesised `100 - t` is a
+"too many arguments" error, never a silent drop); math functions and `where` use the
+function-call form:
 
 ```
-wait "drive_q0" 100 - t
-set_frequency "drive_q0" 5e9 + freq * 1e6
-set_gain "drive_q0" where(amp > 0.5, amp, 0.0)
-play "drive_q0" Gaussian(amplitude=sin(phi) * 0.5, duration=40, sigma=8)
+wait "drive_q0" (100 - t)
+set_frequency "drive_q0" (5e9 + (freq * 1e6))
+set_gain "drive_q0" where((amp > 0.5), amp, 0.0)
+play "drive_q0" Gaussian(amplitude=sin(phi), duration=40, sigma=8)
 ```
 
 Supported binary operators: `+`, `-`, `*`, `/`. Unary `-` and `+`.
@@ -367,9 +378,13 @@ statement      := var_decl | operation | control_block
 var_decl       := "var" ID var_attr*
 var_attr       := ("label" | "units" | "description") "=" STRING
 ID             := [A-Za-z_][A-Za-z0-9_]*
-operation      := (VENDOR ".")? OP_NAME arg*
-arg            := STRING | NUMBER | IDENT | waveform_expr | expression
-expression     := (IDENT | NUMBER) ("+" | "-" | "*" | "/") (IDENT | NUMBER)
+operation      := (VENDOR ".")? OP_NAME arg* kwarg*
+arg            := value | expression
+kwarg          := IDENT "=" (value | expression)
+expression     := "(" value (BIN_OP | CMP_OP | "and" | "or") value ")"
+               | "(" ("-" | "+") value ")" | "(" "not" value ")"
+BIN_OP         := "+" | "-" | "*" | "/"
+CMP_OP         := "==" | "!=" | "<" | "<=" | ">" | ">="
 
 control_block  := for_block | average_block | block_block | parallel_block
 for_block      := "for" IDENT "in" (range_expr | array_expr) ":" NEWLINE INDENT statement+
@@ -382,7 +397,11 @@ array_expr     := "[" NUMBER ("," NUMBER)* "]" | "file(" STRING ")"
 waveform_expr  := WAVEFORM_TYPE "(" (arg_list)? ")"
 arg_list       := (IDENT "=")? value ("," (IDENT "=")? value)*
 
-value          := STRING | NUMBER | BOOL | IDENT | waveform_expr | array_literal
+value          := STRING | NUMBER | BOOL | "null" | IDENT | waveform_expr
+               | list_literal | dict_literal | measurement_ref
+list_literal   := "[" (value ("," value)*)? "]"
+dict_literal   := "{" (STRING ":" value ("," STRING ":" value)*)? "}"
+measurement_ref:= HANDLE_NAME "." FIELD
 ```
 
 ## Parser and writer API

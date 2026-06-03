@@ -232,3 +232,54 @@ def test_full_features_round_trip(transmon_schema):
     reloaded = loads(text)
     assert dumps(reloaded) == text
     assert reloaded.body == p.body
+
+
+# ---------------------------------------------------------------------------
+# Regression coverage for the round-trip integrity fixes
+# ---------------------------------------------------------------------------
+
+
+def test_set_trigger_with_list_outputs_round_trips():
+    """`outputs=[1, 2]` must survive the tokenizer (bracket nesting) and reload as the list.
+
+    Regression: the tokenizer used to split the literal at the space, reloading `outputs`
+    as the string `'[1,'`.
+    """
+    p = QbloxQProgram()
+    p.qblox.set_trigger("drive", duration=100, outputs=[1, 2])
+    text = dumps(p)
+    assert "outputs=[1, 2]" in text
+    reloaded = loads(text)
+    op = reloaded.body.elements[0]
+    assert isinstance(op, SetTrigger)
+    assert op.outputs == [1, 2]
+    assert reloaded.body == p.body
+
+
+def test_vendor_op_inside_conditional_emits_require_and_survives():
+    """A qblox op used only inside an if_ arm keeps its require line and round-trips.
+
+    Regression: the vendor collector used to miss Conditional arm bodies, emitting no
+    `require qblox` line; on an environment without qblox the op then vanished silently.
+    """
+    p = QbloxQProgram()
+    h = p.measure("readout", "r", "w", returns="iq,state")
+    with p.if_(h.state == 1):
+        p.qblox.set_markers("drive", "0001")
+    text = dumps(p)
+    assert "require qblox" in text
+    reloaded = loads(text)
+    markers = [n for n in reloaded.body.walk() if isinstance(n, SetMarkers)]
+    assert len(markers) == 1
+
+
+def test_acquire_emits_name_kwarg():
+    """Measurement names travel as `name="..."`, matching core measure's wire form."""
+    p = QbloxQProgram()
+    p.qblox.acquire("readout", "weights")
+    text = dumps(p)
+    assert 'qblox.acquire "readout" "weights" name="m0"' in text
+    reloaded = loads(text)
+    op = reloaded.body.elements[0]
+    assert isinstance(op, Acquire)
+    assert op.name == "m0"

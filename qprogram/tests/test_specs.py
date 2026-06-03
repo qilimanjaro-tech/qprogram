@@ -14,7 +14,7 @@ from qprogram import (
     Variable,
 )
 from qprogram.blocks import Average, ForLoop, Loop
-from qprogram.operations import GetParameter, ResetPhase, SetCrosstalk, SetFrequency, SetParameter, Sync
+from qprogram.operations import GetParameter, SetCrosstalk, SetFrequency, SetParameter, Sync
 from qprogram.serialization._specs import (
     average_parse_header,
     average_serialize_header,
@@ -110,13 +110,21 @@ def test_default_parse_operation_kwarg():
     assert op.channel_id == 3
 
 
-def test_default_parse_operation_extra_positional_ignored():
-    """Tokens past the signature length are silently dropped (pre-1.0 leniency)."""
+def test_default_parse_operation_extra_positional_raises():
+    """Tokens past the signature length are a hard error — dropping them silently
+    would load a different program (e.g. `wait "bus" 100 - t` becoming `wait "bus" 100`)."""
     spec = get_operation_spec(None, "reset_phase")
     assert spec is not None
-    op = default_parse_operation(spec, ['"bus"', "garbage"], _parser())
-    assert isinstance(op, ResetPhase)
-    assert op.bus == "bus"
+    with pytest.raises(Exception, match="too many arguments"):
+        default_parse_operation(spec, ['"bus"', "garbage"], _parser())
+
+
+def test_default_parse_operation_unknown_kwarg_raises():
+    """A kwarg the constructor rejects surfaces as a line-tagged parse error."""
+    spec = get_operation_spec(None, "reset_phase")
+    assert spec is not None
+    with pytest.raises(Exception, match="cannot construct 'ResetPhase'"):
+        default_parse_operation(spec, ['"bus"', "bogus=1"], _parser())
 
 
 # ---------------------------------------------------------------------------
@@ -204,15 +212,37 @@ def test_get_parameter_parse_missing_alias_raises():
 # ---------------------------------------------------------------------------
 
 
-def test_set_crosstalk_serialize():
+def test_set_crosstalk_serialize_empty():
 
     op = SetCrosstalk(crosstalk=CrosstalkMatrix())
-    assert set_crosstalk_serialize(op, _writer()) == "set_crosstalk crosstalk"
+    assert set_crosstalk_serialize(op, _writer()) == "set_crosstalk"
 
 
-def test_set_crosstalk_parse():
+def test_set_crosstalk_serialize_full():
+    m = CrosstalkMatrix()
+    m["flux_q0"] = {"flux_q0": 1.0}
+    m.set_offset({"flux_q0": 0.5})
+    op = SetCrosstalk(crosstalk=m)
+    out = set_crosstalk_serialize(op, _writer())
+    assert out == 'set_crosstalk matrix={"flux_q0": {"flux_q0": 1.0}} offsets={"flux_q0": 0.5}'
+
+
+def test_set_crosstalk_parse_empty():
     op = set_crosstalk_parse([], _parser())
     assert isinstance(op, SetCrosstalk)
+    assert op.crosstalk.matrix == {}
+
+
+def test_set_crosstalk_parse_round_trips_matrix():
+    from qprogram.serialization.parser import _tokenize  # noqa: PLC0415
+
+    m = CrosstalkMatrix()
+    m["flux_q0"] = {"flux_q0": 1.0, "flux_q1": 0.03}
+    m.set_resistances({"flux_q0": 100.0})
+    original = SetCrosstalk(crosstalk=m)
+    line = set_crosstalk_serialize(original, _writer())
+    parsed = set_crosstalk_parse(_tokenize(line)[1:], _parser())
+    assert parsed.crosstalk == m
 
 
 # ---------------------------------------------------------------------------
@@ -295,12 +325,14 @@ def test_values_write_short():
     assert values_write(lp, _writer()) == "[0.0, 0.5, 1.0]"
 
 
-def test_values_write_long_truncated():
+def test_values_write_long_never_truncated():
 
     v = Variable("x")
     lp = Loop(v, np.arange(100))
     out = values_write(lp, _writer())
-    assert "..." in out
+    assert "..." not in out
+    assert out.startswith("[0, 1,")
+    assert out.endswith("98, 99]")
 
 
 def test_file_parse_loads_npy(tmp_path):

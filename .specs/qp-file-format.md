@@ -1,9 +1,8 @@
 # .qp File Format Specification (Draft)
 
-> **Source:** https://www.notion.so/qilimanjaro/qp-File-Format-Specification-Draft-3307eec14c5381948e39e397b2062803
-> **Fetched:** 2026-05-07
-> **Reconciled:** 2026-05-15
-> **Status:** Draft (specification — code may not yet match)
+> **Source / upstream:** https://www.notion.so/qilimanjaro/qp-File-Format-Specification-Draft-3307eec14c5381948e39e397b2062803
+> **Reconciled:** 2026-06-02 with the reference implementation; **pushed to the Notion page 2026-06-03** (this file and the Notion page are now in sync).
+> **Status:** Draft (specification — the implementation matches this revision)
 
 ---
 
@@ -17,7 +16,11 @@ Design goals:
 - **Self-contained** — waveform data embedded inline or referenced by file path
 - **Versionable** — format version declared in header
 - **Extensible** — custom waveform types and operations can be registered
-- **Round-trip safe** — `load(save(program)) == program`
+- **Round-trip safe** — `load(save(program)) == program`, with no truncation of any array or
+  sample data and no silent drops: the parser rejects anything it doesn't recognise, and the
+  writer raises `SerializationError` rather than emit output it cannot guarantee to reload
+
+**Encoding:** `.qp` files are always UTF-8, independent of the platform locale.
 
 ---
 
@@ -40,14 +43,14 @@ body:
   ...
 ```
 
-Operations can use concrete inline waveforms directly (e.g. `Gaussian(amplitude=0.5, duration=40, num_sigmas=2.5)`), or string aliases (e.g. `"pi_pulse"`) that are resolved externally via `with_waveforms()` at execution time.
+Operations can use concrete inline waveforms directly (e.g. `Gaussian(amplitude=0.5, duration=40, sigma=8)`), or string aliases (e.g. `"pi_pulse"`) that are resolved externally via `with_waveforms()` at execution time.
 
 ## 2.1 Header
 
 The first line must be the version header:
 
 ```
-#!QProgram 1.1
+#!QProgram 1.0
 ```
 
 This identifies the file as QProgram format and declares the specification version. Parsers must reject files with unsupported versions.
@@ -79,7 +82,8 @@ require qdac 1.2
 
 ## 2.3 Comments
 
-Line comments start with `#` (except the header line):
+Line comments start with `#` (except the header line). A `#` inside a quoted string — even
+after an escaped quote — is string content, not a comment:
 
 ```
 # This is a comment
@@ -101,6 +105,9 @@ metadata:
 ```
 
 All fields are optional. Values are strings (quoted), numbers, or booleans (`true`/`false`).
+`label` and `description` must be quoted strings; their values use the standard string escapes
+(`\\`, `\"`, `\n`, `\r`, `\t`), applied symmetrically by the writer and parser. Unknown keys
+are tolerated for forward compatibility; malformed lines (no `:`, unquoted label) are errors.
 
 ---
 
@@ -220,10 +227,10 @@ Each line ends after the last `key="value"` pair; tokens past those (without `=`
 One operation per line. Bus names and string references are quoted. Variable references are unquoted.
 
 ```
-play "drive_q0" pi_pulse
-play "drive_q0" Gaussian(amplitude=0.5, duration=40, num_sigmas=2.5)
-measure "readout_q0" "readout" "default"
-measure "readout_q0" readout_pulse readout_weights
+play "drive_q0" "pi_pulse"
+play "drive_q0" Gaussian(amplitude=0.5, duration=40, sigma=8)
+measure "readout_q0" "readout" "default" name="m0"
+measure "readout_q0" "readout" "default" name="m1" returns="iq,state"
 wait "drive_q0" 100
 wait "drive_q0" duration
 sync
@@ -235,42 +242,65 @@ reset_phase "drive_q0"
 set_gain "drive_q0" 0.5
 set_gain "drive_q0" gain
 set_offset "flux_q0" 0.1
-set_offset "flux_q0" 0.1 0.2
+set_offset "flux_q0" 0.1 offset_path1=0.2
 set_parameter "cluster" "lo_frequency" 5e9
 get_parameter "cluster" "lo_frequency" -> lo_freq
-set_crosstalk crosstalk
-set_trigger "drive_q0" 100 outputs=1 position="start"
-wait_trigger "drive_q0" 1000 port=1
+set_crosstalk matrix={"flux_q0": {"flux_q0": 1.0, "flux_q1": 0.03}} offsets={"flux_q0": 0.1}
+qblox.set_trigger "drive_q0" 100 outputs=[1, 2] position="start"
+qblox.wait_trigger "drive_q0" 1000 port=1
 ```
 
 **Key syntax rules:**
 
 - Waveform aliases (to be resolved externally via `with_waveforms()`) are in quotes: `"pi_pulse"`
 - Variable references are unquoted: `freq`, `gain`
-- Inline waveform constructors can appear directly: `Gaussian(amplitude=gain, duration=40, num_sigmas=2.5)`
+- Inline waveform constructors can appear directly: `Gaussian(amplitude=gain, duration=40, sigma=8)`
 - `get_parameter` uses `->` to assign to a variable
+- **Measurements carry their name as a `name="..."` kwarg.** The writer always emits it;
+  hand-written files may omit it, in which case the parser auto-allocates (`m0`, `m1`, ...)
+  with the same convention the Python builder uses. (Older files with the name as a bare 4th
+  positional token still load.)
+- **Sequence values** are bracket literals: `outputs=[1, 2]`. **Dict values** (string keys) are
+  brace literals: `matrix={"a": {"b": 1.0}}`. `null` is the literal for Python `None`. The
+  tokenizer treats `(...)`, `[...]`, and `{...}` as nesting, so spaces inside them are safe.
+- `set_crosstalk` serialises its full matrix through three optional dict-literal sections —
+  `matrix=`, `offsets=`, `resistances=` (each omitted when empty; an entirely empty matrix is
+  the bare keyword).
+
+**Strictness:** unknown operation keywords (core or vendor-dotted), unknown block keywords, and
+unknown top-level sections are hard `ParseError`s — a file never loads with content silently
+missing. Excess positional tokens on an operation line are also errors. On the write side, an
+unregistered operation/block class or an attribute value the format cannot represent raises
+`SerializationError` instead of emitting lossy output.
 
 ## 4.3 Inline Waveform Constructors
 
 Concrete waveforms can appear directly in operations using constructor syntax:
 
 ```
-play "drive_q0" Gaussian(amplitude=0.5, duration=40, num_sigmas=2.5)
-play "drive_q0" IQDrag(amplitude=0.5, duration=40, num_sigmas=2.5, drag_coefficient=0.1)
+play "drive_q0" Gaussian(amplitude=0.5, duration=40, sigma=8)
+play "drive_q0" IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
 play "flux_q0" FlatTop(amplitude=amp, duration=dur, smooth_duration=5)
-measure "readout_q0" IQPair(Square(1.0, 2000), Square(0.0, 2000)) IQPair(Square(1.0, 2000), Square(1.0, 2000))
+measure "readout_q0" IQPair(Square(1.0, 2000), Square(0.0, 2000)) IQPair(Square(1.0, 2000), Square(1.0, 2000)) name="m0"
 ```
 
 Parameters can be positional or named. Variable references are allowed as parameters (for sweeps).
 
 ## 4.4 Variable Expressions
 
-Arithmetic expressions are written inline:
+Arithmetic expressions are **always parenthesised** — the canonical form the writer emits and
+the only form the parser accepts. An unparenthesised `100 - t` would tokenize as three separate
+arguments and is rejected with a "too many arguments … parenthesise it" error rather than
+silently dropping the trailing tokens:
 
 ```
-wait "drive_q0" 100 - t
-wait "drive_q0" t + 200
+wait "drive_q0" (100 - t)
+wait "drive_q0" (t + 200)
+set_frequency "drive_q0" ((freq * 2) + 1000000.0)
 ```
+
+Math functions and `where` use the function-call shape: `sin(x)`, `minimum(x, 0.5)`,
+`where((x < 5), x, 0)`.
 
 ## 4.5 Control Flow Blocks
 
@@ -300,10 +330,11 @@ for amp in file("sweep_values.npy"):
   set_gain "drive_q0" amp
 ```
 
-**Parallel loops** (via `|`):
+**Parallel loops** (via `|`) — all composed loops must have the same number of iterations
+(mismatches are rejected at parse time):
 
 ```
-for freq in range(4e9, 6e9, 1e6) | for gain in range(0.0, 1.0, 0.01):
+for freq in range(4e9, 6e9, 1e6) | for gain in range(0.0, 2.0, 0.001):
   set_frequency "drive_q0" freq
   set_gain "drive_q0" gain
   play "drive_q0" pi_pulse
@@ -312,9 +343,9 @@ for freq in range(4e9, 6e9, 1e6) | for gain in range(0.0, 1.0, 0.01):
 Mixing loop types:
 
 ```
-for freq in range(4e9, 6e9, 1e6) | for amp in [0.1, 0.3, 0.5, 0.7, 0.9]:
+for freq in range(5e9, 5.4e9, 1e8) | for amp in [0.1, 0.3, 0.5, 0.7, 0.9]:
   set_frequency "drive_q0" freq
-  play "drive_q0" Gaussian(amplitude=amp, duration=40, num_sigmas=2.5)
+  play "drive_q0" Gaussian(amplitude=amp, duration=40, sigma=8)
 ```
 
 **average:**
@@ -367,7 +398,7 @@ body:
       set_gain "drive_q0" gain
       play "drive_q0" "pi_pulse"
       sync
-      measure "readout_q0" "readout" "weights"
+      measure "readout_q0" "readout" "weights" name="m0"
 ```
 
 ---
@@ -398,8 +429,8 @@ body:
       sync
 
       # Readout both qubits
-      measure "readout_q0" "readout" "default"
-      measure "readout_q1" "readout" "default"
+      measure "readout_q0" "readout" "default" name="m0"
+      measure "readout_q1" "readout" "default" name="m1"
 ```
 
 ---
@@ -434,9 +465,17 @@ statement      := var_decl | operation | control_block
 var_decl       := "var" ID var_attr*
 var_attr       := ("label" | "units" | "description") "=" STRING
 ID             := [A-Za-z_][A-Za-z0-9_]*
-operation      := (VENDOR ".")? OP_NAME arg*
-arg            := STRING | NUMBER | IDENT | waveform_expr | expression
-expression     := (IDENT | NUMBER) ("+" | "-") (IDENT | NUMBER)
+operation      := (VENDOR ".")? OP_NAME arg* kwarg*
+arg            := value | expression
+kwarg          := IDENT "=" (value | expression)
+expression     := "(" expr_body ")"
+expr_body      := value (BIN_OP value)
+               | ("-" | "+") value                  # unary, no space
+               | "not" value
+               | value CMP_OP value
+               | value ("and" | "or") value
+BIN_OP         := "+" | "-" | "*" | "/"
+CMP_OP         := "==" | "!=" | "<" | "<=" | ">" | ">="
 
 control_block  := for_block | average_block | block_block | parallel_block
 for_block      := "for" IDENT "in" (range_expr | array_expr) ":" NEWLINE INDENT statement+
@@ -449,7 +488,11 @@ array_expr     := "[" NUMBER ("," NUMBER)* "]" | "file(" STRING ")"
 waveform_expr  := WAVEFORM_TYPE "(" (arg_list)? ")"
 arg_list       := (IDENT "=")? value ("," (IDENT "=")? value)*
 
-value          := STRING | NUMBER | BOOL | IDENT | waveform_expr | array_literal
+value          := STRING | NUMBER | BOOL | "null" | IDENT | waveform_expr | expression
+               | list_literal | dict_literal | measurement_ref
+list_literal   := "[" (value ("," value)*)? "]"
+dict_literal   := "{" (STRING ":" value ("," STRING ":" value)*)? "}"
+measurement_ref:= HANDLE_NAME "." FIELD            # e.g. m0.state (unquoted, token-safe name)
 ```
 
 ---
@@ -547,7 +590,7 @@ Older parsers must reject files with a higher major version. Minor version incre
 
 # 10. Open Questions
 
-- [ ] **Encoding**: UTF-8 only? Or support other encodings?
+- [x] **Encoding**: **Resolved** — UTF-8 only; `save()`/`load()` pin the encoding explicitly.
 - [ ] **Max line length**: Should there be a recommended max line length for readability?
 - [ ] **Multi-line constructors**: Should waveform constructors with many parameters support line continuation?
 - [ ] **Import mechanism**: Should `.qp` files be able to import waveform definitions from other `.qp` files?

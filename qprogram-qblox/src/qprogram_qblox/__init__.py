@@ -57,7 +57,7 @@ Usage (mixin — combine multiple vendors)::
 from importlib.metadata import PackageNotFoundError, version
 
 from qprogram.qprogram import QProgram as _BaseQProgram
-from qprogram.serialization._specs import make_measurement_op_parse
+from qprogram.serialization._specs import make_measurement_op_parse, measurement_op_serialize
 from qprogram.serialization.registry import register_vendor_operation, register_vendor_version
 
 from qprogram_qblox.mixin import QbloxMixin
@@ -95,7 +95,13 @@ register_vendor_version("qblox", __version__)
 #   - pure software ops (set_acquisition_threshold — QCoDeS at execution time).
 # The .qp serializer treats them all uniformly; the platform decides at runtime
 # how to lower each one onto its hardware.
-register_vendor_operation("qblox", "acquire", Acquire, parse=make_measurement_op_parse(Acquire))
+register_vendor_operation(
+    "qblox",
+    "acquire",
+    Acquire,
+    serialize=measurement_op_serialize,
+    parse=make_measurement_op_parse(Acquire),
+)
 register_vendor_operation("qblox", "set_markers", SetMarkers)
 register_vendor_operation("qblox", "set_trigger", SetTrigger)
 register_vendor_operation("qblox", "wait_trigger", WaitTrigger)

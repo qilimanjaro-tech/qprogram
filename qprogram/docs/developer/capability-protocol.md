@@ -23,9 +23,11 @@ The protocol has five design choices worth flagging up front:
    availability requirements; a single conversion target checks them.
 4. **Hw vs sw decided by classification, not by separate token spaces.** Required tokens are the
    same in both domains. Domain-specific differences come from predicates emitting
-   `DomainConstraint` (soft restriction) or `Diagnostic` (hard error). The classifier intersects
-   domain support bottom-up across blocks and emits one `severity="info"` `"forced-software"`
-   diagnostic on the highest block whose support went from `{hw, sw}` to `{sw}`.
+   `DomainConstraint` (soft restriction) or `Diagnostic` (hard error). The classifier derives
+   each block's domain from its **op-children consensus** (block-children act as units, with an
+   implicit SW propagation upward), applies `DomainConstraint`s to their target blocks, and
+   emits one `severity="info"` `"forced-software"` diagnostic on the highest block whose support
+   lost `"hw"` and ended at `{sw}`.
 5. **One descriptor surface, two views.** `PlatformCapabilities` is the object the validator
    consumes *and* the object users introspect. `validate()` returns `(diagnostics, plan)`;
    `PlatformProtocol.validate()` and `PlatformProtocol.plan()` are convenience views over the
@@ -145,20 +147,34 @@ recursive post-order pass:
 
 1. **Per-node check.** For each AST node:
    - Resolve the routed slot via `caps.for_bus(node.bus)` for bus-touching ops or `caps.platform`
-     for blocks / bus-less ops. Multi-bus ops contribute a list of slots that are intersected.
+     for blocks / bus-less ops. Multi-bus ops contribute a list of slots that are intersected;
+     broadcast ops with no explicit targets (`Sync(targets=None)`) intersect over **every bus in
+     the program** (`ctx.program_buses`).
    - Split `required_capabilities()` into expression tokens (always checked against
      `caps.platform`) and the rest (checked against the primary slot).
    - For each domain `d ∈ {"hw", "sw"}`: the domain is *available* iff the slot has a non-None
      CompilerCapabilities for d AND the token subsets are satisfied AND no predicate emitted a
      `Diagnostic` in d.
-   - Collect `DomainConstraint`s from predicates; subtract `union(constraint.exclude)` from
-     `available` to get `support`.
-   - If `support` is empty, surface all per-domain diagnostics (the user sees the contributing
-     reasons). If at least one domain works, the per-domain Diagnostics are suppressed.
-2. **Block-level classification.** After recursing into children, each block's `final_support` is
-   the intersection of children's `final_support` ∩ the block's own `support`. Empty →
-   `"empty-domain"` error diagnostic. `{hw, sw} → {sw}` reduction → one `severity="info"`
-   `"forced-software"` diagnostic on the highest block in the forced chain.
+   - Collect `DomainConstraint`s from predicates — they must target a **Block** (the binding
+     loop), are deduplicated, and are routed to their target's bucket. An op's own `support`
+     equals its `available`: constraints restrict blocks, never ops.
+   - If `available` is empty, surface the failure reasons — **one** `missing-capability` per
+     token (naming both slots when missing in both domains) plus deduplicated predicate
+     Diagnostics. If at least one domain works, the per-domain failures are suppressed.
+2. **Block-level classification (post-order).** Each block's natural domain is the intersection
+   of its **immediate op-children's** supports (rule (c)); block-children don't enter the
+   consensus, but an SW-only block-child implicitly excludes `"hw"` from the parent (rule (e1)'s
+   constructive side). Disjoint healthy singletons → `"mixed-domain"` error (rule (d)); an
+   op-child whose own support is already empty silently empties the block (its own diagnostics
+   explain why). A `DomainConstraint` that strips `"hw"` from an all-HW block drops the *block*
+   to SW dispatch while its ops stay HW (rule (e2)). An SW block-child inside a parent whose
+   slot has no SW half at all → `"sw-in-hw"` error. Empty support without a child explanation →
+   `"empty-domain"`; a `{…hw…} → {sw}` reduction → one `severity="info"` `"forced-software"`
+   diagnostic on the highest block in the forced chain.
+
+The returned `ExecutionPlan` is **identity-keyed**: every node *instance* has its own entry,
+even when two nodes are structurally identical — `plan[node]` resolves by object identity, so a
+compiler can trust one entry per AST position.
 
 Then two more passes:
 
@@ -183,15 +199,24 @@ def reject_arbitrary_wait(node, ctx):
 
 
 def drag_sigma_is_software_only(node, ctx):
-    """Soft restriction: hw can't, sw still works via per-iteration dispatch."""
+    """Soft restriction: hw can't, sw still works via per-iteration dispatch.
+
+    The constraint targets the BINDING LOOP (a Block), not the Play op — the loop is what
+    falls back to software; the Play stays a hardware shot per iteration. Targeting an op
+    is an authoring error reported as `bad-domain-constraint`.
+    """
     if isinstance(node, Play) and isinstance(node.waveform, IQDrag) and isinstance(node.waveform.sigma, Variable):
-        yield DomainConstraint(node=node, exclude=frozenset({"hw"}),
-                               reason="IQDrag.sigma sweep is not real-time")
+        binding_loop = ctx.binding_loop_of(node.waveform.sigma)
+        if binding_loop is not None:
+            yield DomainConstraint(node=binding_loop, exclude=frozenset({"hw"}),
+                                   reason="IQDrag.sigma sweep is not real-time")
 ```
 
-The validator collects both. Diagnostics queue per (node, domain); they surface only when
-`support` is empty (otherwise the fallback worked and they're noise). DomainConstraints subtract
-from support silently and the classifier reports the consequence via `"forced-software"`.
+The validator collects both. Diagnostics queue per (node, domain) and are deduplicated — a
+token missing in both domains is reported once, and a predicate registered on both halves of a
+slot contributes its outputs once; they surface only when `support` is empty (otherwise the
+fallback worked and they're noise). DomainConstraints subtract from their target block's support
+silently and the classifier reports the consequence via `"forced-software"`.
 
 ### Per-node methods must not recurse
 

@@ -42,6 +42,10 @@ class Operation:
 
     BUS_ATTRS: ClassVar[tuple[str, ...]] = ("bus",)
     WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ()
+    BROADCASTS_WHEN_NO_BUS: ClassVar[bool] = False
+    """When ``True`` and the op's :attr:`BUS_ATTRS` resolve to no buses, the op semantically
+    touches *every* bus in the program (e.g. ``Sync(targets=None)``). The validator then routes
+    it across all program buses instead of the default-bus profile."""
 
     def variables(self) -> set[Variable]:
         """Return every :class:`Variable` referenced by this op, transitively.

@@ -16,7 +16,7 @@ from qprogram import (
     sqrt,
     where,
 )
-from qprogram.waveforms import Gaussian, IQDrag, IQPair, Square
+from qprogram.waveforms import Arbitrary, Gaussian, IQDrag, IQPair, Square
 
 
 def _assert_byte_stable(program: QProgram) -> None:
@@ -190,7 +190,7 @@ def test_round_trip_with_parallel_loops():
     p = QProgram()
     v = p.variable("freq")
     w = p.variable("gain")
-    with p.for_loop(v, 4e9, 6e9, 1e6) | p.for_loop(w, 0.0, 1.0, 0.01):
+    with p.for_loop(v, 4e9, 6e9, 1e6) | p.for_loop(w, 0.0, 2.0, 0.001):
         p.set_frequency("drive", v)
         p.set_gain("drive", w)
     _assert_byte_stable(p)
@@ -232,7 +232,7 @@ def test_round_trip_full_features(transmon_schema):
 
     with (
         p.average(shots=1000),
-        p.for_loop(gain, 0.0, 1.0, 0.01) | p.loop(t, np.array([10, 20, 30, 40])),
+        p.for_loop(gain, 0.0, 0.3, 0.1) | p.loop(t, np.array([10, 20, 30, 40])),
         p.for_loop(freq, 4e9, 6e9, 1e6),
     ):
         p.set_gain(transmon_schema.q[0].drive, minimum(gain, 0.5))
@@ -286,3 +286,91 @@ def test_round_trip_with_vendor(transmon_schema, dummy_vendor):  # noqa: ARG001
     p.dummy.wait_trigger(transmon_schema.q[0].drive, duration=1000, port=1)
     p.dummy.acquire(transmon_schema.q[0].readout, "w", returns="iq,raw")
     _assert_byte_stable(p)
+
+
+# ---------------------------------------------------------------------------
+# Regression coverage: the P0 round-trip integrity fixes
+# ---------------------------------------------------------------------------
+
+
+def test_round_trip_long_loop_values_lossless():
+    """Sweeps longer than 50 points reload value-for-value (no truncation)."""
+    p = QProgram()
+    v = p.variable("amp")
+    values = np.linspace(0.0, 1.0, 137)
+    with p.loop(v, values):
+        p.set_gain("drive", v)
+    reloaded = loads(dumps(p))
+    lp = reloaded.body.elements[0]
+    assert np.array_equal(lp.values, values)
+    assert reloaded.body == p.body
+
+
+def test_round_trip_long_arbitrary_samples_lossless():
+    """Arbitrary waveforms beyond 20 samples reload sample-for-sample."""
+    p = QProgram()
+    samples = np.sin(np.linspace(0, np.pi, 64))
+    p.play("drive", Square(0.5, 4))  # neighbour op to keep the body realistic
+    p.play("drive", Arbitrary(samples))
+    reloaded = loads(dumps(p))
+    wf = reloaded.body.elements[1].waveform
+    assert np.array_equal(wf.samples, samples)
+
+
+def test_round_trip_crosstalk_matrix_lossless():
+    m = CrosstalkMatrix()
+    m["flux_q0"] = {"flux_q0": 1.0, "flux_q1": 0.03}
+    m["flux_q1"] = {"flux_q0": 0.02, "flux_q1": 1.0}
+    m.set_offset({"flux_q0": 0.1})
+    m.set_resistances({"flux_q0": 100.0})
+    m.resistances["flux_q1"] = None
+    p = QProgram()
+    p.set_crosstalk(m)
+    reloaded = loads(dumps(p))
+    assert reloaded.body.elements[0].crosstalk == m
+    assert reloaded.body == p.body
+
+
+def test_round_trip_vendor_op_inside_conditional(transmon_schema, dummy_vendor):  # noqa: ARG001
+    """Vendor ops used only inside conditional arms keep their require line and survive."""
+    from _dummy_vendor import DummyQProgram, DummySetMarkers  # noqa: PLC0415
+
+    p = DummyQProgram(schema=transmon_schema)
+    h = p.measure(transmon_schema.q[0].readout, "r", "w", returns="iq,state")
+    with p.if_(h.state == 1):
+        p.dummy.set_markers(transmon_schema.q[0].drive, "0001")
+    text = dumps(p)
+    assert "require dummy" in text
+    reloaded = loads(text)
+    markers = [n for n in reloaded.body.walk() if isinstance(n, DummySetMarkers)]
+    assert len(markers) == 1
+
+
+def test_round_trip_metadata_with_quotes_and_backslashes():
+    p = QProgram(label='say "hi"', description="a\\b # not a comment")
+    reloaded = loads(dumps(p))
+    assert reloaded.label == p.label
+    assert reloaded.description == p.description
+
+
+def test_round_trip_measure_name_kwarg_form(transmon_schema):
+    """The wire format carries names as ``name=`` and reloads to equal handles."""
+    p = QProgram(schema=transmon_schema)
+    p.measure(transmon_schema.q[0].readout, "r", "w")
+    text = dumps(p)
+    assert 'name="q0/readout/m0"' in text
+    reloaded = loads(text)
+    assert reloaded.body == p.body
+
+
+def test_round_trip_conditional_full_chain(transmon_schema):
+    p = QProgram(schema=transmon_schema)
+    h = p.measure(transmon_schema.q[0].readout, "r", "w", returns="iq,state")
+    with p.if_(h.state == 1):
+        p.play(transmon_schema.q[0].drive, "pi")
+    with p.elif_(h.state == 0):
+        p.play(transmon_schema.q[0].drive, "id")
+    with p.else_():
+        p.sync()
+    _assert_byte_stable(p)
+    assert loads(dumps(p)).body == p.body

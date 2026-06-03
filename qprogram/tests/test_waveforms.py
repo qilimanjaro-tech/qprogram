@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from matplotlib.axes import Axes
 
-from qprogram import UnassignedVariableError, Variable
+from qprogram import UnassignedVariableError, ValidationError, Variable
 from qprogram.waveforms import (
     Arbitrary,
     Chained,
@@ -199,6 +199,26 @@ def test_flat_top_buffer_default():
     assert wf.buffer == 0
 
 
+def test_flat_top_buffer_pads_envelope_on_both_sides():
+    wf = FlatTop(amplitude=1.0, duration=100, smooth_duration=10, buffer=25)
+    env = wf.envelope()
+    assert env.shape == (150,)  # 25 + 100 + 25
+    assert np.allclose(env[:25], 0.0)
+    assert np.allclose(env[-25:], 0.0)
+    # The pulse content sits between the pads, identical to the unbuffered envelope.
+    unbuffered = FlatTop(amplitude=1.0, duration=100, smooth_duration=10).envelope()
+    assert np.allclose(env[25:125], unbuffered)
+
+
+def test_flat_top_buffer_extends_duration():
+    assert FlatTop(0.5, 100, 10, buffer=25).get_duration() == 150
+
+
+def test_flat_top_buffer_respects_resolution():
+    env = FlatTop(amplitude=1.0, duration=100, smooth_duration=10, buffer=25).envelope(resolution=5)
+    assert env.shape == (30,)  # 5 + 20 + 5
+
+
 # ---------------------------------------------------------------------------
 # SuddenNetZero
 # ---------------------------------------------------------------------------
@@ -313,6 +333,19 @@ def test_iq_pair_get_duration():
 def test_iq_pair_rejects_non_waveform_args(i, q):
     with pytest.raises(TypeError, match="must be Waveform"):
         IQPair(i, q)
+
+
+def test_iq_pair_rejects_mismatched_durations():
+    with pytest.raises(ValidationError, match="equal durations"):
+        IQPair(Square(1.0, 100), Square(0.0, 999))
+
+
+def test_iq_pair_defers_duration_check_for_symbolic_durations():
+    # Unassigned symbolic durations can't be compared at construction time —
+    # the check is deferred to the platform compiler.
+    dur = Variable("dur")
+    wf = IQPair(Square(1.0, dur), Square(0.0, dur))
+    assert wf.get_I().duration is dur
 
 
 # ---------------------------------------------------------------------------

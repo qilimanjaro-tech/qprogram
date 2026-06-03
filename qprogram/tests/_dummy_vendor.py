@@ -28,7 +28,7 @@ from qprogram.protocol import (
     register_profile,
 )
 from qprogram.qprogram import QProgram as _BaseQProgram
-from qprogram.serialization._specs import make_measurement_op_parse
+from qprogram.serialization._specs import make_measurement_op_parse, measurement_op_serialize
 from qprogram.serialization.registry import (
     register_vendor_operation,
     register_vendor_version,
@@ -394,7 +394,8 @@ def activate() -> Profile:
     register_vendor_version(VENDOR_NAME, VENDOR_VERSION)
     for op_name, op_cls, is_measurement in _OPERATIONS:
         parse = make_measurement_op_parse(op_cls) if is_measurement else None
-        register_vendor_operation(VENDOR_NAME, op_name, op_cls, parse=parse)
+        serialize = measurement_op_serialize if is_measurement else None
+        register_vendor_operation(VENDOR_NAME, op_name, op_cls, serialize=serialize, parse=parse)
     return _build_profile()
 
 

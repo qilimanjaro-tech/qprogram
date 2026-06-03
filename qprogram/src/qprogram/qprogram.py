@@ -6,6 +6,7 @@ import re
 from collections import deque
 from typing import TYPE_CHECKING, ClassVar
 
+from qprogram._reserved import is_reserved_vendor
 from qprogram.blocks.average import Average
 from qprogram.blocks.block import Block
 from qprogram.blocks.conditional import Conditional
@@ -200,6 +201,11 @@ class _ElseContext:
         self._program._pending_conditional = None
 
 
+# Public instance attributes assigned in ``QProgram.__init__`` — kept in sync with it so
+# ``register_vendor`` can reject vendor names that an instance attribute would shadow.
+_PUBLIC_INSTANCE_ATTRS: frozenset[str] = frozenset({"label", "description"})
+
+
 class QProgram:
     """Top-level container for a pulse-level quantum program.
 
@@ -364,10 +370,45 @@ class QProgram:
 
         After registration, ``program.<name>`` returns the namespace on any :class:`QProgram` instance.
 
+        Re-registering the *same* namespace class under the same name is a no-op (import-time
+        side-effect modules may run twice); registering a different class under a taken name is
+        an error — silently replacing another vendor's namespace would be a supply-chain hazard.
+
         Args:
             name: Vendor identifier (also used as the dot-prefix in ``.qp`` operation names).
+                Must not be a reserved keyword, the ``"core"`` sentinel, or the name of any
+                :class:`QProgram` attribute (which would make the namespace unreachable — vendor
+                lookup happens in ``__getattr__``, after normal attribute resolution).
             namespace_cls: The :class:`~qprogram.VendorNamespace` subclass to instantiate lazily.
+
+        Raises:
+            ValueError: If ``name`` is reserved, shadows a ``QProgram`` attribute, or is already
+                registered to a different namespace class.
         """
+        existing = cls._vendor_registry.get(name)
+        if existing is namespace_cls:
+            return  # idempotent re-registration
+        if is_reserved_vendor(name):
+            msg = (
+                f"vendor name {name!r} is reserved (see qprogram.RESERVED_KEYWORDS plus the "
+                f"'core' sentinel); pick a different namespace for this vendor extension"
+            )
+            raise ValueError(msg)
+        # ``hasattr`` covers methods and properties; the frozenset covers the public *instance*
+        # attributes assigned in ``__init__`` (invisible on the class but they shadow vendor
+        # dispatch on every instance, since ``__getattr__`` only runs after normal lookup fails).
+        if hasattr(cls, name) or name in _PUBLIC_INSTANCE_ATTRS:
+            msg = (
+                f"vendor name {name!r} collides with a QProgram attribute; the namespace would "
+                f"be unreachable because normal attribute lookup wins over vendor dispatch"
+            )
+            raise ValueError(msg)
+        if existing is not None:
+            msg = (
+                f"vendor name {name!r} is already registered to "
+                f"{existing.__module__}.{existing.__qualname__}; refusing to replace it"
+            )
+            raise ValueError(msg)
         cls._vendor_registry[name] = namespace_cls
 
     def __getattr__(self, name: str) -> VendorNamespace:
@@ -473,9 +514,16 @@ class QProgram:
 
         Args:
             buses: Buses to sync, or ``None`` to sync every bus currently active in the program.
+
+        Raises:
+            ValidationError: If ``buses`` is an empty list — ambiguous between "sync nothing"
+                and "sync everything"; pass ``None`` for the sync-all form.
         """
         # User-facing keyword stays ``buses`` for readability; the AST attribute is named ``targets``
         # (see :class:`Sync`).
+        if buses is not None and len(buses) == 0:
+            msg = "sync([]) is ambiguous; pass None (or no argument) to sync all buses"
+            raise ValidationError(msg)
         if buses:
             for b in buses:
                 self._validate_bus(b)

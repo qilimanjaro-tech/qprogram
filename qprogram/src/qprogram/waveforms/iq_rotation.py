@@ -29,6 +29,9 @@ class IQRotation(IQWaveform):
     WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ("base",)
 
     def __init__(self, base: IQWaveform, phase: float | Expression) -> None:
+        if not isinstance(base, IQWaveform):
+            msg = f"IQRotation base must be an IQWaveform, got {type(base).__name__}"
+            raise TypeError(msg)
         self.base = base
         self.phase = phase
 

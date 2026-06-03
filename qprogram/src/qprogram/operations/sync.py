@@ -17,6 +17,7 @@ class Sync(Operation):
     """
 
     BUS_ATTRS: ClassVar[tuple[str, ...]] = ("targets",)
+    BROADCASTS_WHEN_NO_BUS: ClassVar[bool] = True
 
     def __init__(self, targets: list[str] | None = None) -> None:
         self.targets = targets

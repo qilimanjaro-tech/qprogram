@@ -11,6 +11,7 @@ a program), but the indirection gives future tooling a single hook for emit-time
 
 from __future__ import annotations
 
+import re
 from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -23,9 +24,11 @@ from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
 from qprogram.buses import BusNaming, BusRef
+from qprogram.errors import SerializationError
 from qprogram.operations.operation import Operation
 from qprogram.result import MeasurementHandle
 from qprogram.serialization import _specs
+from qprogram.serialization._format import FORMAT_VERSION
 from qprogram.serialization.registry import (
     get_block_spec_by_class,
     get_operation_spec_by_class,
@@ -49,7 +52,10 @@ from qprogram.waveforms.waveform import IQWaveform, Waveform
 if TYPE_CHECKING:
     from qprogram.qprogram import QProgram
 
-FORMAT_VERSION = "1.0"
+# Characters that break the unquoted ``<name>.<field>`` wire form of a MeasurementRef: token
+# delimiters (whitespace, comma), quoting/nesting characters, the comment marker, and the dot
+# (the parser splits the token at its first dot to separate name from field).
+_MEASUREMENT_REF_UNSAFE = re.compile(r'[\s"#,.()\[\]{}]')
 
 
 def dumps(program: QProgram) -> str:
@@ -60,6 +66,11 @@ def dumps(program: QProgram) -> str:
 
     Returns:
         The full ``.qp`` text (header, metadata, schema, body).
+
+    Raises:
+        SerializationError: If the program contains a node or value the format cannot represent
+            faithfully (unregistered operation/block class, vendor without a registered version,
+            attribute value of an unsupported type). The writer never emits lossy output.
     """
     return _Writer(program).dump()
 
@@ -67,11 +78,16 @@ def dumps(program: QProgram) -> str:
 def save(program: QProgram, path: str) -> None:
     """Serialise ``program`` and write the result to ``path``.
 
+    ``.qp`` files are always UTF-8, independent of the platform's locale.
+
     Args:
         program: Program to serialise.
         path: Destination file path.
+
+    Raises:
+        SerializationError: See :func:`dumps`.
     """
-    with Path(path).open("w") as f:
+    with Path(path).open("w", encoding="utf-8") as f:
         f.write(dumps(program))
 
 
@@ -120,17 +136,20 @@ class _Writer:
                     f"version is registered. The vendor extension package must call "
                     f"register_vendor_version('{vendor}', '<x.y.z>') on import."
                 )
-                raise RuntimeError(msg)
+                raise SerializationError(msg)
             self._out.write(f"\nrequire {vendor} {_major_minor(version)}")
         if vendors:
             self._out.write("\n")
 
     def _write_metadata(self) -> None:
-        if self._program.label or self._program.description:
+        # ``label`` defaults to ``""`` and is omitted when empty (the parser's default matches);
+        # ``description`` defaults to ``None``, so an explicit empty string is a distinct value
+        # and must still be emitted to round-trip faithfully.
+        if self._program.label or self._program.description is not None:
             self._out.write("\nmetadata:\n")
             if self._program.label:
                 self._out.write(f'  label: "{_escape_str(self._program.label)}"\n')
-            if self._program.description:
+            if self._program.description is not None:
                 self._out.write(f'  description: "{_escape_str(self._program.description)}"\n')
 
     # -- schema declaration --------------------------------------------------
@@ -252,40 +271,65 @@ class _Writer:
 
         Loop-shaped blocks dispatch through the sweep generator registry; all
         other blocks dispatch through the block registry. An unregistered
-        block emits a comment so the output is still parseable as a whole
-        but the offending block is visible.
+        block raises — emitting a placeholder would silently drop the block
+        (and its children's semantics) on reload.
+
+        Raises:
+            SerializationError: If the block class has no registered spec.
         """
         gen_spec = get_sweep_generator_spec_by_class(type(block))
         if gen_spec is not None:
             return self._serialize_loop_header(block)
         block_spec = get_block_spec_by_class(type(block))
         if block_spec is None:
-            return f"# unknown block: {type(block).__name__}"
+            msg = (
+                f"Cannot serialize block class {type(block).__name__!r}: it is not registered "
+                f"with the .qp serializer. Register it via register_block(...) (or "
+                f"register_sweep_generator(...) for loop-shaped blocks)."
+            )
+            raise SerializationError(msg)
         if block_spec.serialize_header is not None:
             return block_spec.serialize_header(block, self)
         return block_spec.name
 
     def _serialize_loop_header(self, loop: Block) -> str:
-        """``for <var> in <generator>`` — generator text comes from the sweep registry."""
+        """``for <var> in <generator>`` — generator text comes from the sweep registry.
+
+        Raises:
+            SerializationError: If the loop class has no write-side sweep generator, or doesn't
+                carry the ``variable`` attribute the ``for var in ...`` grammar requires.
+        """
         gen_spec = get_sweep_generator_spec_by_class(type(loop))
-        if gen_spec is None or gen_spec.write is None:
-            return f"# unknown sweep block: {type(loop).__name__}"
         # Every registered loop block has a ``variable`` attribute; this is
         # the contract for participating in the ``for var in ...`` grammar.
         # ``Block`` itself doesn't declare it, so narrow via the concrete
         # loop block subclasses that do.
-        if not isinstance(loop, (ForLoop, Loop)):
-            return f"# unknown sweep block: {type(loop).__name__}"
+        if gen_spec is None or gen_spec.write is None or not isinstance(loop, (ForLoop, Loop)):
+            msg = (
+                f"Cannot serialize loop block class {type(loop).__name__!r}: no write-side sweep "
+                f"generator is registered for it. Register one via register_sweep_generator(...)."
+            )
+            raise SerializationError(msg)
         var = loop.variable
         var_ident = self._var_idents[var.id]
         gen_text = gen_spec.write(loop, self)
         return f"for {var_ident} in {gen_text}"
 
     def _serialize_operation(self, op: Operation) -> str:
-        """Look up the operation in the registry and dispatch to its serializer."""
+        """Look up the operation in the registry and dispatch to its serializer.
+
+        Raises:
+            SerializationError: If the operation class has no registered spec — emitting a
+                placeholder would silently drop the operation on reload.
+        """
         spec = get_operation_spec_by_class(type(op))
         if spec is None:
-            return f"# unknown operation: {type(op).__name__}"
+            msg = (
+                f"Cannot serialize operation class {type(op).__name__!r}: it is not registered "
+                f"with the .qp serializer. Core ops register in qprogram.serialization._specs; "
+                f"vendor ops must call register_vendor_operation(...) at import time."
+            )
+            raise SerializationError(msg)
         if spec.serialize is not None:
             return spec.serialize(op, self)
         return _specs.default_serialize_operation(op, spec, self)
@@ -298,16 +342,23 @@ class _Writer:
         Recognises the full :class:`~qprogram.Expression` AST (variables,
         constants, arithmetic, comparison, logical, math functions,
         conditional ``where``), waveform instances, bus references, plain
-        strings (quoted), booleans, numeric literals, numpy integers, and
-        tuples of strings (rendered as a single quoted comma-joined
-        token — the canonical form used by ``Measure.returns`` /
-        ``Acquire.returns``). Falls back to ``str(val)`` so the writer
-        never raises mid-emit.
+        strings (quoted), booleans, ``None`` (as ``null``), numeric
+        literals (including numpy scalars), tuples of strings (rendered
+        as a single quoted comma-joined token — the canonical form used
+        by ``Measure.returns`` / ``Acquire.returns``), numeric
+        lists/tuples/1-D arrays (rendered as ``[v0, v1, ...]``), and
+        string-keyed dicts (rendered as ``{"k": v, ...}``).
 
         Symbolic operators (arithmetic, comparison, binary logical) all
         emit the canonical parenthesised ``(<left> <op> <right>)`` shape;
         the parser recovers them through the same form. Math and ``where``
         use the function-call shape ``name(arg, ...)``.
+
+        Raises:
+            SerializationError: For any value type the format has no
+                representation for. Emitting ``str(val)`` instead would
+                produce a token the parser either rejects or silently
+                mis-types on reload.
         """
         if isinstance(val, BusRef):
             return self.serialize_bus(val)
@@ -318,13 +369,24 @@ class _Writer:
             return f'"{_escape_str(val.name)}"'
         if isinstance(val, str):
             return f'"{_escape_str(val)}"'
-        if isinstance(val, bool):
+        if val is None:
+            return "null"
+        if isinstance(val, (bool, np.bool_)):
             return "true" if val else "false"
         if isinstance(val, Variable):
             return self._var_idents[val.id]
         if isinstance(val, MeasurementRef):
             # Emit as ``<handle_name>.<field>``. The parser recognises this
-            # form by looking up the identifier in its known-handles set.
+            # form by looking up the identifier in its known-handles set; the
+            # name is unquoted on the wire, so it must be a single clean token.
+            if _MEASUREMENT_REF_UNSAFE.search(val.handle.name):
+                msg = (
+                    f"measurement name {val.handle.name!r} is referenced in a conditional but "
+                    f"contains characters that don't survive the unquoted `<name>.<field>` wire "
+                    f"form (whitespace, quotes, dots, brackets, '#', or ','). Pass a token-safe "
+                    f"name= to measure() when you intend to branch on the result."
+                )
+                raise SerializationError(msg)
             return f"{val.handle.name}.{val.field}"
         if isinstance(val, Constant):
             return self.serialize_value(val.value)
@@ -347,20 +409,46 @@ class _Writer:
             else_ = self.serialize_value(val.else_)
             return f"where({cond}, {then}, {else_})"
         # Tuple of strings → single quoted, comma-joined token. The only
-        # current producer is ``Measure.returns`` / ``Acquire.returns``;
-        # any other tuple shape (e.g. ``BusRef.idx = (0, 1)``) carries
-        # non-string elements and falls through to the generic path. The
-        # explicit list comprehension narrows the element type so
-        # ``str.join`` is statically resolvable.
-        if isinstance(val, tuple) and all(isinstance(v, str) for v in val):
+        # current producer is ``Measure.returns`` / ``Acquire.returns``.
+        # Other tuples (e.g. qdac SetTrigger.outputs) fall through to the
+        # bracket-literal sequence form below.
+        if isinstance(val, tuple) and val and all(isinstance(v, str) for v in val):
             return f'"{_escape_str(",".join([v for v in val if isinstance(v, str)]))}"'
         if isinstance(val, (Waveform, IQWaveform)):
             return self.serialize_waveform(val)
         if isinstance(val, np.integer):
             return str(int(val))
+        if isinstance(val, np.floating):
+            return repr(float(val))
         if isinstance(val, (int, float)):
             return str(val)
-        return str(val)
+        # Sequences → ``[v0, v1, ...]``. Never truncated: the bracket
+        # literal must reload to exactly the same values. The tokenizer
+        # treats ``[...]`` as a nesting context, so the spaces after the
+        # commas are safe.
+        if isinstance(val, np.ndarray):
+            if val.ndim != 1:
+                msg = f"Cannot serialize a {val.ndim}-D array; only 1-D arrays have a .qp form"
+                raise SerializationError(msg)
+            # ``tolist()`` converts numpy scalars to Python ints/floats up front. The
+            # ``np.asarray`` round-trip gives the type checker a clean ndarray type.
+            elements: list[object] = np.asarray(val).tolist()
+            return f"[{', '.join(self.serialize_value(v) for v in elements)}]"
+        if isinstance(val, (list, tuple)):
+            return f"[{', '.join(self.serialize_value(v) for v in val)}]"
+        # String-keyed dicts → ``{"k": v, ...}`` (used by set_crosstalk).
+        if isinstance(val, dict):
+            if not all(isinstance(k, str) for k in val):
+                msg = "Cannot serialize a dict with non-string keys"
+                raise SerializationError(msg)
+            items = ", ".join(f'"{_escape_str(str(k))}": {self.serialize_value(v)}' for k, v in val.items())
+            return f"{{{items}}}"
+        msg = (
+            f"Cannot serialize value {val!r} of type {type(val).__name__!r}: the .qp format has "
+            f"no representation for it. Register a custom serialize callback for the operation "
+            f"that carries it, or use a supported value type."
+        )
+        raise SerializationError(msg)
 
     def serialize_bus(self, bus: object) -> str:
         """Render a bus argument: path form if schema-backed, quoted string otherwise."""
@@ -371,16 +459,12 @@ class _Writer:
         return f'"{_escape_str(str(bus))}"'
 
     def serialize_waveform(self, wf: object) -> str:
-        """Emit a waveform constructor call, mirroring the class name and public attrs."""
-        from qprogram.waveforms.arbitrary import Arbitrary  # noqa: PLC0415
+        """Emit a waveform constructor call, mirroring the class name and public attrs.
 
+        Sample arrays (e.g. ``Arbitrary.samples``) are emitted in full — truncating them would
+        break the round-trip guarantee, and the parser has no way to recover dropped samples.
+        """
         cls_name = type(wf).__name__
-        if isinstance(wf, Arbitrary):
-            samples = wf.samples
-            items = ", ".join(str(v) for v in samples[:20])
-            if len(samples) > 20:
-                items += ", ..."
-            return f"Arbitrary(samples=[{items}])"
         params: list[str] = []
         for key, val in vars(wf).items():
             if key.startswith("_"):
@@ -408,13 +492,18 @@ class _Writer:
 
     @staticmethod
     def _collect_vendors(block: Block) -> set[str]:
-        """Walk a block tree and gather the vendor names referenced by operations."""
+        """Walk a block tree and gather the vendor names referenced by operations.
+
+        Uses :meth:`Block.walk` rather than recursing over ``.elements`` — Conditional keeps its
+        arm bodies on ``.arms`` / ``.else_body`` (not in ``_elements``), so an elements-only
+        recursion would miss vendor ops inside ``if_``/``elif_``/``else_`` arms and emit a file
+        with no ``require`` line for them.
+        """
         vendors: set[str] = set()
-        for element in block.elements:
-            if isinstance(element, Block):
-                vendors.update(_Writer._collect_vendors(element))
+        for node in block.walk():
+            if isinstance(node, Block):
                 continue
-            spec = get_operation_spec_by_class(type(element))
+            spec = get_operation_spec_by_class(type(node))
             if spec is not None and spec.vendor is not None:
                 vendors.add(spec.vendor)
         return vendors
@@ -434,5 +523,10 @@ def _major_minor(version: str) -> str:
 
 
 def _escape_str(s: str) -> str:
-    """Escape a string for embedding in double quotes inside a ``.qp`` file."""
-    return s.replace("\\", "\\\\").replace('"', '\\"')
+    """Escape a string for embedding in double quotes inside a ``.qp`` file.
+
+    Backslash and double-quote get the usual escapes; newline, carriage return, and tab are
+    escaped too — the format is line-based, so a raw newline inside a quoted string would split
+    the statement across two lines and break the parse.
+    """
+    return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")

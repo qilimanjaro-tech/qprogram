@@ -71,34 +71,34 @@ def test_qprogram_lazy_parse_error():
 
 
 # ---------------------------------------------------------------------------
-# Writer fallbacks for unknown ops / blocks / sweep blocks.
+# Writer strictness for unknown ops / blocks / sweep blocks.
 # ---------------------------------------------------------------------------
 
 
-def test_writer_unknown_operation_emits_comment():
-    """Operation not registered in the registry → emit a `# unknown ...` comment."""
+def test_writer_unknown_operation_raises():
+    """Operation not registered in the registry → SerializationError, never a lossy comment."""
 
     class _GhostOp(Operation):
         def __init__(self) -> None: ...
 
     p = qp.QProgram()
     p._active_block.append(_GhostOp())
-    text = qp.dumps(p)
-    assert "# unknown operation: _GhostOp" in text
+    with pytest.raises(qp.SerializationError, match=r"_GhostOp.*not registered"):
+        qp.dumps(p)
 
 
-def test_writer_unknown_block_emits_comment():
+def test_writer_unknown_block_raises():
 
     class _GhostBlock(Block):
         pass
 
     p = qp.QProgram()
     p._active_block.append(_GhostBlock())
-    text = qp.dumps(p)
-    assert "# unknown block: _GhostBlock" in text
+    with pytest.raises(qp.SerializationError, match=r"_GhostBlock.*not registered"):
+        qp.dumps(p)
 
 
-def test_writer_unknown_sweep_block_emits_comment():
+def test_writer_unknown_sweep_block_raises():
     """A loop block class that isn't registered as a sweep generator."""
 
     class _GhostLoop(Block):
@@ -107,9 +107,8 @@ def test_writer_unknown_sweep_block_emits_comment():
     p = qp.QProgram(label="x")
     w = _Writer(p)
     w._allocate_var_idents()
-    # Calling _serialize_loop_header on an unregistered loop class.
-    out = w._serialize_loop_header(_GhostLoop())
-    assert "# unknown sweep block" in out
+    with pytest.raises(qp.SerializationError, match="no write-side sweep generator"):
+        w._serialize_loop_header(_GhostLoop())
 
 
 # ---------------------------------------------------------------------------
@@ -331,19 +330,20 @@ def test_parser_blank_line_inside_block():
 
 
 def test_parser_non_block_non_var_line_falls_to_operation():
-    """A line that doesn't start with var/for/keyword falls through to op parsing.
-    Unknown ops silently return None — already tested. This is the path itself."""
+    """A line that doesn't start with var/for/keyword falls through to op parsing,
+    where an unregistered name is a hard ParseError (never a silent skip)."""
     text = '#!QProgram 1.0\n\nbody:\n  unknown_op "bus"\n'
-    p = qp.loads(text)
-    assert len(p.body.elements) == 0
+    with pytest.raises(ParseError, match="unknown operation 'unknown_op'"):
+        qp.loads(text)
 
 
-def test_parse_operation_empty_line_returns_none():
-    """The empty-tokens branch of `_parse_operation` returns None."""
+def test_parse_operation_empty_line_raises():
+    """The empty-tokens branch of `_parse_operation` raises."""
 
     parser = _Parser("#!QProgram 1.0\nbody:\n")
     parser._parse_header()
-    assert parser._parse_operation("") is None
+    with pytest.raises(ParseError, match="empty operation line"):
+        parser._parse_operation("")
 
 
 def test_parse_value_returns_bare_identifier_as_string():
@@ -442,8 +442,9 @@ def test_parser_top_level_blank_lines_skipped():
     assert p.variables[0].id == "freq"
 
 
-def test_parser_top_level_unknown_line_ignored():
-    """A non-blank, non-section top-level line is silently consumed."""
+def test_parser_top_level_unknown_line_raises():
+    """A non-blank, non-section top-level line is a hard error — a typo'd section header
+    (``bodyy:``) must not silently produce an empty program."""
     text = (
         "#!QProgram 1.0\n\n"
         "some_unknown_section: stuff\n"  # not a known section header
@@ -451,8 +452,15 @@ def test_parser_top_level_unknown_line_ignored():
         "body:\n"
         "  var freq\n"
     )
-    p = qp.loads(text)
-    assert p.variables[0].id == "freq"
+    with pytest.raises(ParseError, match="unexpected top-level line"):
+        qp.loads(text)
+
+
+def test_parser_require_after_section_raises():
+    """A ``require`` line after a section is a hard error with a placement hint."""
+    text = '#!QProgram 1.0\n\nmetadata:\n  label: "x"\n\nrequire dummy 0.0\n\nbody:\n'
+    with pytest.raises(ParseError, match="before any section"):
+        qp.loads(text)
 
 
 def test_parser_indent_past_end_returns_zero():
@@ -505,11 +513,10 @@ def test_parser_blank_line_inside_nested_block():
 
 
 def test_parser_block_header_without_colon():
-    """A line that doesn't end in ``:`` after a block keyword is treated as an op."""
+    """A block keyword without the trailing ``:`` errors with a missing-colon hint."""
     text = "#!QProgram 1.0\n\nbody:\n  average 100\n"
-    p = qp.loads(text)
-    # Not a block header (no colon) → falls through to operation lookup, returns None.
-    assert len(p.body.elements) == 0
+    with pytest.raises(ParseError, match="trailing colon"):
+        qp.loads(text)
 
 
 def test_parser_var_decl_attr_unquoted_value_message():

@@ -188,6 +188,11 @@ def test_sync_with_buses(empty_program):
     assert op.targets == ["a", "b"]
 
 
+def test_sync_empty_list_rejected(empty_program):
+    with pytest.raises(ValidationError, match="ambiguous"):
+        empty_program.sync([])
+
+
 def test_set_frequency_appends(empty_program):
     empty_program.set_frequency("bus", 5e9)
     assert isinstance(empty_program.body.elements[0], SetFrequency)

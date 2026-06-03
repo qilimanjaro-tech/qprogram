@@ -119,6 +119,84 @@ def test_register_operation_returns_class():
         registry._operation_specs_by_class.pop(_Op, None)
 
 
+def test_register_operation_rejects_different_class_under_taken_name():
+    """Re-registering 'play' with a foreign class must fail loudly, not silently hijack it."""
+
+    class _FakePlay(Operation):
+        def __init__(self, bus: str) -> None:
+            self.bus = bus
+
+    with pytest.raises(ValueError, match="already registered"):
+        register_operation("play", _FakePlay)
+
+
+def test_register_operation_same_class_is_idempotent():
+    """The owner may re-register its own class (refreshing callbacks)."""
+
+    class _Op(Operation):
+        def __init__(self, x: int) -> None:
+            self.x = x
+
+    register_operation("_idem_op", _Op, vendor="temp_vendor_3")
+    try:
+        register_operation("_idem_op", _Op, vendor="temp_vendor_3")  # no raise
+        spec = get_operation_spec("temp_vendor_3", "_idem_op")
+        assert spec is not None
+        assert spec.cls is _Op
+    finally:
+        registry._operation_specs_by_qualified.pop(("temp_vendor_3", "_idem_op"), None)
+        registry._operation_specs_by_class.pop(_Op, None)
+
+
+def test_register_block_rejects_different_class_under_taken_name():
+    from qprogram.blocks import Block as _Block  # noqa: PLC0415
+
+    class _FakeAverage(_Block):
+        pass
+
+    with pytest.raises(ValueError, match="already registered"):
+        register_block("average", _FakeAverage)
+
+
+def test_register_sweep_generator_rejects_different_class_under_taken_name():
+    from qprogram.blocks import Block as _Block  # noqa: PLC0415
+
+    class _FakeLoop(_Block):
+        pass
+
+    with pytest.raises(ValueError, match="already registered"):
+        register_sweep_generator("range", _FakeLoop, parse=lambda _v, _a, _c: None)
+
+
+def test_register_waveform_rejects_different_class_under_taken_name():
+    from qprogram.waveforms import Waveform as _Waveform  # noqa: PLC0415
+
+    class Gaussian(_Waveform):
+        def envelope(self, resolution: int = 1):
+            raise NotImplementedError
+
+        def get_duration(self) -> int:
+            raise NotImplementedError
+
+    with pytest.raises(ValueError, match="already registered"):
+        register_waveform(Gaussian)
+
+
+def test_register_vendor_version_rejects_reserved_names():
+    with pytest.raises(ValueError, match="reserved"):
+        register_vendor_version("core", "1.0.0")
+    with pytest.raises(ValueError, match="reserved"):
+        register_vendor_version("if", "1.0.0")
+
+
+def test_register_vendor_version_rejects_malformed_versions():
+    with pytest.raises(ValueError, match=r"major\.minor"):
+        register_vendor_version("okvendor", "1")
+    with pytest.raises(ValueError, match="non-integer"):
+        register_vendor_version("okvendor", "a.b")
+    assert registry.get_vendor_version("okvendor") is None  # nothing leaked into the registry
+
+
 # ---------------------------------------------------------------------------
 # Block registration & lookups
 # ---------------------------------------------------------------------------

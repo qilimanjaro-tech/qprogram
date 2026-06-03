@@ -150,8 +150,10 @@ def register_operation(
 ) -> type[Operation]:
     """Register an operation for ``.qp`` serialization.
 
-    Re-registering the same class overwrites the previous entry but leaves the old ``(vendor, name)``
-    key in the by-qualified map — useful for hot-reload, surprising otherwise.
+    Re-registering the **same class** under the same ``(vendor, name)`` is allowed (the owner may
+    refresh its callbacks; import-time side-effect modules may run twice). Registering a
+    **different class** under a taken ``(vendor, name)`` raises — silently replacing another
+    package's operation would corrupt every file using that keyword.
 
     Args:
         name: Keyword used in ``.qp`` (``play``, ``measure``, ...). Operation names are unrestricted;
@@ -166,13 +168,23 @@ def register_operation(
         ``cls``, so the function can be used as a decorator.
 
     Raises:
-        ValueError: If ``vendor`` is reserved.
+        ValueError: If ``vendor`` is reserved, or ``(vendor, name)`` is already registered to a
+            different class.
     """
     if vendor is not None and vendor in RESERVED_VENDOR_NAMES:
         msg = (
             f"vendor name {vendor!r} is reserved (see qprogram.RESERVED_KEYWORDS "
             f"plus the 'core' sentinel); pick a different namespace for this "
             f"vendor extension"
+        )
+        raise ValueError(msg)
+    existing = _operation_specs_by_qualified.get((vendor, name))
+    if existing is not None and existing.cls is not cls:
+        qualified = f"{vendor}.{name}" if vendor else name
+        msg = (
+            f"operation {qualified!r} is already registered to "
+            f"{existing.cls.__module__}.{existing.cls.__qualname__}; refusing to replace it "
+            f"with {cls.__module__}.{cls.__qualname__}"
         )
         raise ValueError(msg)
     spec = OperationSpec(name=name, vendor=vendor, cls=cls, serialize=serialize, parse=parse)
@@ -216,7 +228,8 @@ def register_block(
     """Register a keyword-led control-flow block for ``.qp`` serialization.
 
     The body parser handles indentation and child statements uniformly. Loops are not registered
-    here — they use the sweep-generator registry instead.
+    here — they use the sweep-generator registry instead. Same-class re-registration is allowed;
+    claiming a taken keyword with a different class raises.
 
     Args:
         name: Leading keyword in the block header (``average``, ``block``, ...).
@@ -226,7 +239,17 @@ def register_block(
 
     Returns:
         ``cls``, so the function can be used as a decorator.
+
+    Raises:
+        ValueError: If ``name`` is already registered to a different class.
     """
+    existing = _block_specs_by_name.get(name)
+    if existing is not None and existing.cls is not cls:
+        msg = (
+            f"block keyword {name!r} is already registered to "
+            f"{existing.cls.__module__}.{existing.cls.__qualname__}; refusing to replace it"
+        )
+        raise ValueError(msg)
     spec = BlockSpec(name=name, cls=cls, serialize_header=serialize_header, parse_header=parse_header)
     _block_specs_by_name[name] = spec
     _block_specs_by_class[cls] = spec
@@ -249,7 +272,8 @@ def register_sweep_generator(
 
     Two generators may share a block class — typically one canonical writer and one or more
     parse-only siblings. For example, ``values`` writes :class:`Loop` as ``[...]``; ``file`` parses
-    ``file("...")`` into a :class:`Loop` but writes back through ``values``.
+    ``file("...")`` into a :class:`Loop` but writes back through ``values``. Same-class
+    re-registration of a name is allowed; claiming a taken name with a different class raises.
 
     Args:
         name: Generator name (``range``, ``values``, ``file``, ...).
@@ -260,7 +284,17 @@ def register_sweep_generator(
 
     Returns:
         ``cls``, so the function can be used as a decorator.
+
+    Raises:
+        ValueError: If ``name`` is already registered to a different block class.
     """
+    existing = _sweep_generator_specs_by_name.get(name)
+    if existing is not None and existing.block_cls is not cls:
+        msg = (
+            f"sweep generator {name!r} is already registered to "
+            f"{existing.block_cls.__module__}.{existing.block_cls.__qualname__}; refusing to replace it"
+        )
+        raise ValueError(msg)
     spec = SweepGeneratorSpec(name=name, block_cls=cls, parse=parse, write=write)
     _sweep_generator_specs_by_name[name] = spec
     if write is not None:
@@ -274,7 +308,21 @@ def register_sweep_generator(
 
 
 def register_waveform(cls: type[Waveform | IQWaveform]) -> type:
-    """Decorator that registers a waveform class for ``.qp`` serialization, keyed by class name."""
+    """Decorator that registers a waveform class for ``.qp`` serialization, keyed by class name.
+
+    Same-class re-registration is a no-op; registering a different class under an already-taken
+    name raises — it would silently change how every existing file parses that constructor.
+
+    Raises:
+        ValueError: If ``cls.__name__`` is already registered to a different class.
+    """
+    existing = _waveform_registry.get(cls.__name__)
+    if existing is not None and existing is not cls:
+        msg = (
+            f"waveform name {cls.__name__!r} is already registered to "
+            f"{existing.__module__}.{existing.__qualname__}; rename the class or unregister first"
+        )
+        raise ValueError(msg)
     _waveform_registry[cls.__name__] = cls
     return cls
 
@@ -283,9 +331,30 @@ def register_vendor_version(vendor: str, version: str) -> None:
     """Record the protocol version of an installed vendor extension.
 
     Args:
-        vendor: Vendor name as used in the dot-notation operations.
-        version: Semver string. Major.minor governs compatibility; patch is informational.
+        vendor: Vendor name as used in the dot-notation operations. Cannot be ``"core"`` or any
+            :data:`~qprogram.RESERVED_KEYWORDS`.
+        version: Semver string with at least ``major.minor`` integer components. Major.minor
+            governs compatibility; patch is informational.
+
+    Raises:
+        ValueError: If ``vendor`` is reserved or ``version`` does not parse as ``major.minor``.
     """
+    if vendor in RESERVED_VENDOR_NAMES:
+        msg = (
+            f"vendor name {vendor!r} is reserved (see qprogram.RESERVED_KEYWORDS plus the "
+            f"'core' sentinel); pick a different namespace for this vendor extension"
+        )
+        raise ValueError(msg)
+    parts = version.split(".")
+    minimum_parts = 2
+    if len(parts) < minimum_parts:
+        msg = f"vendor version {version!r} must have at least major.minor components"
+        raise ValueError(msg)
+    try:
+        _major, _minor = int(parts[0]), int(parts[1])
+    except ValueError as e:
+        msg = f"vendor version {version!r} has non-integer major/minor components"
+        raise ValueError(msg) from e
     _vendor_versions[vendor] = version
 
 

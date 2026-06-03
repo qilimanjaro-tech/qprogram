@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from qprogram.blocks.block import Block
+from qprogram.errors import ValidationError
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -22,12 +23,28 @@ class Parallel(Block):
     variables back into the unioned views so analyzers see them.
 
     Args:
-        loops: The :class:`ForLoop` / :class:`Loop` instances to advance in lockstep.
+        loops: The :class:`ForLoop` / :class:`Loop` instances to advance in lockstep. At least
+            two, and all with the same number of iterations.
+
+    Raises:
+        ValidationError: On fewer than two loops or mismatched iteration counts.
     """
 
     def __init__(self, loops: Iterable[ForLoop | Loop]) -> None:
         super().__init__()
-        self.loops: list[ForLoop | Loop] = list(loops)
+        loop_list: list[ForLoop | Loop] = list(loops)
+        if len(loop_list) < 2:
+            msg = f"Parallel requires at least two loops, got {len(loop_list)}"
+            raise ValidationError(msg)
+        iteration_counts = [lp.num_iterations() for lp in loop_list]
+        if len(set(iteration_counts)) > 1:
+            described = ", ".join(
+                f"{type(lp).__name__}({lp.variable.id!r}): {n}"
+                for lp, n in zip(loop_list, iteration_counts, strict=True)
+            )
+            msg = f"parallel loops must have the same number of iterations to advance in lockstep; got {described}"
+            raise ValidationError(msg)
+        self.loops: list[ForLoop | Loop] = loop_list
 
     def variables(self) -> set[Variable]:
         out = super().variables()

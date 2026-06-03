@@ -11,6 +11,7 @@ library (or by a platform that adopts the contract) is a subclass of
 | `except QProgramError`                | Anything QProgram-related.                              |
 | `except ValidationError`              | Construction-time validation only.                      |
 | `except ParseError`                   | `.qp` parse failures only.                              |
+| `except SerializationError`           | `.qp` write failures only.                              |
 | `except WaveformResolutionError`      | A specific platform-side failure.                       |
 
 For two construction-time exceptions, `except ValueError` keeps working too
@@ -24,6 +25,7 @@ QProgramError
     InvalidVariableIdError       (also ValueError)
     UnassignedVariableError      (also ValueError)
   ParseError
+  SerializationError
   UnsupportedOperationError
   BusNotAvailableError
   WaveformResolutionError
@@ -47,6 +49,21 @@ operations rejects its arguments. Examples:
 - Holding onto a `BusRef` from a different schema and using it on a
   program built with another.
 - A name collision on `MeasurementHandle` allocation.
+- A `for_loop` with a zero step, non-finite bounds, or a step pointing
+  away from `stop`; an empty `loop(...)` array; `average(shots=0)`.
+- Parallel (`|`) loops with mismatched iteration counts.
+- An `IQPair` whose I/Q channels have different concrete durations.
+- `sync([])` (ambiguous — pass `None` to sync everything).
+
+### `SerializationError`
+
+Raised by the `.qp` **writer** (`dumps`/`save`) when the program contains
+something the format cannot represent faithfully — an unregistered
+operation/block class, a vendor op whose extension never registered its
+version, an attribute value with no `.qp` form, or a measurement name that
+cannot survive the unquoted `name.field` wire form of a conditional
+reference. The writer never emits lossy output: a file produced without a
+`SerializationError` is guaranteed to parse back into an equal program.
 
 ```python
 try:

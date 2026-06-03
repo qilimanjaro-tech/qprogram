@@ -177,26 +177,38 @@ def test_missing_op_token_emits_diagnostic_with_node_and_token() -> None:
         assert type(d.node).__name__ == "Play"
 
 
-def test_missing_capability_diagnostics_are_deterministic() -> None:
-    """Token order matters for human-readable diff output; the validator sorts within each node."""
+def test_missing_capability_diagnostics_deduped_across_domains() -> None:
+    """A token missing in BOTH domains yields exactly one diagnostic naming both, in sorted
+    token order — not one copy per domain."""
     caps = _empty_caps(bus_tokens=frozenset())
     p = QProgram()
     p.play("drive_q0", Square(0.5, 100))
-    # When BOTH hw and sw fail with the same tokens, we get two copies (one per domain).
-    # Within each domain, the order is sorted.
     diagnostics = _diagnostics(p, caps)
-    hw_tokens = [
-        d.capability
-        for d in diagnostics
-        if d.code == "missing-capability" and d.domain == "hw" and d.capability is not None
-    ]
-    sw_tokens = [
-        d.capability
-        for d in diagnostics
-        if d.code == "missing-capability" and d.domain == "sw" and d.capability is not None
-    ]
-    assert hw_tokens == sorted(hw_tokens)
-    assert sw_tokens == sorted(sw_tokens)
+    missing = [d for d in diagnostics if d.code == "missing-capability"]
+    tokens = [d.capability for d in missing if d.capability is not None]
+    assert len(tokens) == len(missing)
+    assert tokens == sorted(tokens)
+    assert len(tokens) == len(set(tokens))  # one diagnostic per token
+    for d in missing:
+        # Missing in both domains → no single-domain attribution.
+        assert d.domain is None
+        assert "(hw)" in d.message
+        assert "(sw)" in d.message
+
+
+def test_missing_capability_keeps_domain_when_one_sided() -> None:
+    """A token missing in only one domain (the other half is None) is attributed to it."""
+    bus_slot = BusCapabilities(hw=_cc("hw-empty", frozenset()), sw=None)
+    caps = PlatformCapabilities(
+        bus={},
+        platform=_slot("platform-full", _PLATFORM_TOKENS),
+        default_bus_profile=bus_slot,
+    )
+    p = QProgram()
+    p.play("drive_q0", Square(0.5, 100))
+    missing = [d for d in _diagnostics(p, caps) if d.code == "missing-capability"]
+    assert missing
+    assert all(d.domain == "hw" for d in missing)
 
 
 def test_diagnostic_silent_when_one_domain_supports_node() -> None:
@@ -207,7 +219,9 @@ def test_diagnostic_silent_when_one_domain_supports_node() -> None:
     )
     platform_slot = _slot("platform-full", _PLATFORM_TOKENS)
     caps = PlatformCapabilities(
-        bus={}, platform=platform_slot, default_bus_profile=bus_slot,
+        bus={},
+        platform=platform_slot,
+        default_bus_profile=bus_slot,
     )
     p = QProgram()
     p.play("drive_q0", Square(0.5, 100))
@@ -487,9 +501,9 @@ def test_op_targeted_constraint_emits_bad_domain_constraint_error() -> None:
     p.play("drive_q0", Square(0.5, 100))
     diagnostics = _diagnostics(p, caps)
     bad = [d for d in diagnostics if d.code == "bad-domain-constraint"]
-    # Predicates run once per slot domain (hw + sw) when both halves are filled, so the bad
-    # constraint is emitted twice — once per run. Both are reported.
-    assert len(bad) == 2
+    # Predicates run once per slot domain (hw + sw), but equivalent constraint outputs are
+    # deduplicated, so the authoring mistake is reported exactly once.
+    assert len(bad) == 1
 
 
 def test_mixed_domain_error_when_op_children_disagree() -> None:
@@ -506,7 +520,7 @@ def test_mixed_domain_error_when_op_children_disagree() -> None:
     v = p.variable("v")
     with p.for_loop(v, 0, 1, 0.1):
         p.play(schema.q[0].drive, IQDrag(0.5, 40, 8, 0.1))
-        p.play(schema.q[0].flux, Square(0.5, 100))   # different bus → different singleton
+        p.play(schema.q[0].flux, Square(0.5, 100))  # different bus → different singleton
     diagnostics, _ = validate(p, caps)
     mixed = [d for d in diagnostics if d.code == "mixed-domain"]
     assert len(mixed) == 1
@@ -528,9 +542,9 @@ def test_sw_block_child_auto_propagates_hw_exclusion() -> None:
     a = p.variable("a")
     b = p.variable("b")
     with p.for_loop(a, 0, 1, 0.1):
-        p.play(schema.q[0].drive, IQDrag(0.5, 40, 8, 0.1))   # HW op
+        p.play(schema.q[0].drive, IQDrag(0.5, 40, 8, 0.1))  # HW op
         with p.for_loop(b, 0, 1, 0.1):
-            p.play(schema.q[0].flux, Square(0.5, 100))         # SW op nested inside
+            p.play(schema.q[0].flux, Square(0.5, 100))  # SW op nested inside
     diagnostics, plan = validate(p, caps)
     nesting_errs = [d for d in diagnostics if d.code == "sw-in-hw"]
     assert nesting_errs == []
@@ -572,7 +586,10 @@ def test_sw_in_hw_nesting_error_fires_when_platform_lacks_sw() -> None:
     ],
 )
 def test_node_domain_set_reflects_slot_availability(
-    *, hw_present: bool, sw_present: bool, expected: frozenset[str],
+    *,
+    hw_present: bool,
+    sw_present: bool,
+    expected: frozenset[str],
 ) -> None:
     """A node's plan domain set is determined by which halves of its slot are non-None."""
     bus_slot = BusCapabilities(
@@ -586,3 +603,194 @@ def test_node_domain_set_reflects_slot_availability(
     _, plan = validate(p, caps)
     play_node = next(n for n in p.body.walk() if type(n).__name__ == "Play")
     assert plan[play_node] == expected
+
+
+# ---------------------------------------------------------------------------
+# ExecutionPlan identity keying
+# ---------------------------------------------------------------------------
+
+
+def test_plan_keeps_one_entry_per_node_instance_for_identical_ops() -> None:
+    """Structurally identical ops are distinct plan entries — a dict keyed by structural
+    equality would collapse them and hand the compiler a plan missing nodes."""
+    caps = _full_caps()
+    p = QProgram()
+    p.play("drive_q0", "pi")
+    p.wait("drive_q0", 100)
+    p.play("drive_q0", "pi")  # structurally identical to the first
+    _, plan = validate(p, caps)
+    assert len(plan) == 3
+    first, _, third = p.body.elements
+    assert first == third  # structural equality holds...
+    assert plan[first] == plan[third]  # ...and both instances are present, looked up by identity
+
+
+def test_plan_keeps_identical_blocks_distinct() -> None:
+    caps = _full_caps()
+    p = QProgram()
+    with p.average(100):
+        p.play("drive_q0", "pi")
+    with p.average(100):
+        p.play("drive_q0", "pi")
+    _, plan = validate(p, caps)
+    blocks = [n for n in plan if type(n).__name__ == "Average"]
+    assert len(blocks) == 2
+    assert blocks[0] is not blocks[1]
+
+
+def test_plan_lookup_by_identity_not_structure() -> None:
+    """A structurally equal node that is NOT in the program is not in the plan."""
+    from qprogram.operations.play import Play as _Play  # noqa: PLC0415
+
+    caps = _full_caps()
+    p = QProgram()
+    p.play("drive_q0", "pi")
+    _, plan = validate(p, caps)
+    stranger = _Play(bus="drive_q0", waveform="pi")
+    assert stranger == p.body.elements[0]
+    assert stranger not in plan
+    with pytest.raises(KeyError):
+        plan[stranger]
+
+
+def test_forced_software_counted_per_block_instance() -> None:
+    """Two identical loops, each independently forced to sw, each surface their own info."""
+    caps = _full_caps(bus_predicates=(_drag_sigma_excludes_hw,))
+    p = QProgram()
+    s1 = p.variable("s1")
+    s2 = p.variable("s2")
+    with p.for_loop(s1, 1, 10, 1):
+        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, sigma=s1, beta=0.1))
+    with p.for_loop(s2, 1, 10, 1):
+        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, sigma=s2, beta=0.1))
+    diagnostics, plan = validate(p, caps)
+    infos = [d for d in diagnostics if d.code == "forced-software"]
+    assert len(infos) == 2
+    loops = [n for n in plan if type(n).__name__ == "ForLoop"]
+    assert [plan[lp] for lp in loops] == [frozenset({"sw"}), frozenset({"sw"})]
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic noise suppression
+# ---------------------------------------------------------------------------
+
+
+def test_no_spurious_mixed_domain_when_op_child_already_failed() -> None:
+    """An op-child with empty support (already diagnosed) must not also trip a parent
+    ``mixed-domain`` error — the parent's emptiness is explained by the child diagnostic."""
+    caps = _empty_caps(bus_tokens=_BUS_TOKENS - {"op.play", "waveform.alias"})
+    # Platform slot needs the block tokens for the average itself.
+    caps = PlatformCapabilities(
+        bus={},
+        platform=_slot("platform-full", _PLATFORM_TOKENS),
+        default_bus_profile=_slot("bus-no-play", _BUS_TOKENS - {"op.play", "waveform.alias"}),
+    )
+    p = QProgram()
+    with p.average(100):
+        p.play("drive_q0", "pi")  # fails everywhere: op.play missing
+        p.wait("drive_q0", 100)  # fine
+    diagnostics, plan = validate(p, caps)
+    codes = [d.code for d in diagnostics]
+    assert "missing-capability" in codes
+    assert "mixed-domain" not in codes
+    avg = next(n for n in plan if type(n).__name__ == "Average")
+    assert plan[avg] == frozenset()
+
+
+def test_genuine_mixed_domain_still_fires() -> None:
+    """Disjoint singleton supports among healthy op-children still produce mixed-domain."""
+    hw_bus = BusCapabilities(hw=_cc("hw-only", _BUS_TOKENS), sw=None)
+    sw_bus = BusCapabilities(hw=None, sw=_cc("sw-only", _BUS_TOKENS))
+    caps = PlatformCapabilities(
+        bus={("q", "drive"): hw_bus, ("q", "flux"): sw_bus},
+        platform=_slot("platform-full", _PLATFORM_TOKENS),
+        default_bus_profile=hw_bus,
+    )
+    schema = BusSchema.flux_tunable_transmon()
+    p = QProgram(schema=schema)
+    with p.block():
+        p.play(schema.q[0].drive, IQDrag(0.5, 40, 8, 0.1))
+        p.play(schema.q[0].flux, Square(0.5, 100))
+    diagnostics, _ = validate(p, caps)
+    assert any(d.code == "mixed-domain" for d in diagnostics)
+
+
+def test_predicate_diagnostic_deduped_when_profile_fills_both_halves() -> None:
+    """The same profile in hw and sw runs its predicate twice; an identical Diagnostic output
+    is reported once."""
+
+    def complain_on_wait(node, ctx):  # noqa: ARG001
+        if isinstance(node, Wait):
+            yield Diagnostic(severity="error", code="test.dup", message="no waits", node=node)
+
+    caps = _full_caps(bus_predicates=(complain_on_wait,))
+    p = QProgram()
+    p.wait("drive_q0", 100)
+    diagnostics = _diagnostics(p, caps)
+    assert len([d for d in diagnostics if d.code == "test.dup"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Sync(None) broadcast routing
+# ---------------------------------------------------------------------------
+
+
+def test_sync_all_intersects_every_program_bus() -> None:
+    """``sync()`` with no targets must intersect across every bus the program touches —
+    a bus slot lacking op.sync makes the broadcast fail, exactly like the explicit form."""
+    no_sync_bus = _slot("drive-no-sync", _BUS_TOKENS - {"op.sync"})
+    full_bus = _slot("default-full", _BUS_TOKENS)
+    caps = PlatformCapabilities(
+        bus={("q", "drive"): no_sync_bus},
+        platform=_slot("platform-full", _PLATFORM_TOKENS),
+        default_bus_profile=full_bus,
+    )
+    schema = BusSchema.transmon()
+    p = QProgram(schema=schema)
+    p.play(schema.q[0].drive, IQDrag(0.5, 40, 8, 0.1))
+    p.sync()  # broadcast — touches q0/drive, whose slot lacks op.sync
+    diagnostics = _diagnostics(p, caps)
+    assert any(d.code == "missing-capability" and d.capability == "op.sync" for d in diagnostics)
+
+
+def test_sync_all_passes_when_every_bus_supports_it() -> None:
+    caps = _full_caps()
+    p = QProgram()
+    p.play("drive_q0", Square(0.5, 100))
+    p.sync()
+    assert [d for d in _diagnostics(p, caps) if d.severity == "error"] == []
+
+
+def test_sync_all_in_program_with_no_buses_routes_to_default() -> None:
+    """A bare sync() in a bus-less program can't broadcast — falls back to the default slot."""
+    caps = _full_caps()
+    p = QProgram()
+    p.sync()
+    assert [d for d in _diagnostics(p, caps) if d.severity == "error"] == []
+
+
+# ---------------------------------------------------------------------------
+# Loop-nesting accounting
+# ---------------------------------------------------------------------------
+
+
+def test_conditional_arms_do_not_count_toward_loop_nesting() -> None:
+    from qprogram.validation import _build_context  # noqa: PLC0415
+
+    p = QProgram()
+    h = p.measure("readout_q0", "r", "w", returns="iq,state")
+    with p.if_(h.state == 1):
+        p.play("drive_q0", Square(0.5, 100))
+    ctx = _build_context(p)
+    assert ctx.max_loop_nesting == 0
+
+
+def test_average_counts_as_one_loop_level() -> None:
+    from qprogram.validation import _build_context  # noqa: PLC0415
+
+    p = QProgram()
+    v = p.variable("x")
+    with p.average(100), p.for_loop(v, 0, 10, 1):
+        p.play("drive_q0", Square(0.5, 100))
+    ctx = _build_context(p)
+    assert ctx.max_loop_nesting == 2

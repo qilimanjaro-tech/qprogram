@@ -412,6 +412,7 @@ class ValidationContext:
         max_parallel_arity: int,
         measurement_count: int,
         measurement_returns: Mapping[str, tuple[str, ...]] | None = None,
+        program_buses: frozenset[str] = frozenset(),
     ) -> None:
         self._variable_bindings = dict(variable_bindings)
         self._sweep_kinds = dict(sweep_kinds)
@@ -419,6 +420,7 @@ class ValidationContext:
         self._max_parallel_arity = max_parallel_arity
         self._measurement_count = measurement_count
         self._measurement_returns: dict[str, tuple[str, ...]] = dict(measurement_returns or {})
+        self._program_buses = frozenset(program_buses)
 
     def sweep_kind_of(self, var: Variable) -> SweepKind | None:
         """Return how ``var`` is loop-bound.
@@ -460,6 +462,16 @@ class ValidationContext:
     def known_measurement_names(self) -> set[str]:
         """Return the set of every measurement name in the program."""
         return set(self._measurement_returns)
+
+    @property
+    def program_buses(self) -> frozenset[str]:
+        """Every bus name referenced anywhere in the program (``QProgram.buses`` at build time).
+
+        Elements may be :class:`~qprogram.BusRef` instances (which subclass ``str``), so per-bus
+        routing through :meth:`PlatformCapabilities.for_bus` keeps its schema awareness. Used by
+        the validator to route broadcast ops (``Sync(targets=None)``) across every touched bus.
+        """
+        return self._program_buses
 
 
 # ---------------------------------------------------------------------------
@@ -556,10 +568,13 @@ class CompilerCapabilities:
         merged_caps: set[str] = set()
         merged_limits: dict[str, float] = {}
         merged_predicates: list[Predicate] = []
+        merged_vendor_versions: dict[str, tuple[int, int, int]] = {}
         for p in chain:
             merged_caps |= p.capabilities
             merged_limits.update(p.limits)
             merged_predicates.extend(p.predicates)
+            # Root-first like limits: a child's expectation for a vendor overrides the parent's.
+            merged_vendor_versions.update(p.vendor_versions)
         if limit_overrides:
             merged_limits.update(limit_overrides)
         merged_predicates.extend(extra_predicates)
@@ -569,7 +584,7 @@ class CompilerCapabilities:
             capabilities=frozenset(merged_caps),
             limits=dict(merged_limits),
             predicates=tuple(merged_predicates),
-            vendor_versions=dict(profile.vendor_versions),
+            vendor_versions=merged_vendor_versions,
         )
 
 

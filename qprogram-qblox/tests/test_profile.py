@@ -234,8 +234,7 @@ def test_min_wait_duration_limit_fires() -> None:
     p.wait("drive_q0", 2)
     diagnostics = _diagnostics(p, caps)
     assert any(
-        diag.code == "limit-exceeded" and diag.limit and diag.limit[0] == "min_wait_duration_ns"
-        for diag in diagnostics
+        diag.code == "limit-exceeded" and diag.limit and diag.limit[0] == "min_wait_duration_ns" for diag in diagnostics
     )
 
 
@@ -249,8 +248,7 @@ def test_device_can_tighten_limits_via_platform_overrides() -> None:
         p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1))
     diagnostics = _diagnostics(p, caps)
     assert any(
-        diag.code == "limit-exceeded" and diag.limit and diag.limit[0] == "max_loop_nesting"
-        for diag in diagnostics
+        diag.code == "limit-exceeded" and diag.limit and diag.limit[0] == "max_loop_nesting" for diag in diagnostics
     )
 
 

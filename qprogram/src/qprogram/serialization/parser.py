@@ -15,18 +15,18 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, cast
 
-import numpy as np
-
 from qprogram.blocks.conditional import Conditional
 from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
 from qprogram.buses import BusNaming, BusRef, BusSchema
-from qprogram.errors import QProgramError
+from qprogram.errors import QProgramError, ValidationError
 from qprogram.operations.operation import MeasurementOperation
 from qprogram.qprogram import QProgram
 from qprogram.result import MeasurementHandle
 from qprogram.serialization import _specs as _core_specs
+from qprogram.serialization._format import FORMAT_VERSION
+from qprogram.serialization._specs import _parse_number
 from qprogram.serialization.registry import (
     get_block_spec,
     get_operation_spec,
@@ -48,8 +48,6 @@ if TYPE_CHECKING:
         Variable,
     )
 
-FORMAT_VERSION = "1.0"
-
 
 class ParseError(QProgramError):
     """Error during ``.qp`` file parsing.
@@ -65,6 +63,20 @@ class ParseError(QProgramError):
     def __init__(self, message: str, line_num: int = 0) -> None:
         self.line_num = line_num
         super().__init__(f"Line {line_num}: {message}" if line_num else message)
+
+
+class _QuotedStr(str):
+    """A string value that arrived inside double quotes on the wire.
+
+    On the wire, the quoting *is* the type distinction: quoted strings are plain values; bare
+    ``element[index].kind`` tokens are bus paths. Tokenisation erases the quotes, so this marker
+    subclass preserves "was quoted" long enough for :meth:`_Parser._upgrade_busrefs` to know it
+    must NOT promote the value to a :class:`~qprogram.BusRef` — a raw-string bus that merely looks
+    like a path (``"q[0].drive"``) stays the string the author wrote. Behaves exactly like ``str``
+    everywhere else (equality, hashing, serialization), so instances may live in the AST.
+    """
+
+    __slots__ = ()
 
 
 def loads(text: str) -> QProgram:
@@ -85,6 +97,8 @@ def loads(text: str) -> QProgram:
 def load(path: str) -> QProgram:
     """Read a ``.qp`` file and parse it into a :class:`QProgram`.
 
+    ``.qp`` files are always UTF-8, independent of the platform's locale.
+
     Args:
         path: Path to the ``.qp`` file.
 
@@ -94,7 +108,7 @@ def load(path: str) -> QProgram:
     Raises:
         ParseError: On malformed input or unknown registry entries.
     """
-    with Path(path).open("r") as f:
+    with Path(path).open("r", encoding="utf-8") as f:
         return loads(f.read())
 
 
@@ -149,8 +163,14 @@ class _Parser:
             elif line == "body:":
                 self._pos += 1
                 self._parse_body()
+            elif line.startswith("require "):
+                msg = "`require` declarations must appear directly after the header, before any section"
+                raise ParseError(msg, self._pos + 1)
             else:
-                self._pos += 1
+                # Silently skipping an unrecognised top-level line would hide typos
+                # (`bodyy:`) behind an empty-but-valid program.
+                msg = f"unexpected top-level line {line!r}; expected `metadata:`, `schema:`, or `body:`"
+                raise ParseError(msg, self._pos + 1)
         return self._program
 
     # -- line helpers --------------------------------------------------------
@@ -240,6 +260,13 @@ class _Parser:
     # -- metadata ------------------------------------------------------------
 
     def _parse_metadata(self) -> None:
+        """Parse the ``metadata:`` section.
+
+        ``label`` / ``description`` values must be quoted strings; they are unescaped with the
+        exact inverse of the writer's escaping (an earlier revision did ``strip('"')`` with no
+        unescape, corrupting any label containing quotes or backslashes). Unknown keys are
+        tolerated for forward compatibility but their values must still be well-formed.
+        """
         while self._pos < len(self._lines):
             if self._indent() < 2 and self._stripped():
                 break
@@ -247,13 +274,21 @@ class _Parser:
             if not line:
                 self._pos += 1
                 continue
-            if ":" in line:
-                key, _, val = line.partition(":")
-                val = val.strip().strip('"')
-                if key.strip() == "label":
-                    self._program.label = val
-                elif key.strip() == "description":
-                    self._program.description = val
+            if ":" not in line:
+                msg = f"invalid metadata line {line!r}; expected `key: value`"
+                raise ParseError(msg, self._pos + 1)
+            key, _, val = line.partition(":")
+            key = key.strip()
+            val = val.strip()
+            if key in ("label", "description"):
+                if len(val) < 2 or not (val.startswith('"') and val.endswith('"')):
+                    msg = f"metadata {key!r} must be a quoted string, got: {val!r}"
+                    raise ParseError(msg, self._pos + 1)
+                text = _unescape_str(val[1:-1])
+                if key == "label":
+                    self._program.label = text
+                else:
+                    self._program.description = text
             self._pos += 1
 
     # -- schema declaration (inline element/bus declarations) ---------------
@@ -372,25 +407,26 @@ class _Parser:
             raise ParseError(msg, self._pos + 1)
         return channel, acquires
 
-    def _upgrade_busrefs(self, op: object) -> None:
+    def _upgrade_busrefs(self, op: Operation) -> None:
         """Replace bus-path strings on an operation with resolved BusRef instances.
 
-        Walks instance attributes for string values that look like
-        ``element[index].kind`` and resolves each against the program's
-        schema. Plain strings that don't match the path syntax are left
-        alone (case 1: raw string buses). ``list`` attributes (e.g.
-        ``Sync.buses``) are handled too.
+        Only the attributes the operation declares in :attr:`Operation.BUS_ATTRS` are considered —
+        promoting *every* string attribute would mangle legitimate quoted strings that merely look
+        like paths (e.g. a ``set_parameter`` alias of ``"cluster[0].module"``). Within a bus attr,
+        strings that don't match the path syntax are left alone (case 1: raw string buses);
+        ``list``-shaped attrs (``Sync.targets``) are handled element-wise.
         """
         if self._program.schema is None:
             return
-        for key, value in vars(op).items():
-            if isinstance(value, str) and not isinstance(value, BusRef):
+        for key in type(op).BUS_ATTRS:
+            value = getattr(op, key, None)
+            if isinstance(value, str) and not isinstance(value, (BusRef, _QuotedStr)):
                 ref = self._resolve_bus_path(value)
                 if ref is not None:
                     setattr(op, key, ref)
             elif isinstance(value, list):
                 for i, item in enumerate(value):
-                    if isinstance(item, str) and not isinstance(item, BusRef):
+                    if isinstance(item, str) and not isinstance(item, (BusRef, _QuotedStr)):
                         ref = self._resolve_bus_path(item)
                         if ref is not None:
                             value[i] = ref
@@ -438,7 +474,7 @@ class _Parser:
                 continue
             if indent < min_indent:
                 break
-            if line.startswith("var "):
+            if line == "var" or line.startswith("var "):
                 var_id, attrs = self._parse_var_decl(line)
                 if var_id in self._variables:
                     msg = f"duplicate variable id {var_id!r}"
@@ -450,19 +486,18 @@ class _Parser:
             if self._try_parse_block_header(parent, line, min_indent):
                 continue
             op = self._parse_operation(line)
-            if op is not None:
-                self._upgrade_busrefs(op)
-                parent.append(op)
-                # Track measurement handles so subsequent conditions can
-                # resolve ``<name>.<field>`` references.
-                if isinstance(op, MeasurementOperation):
-                    # The op's canonical handle was already obtained via
-                    # ctx.get_or_create_handle(name) inside the custom
-                    # parse callback for the measurement op (see
-                    # _specs.py:measurement_op_parse). Re-publishing here
-                    # is idempotent (same instance) and provides a safety
-                    # net if a future vendor op skips the custom callback.
-                    self._handles[op.name] = op.handle
+            self._upgrade_busrefs(op)
+            parent.append(op)
+            # Track measurement handles so subsequent conditions can
+            # resolve ``<name>.<field>`` references.
+            if isinstance(op, MeasurementOperation):
+                # The op's canonical handle was already obtained via
+                # ctx.get_or_create_handle(name) inside the custom
+                # parse callback for the measurement op (see
+                # _specs.py:measurement_op_parse). Re-publishing here
+                # is idempotent (same instance) and provides a safety
+                # net if a future vendor op skips the custom callback.
+                self._handles[op.name] = op.handle
             self._pos += 1
 
     def _try_parse_block_header(self, parent: Block, line: str, min_indent: int) -> bool:
@@ -487,7 +522,13 @@ class _Parser:
         first_token, _, rest = header.partition(" ")
         spec = get_block_spec(first_token)
         if spec is None:
-            return False
+            # The line is shaped like a block header (trailing ``:``) but the keyword is
+            # unregistered — silently skipping it would drop the whole indented body.
+            msg = (
+                f"unknown block keyword {first_token!r}; registered blocks, `for ... in ...` "
+                f"loops, and `if`/`elif`/`else` are the only valid `<header>:` forms"
+            )
+            raise ParseError(msg, self._pos + 1)
         tokens = _tokenize(rest) if rest.strip() else []
         block: Block = spec.parse_header(tokens, self) if spec.parse_header is not None else spec.cls()
         parent.append(block)
@@ -578,7 +619,14 @@ class _Parser:
                 )
                 raise ParseError(msg, self._pos + 1)
             loops.append(lp)
-        block: Block = loops[0] if len(loops) == 1 else Parallel(loops=loops)
+        if len(loops) == 1:
+            block: Block = loops[0]
+        else:
+            try:
+                block = Parallel(loops=loops)
+            except ValidationError as e:
+                # Mismatched iteration counts etc. — surface with the line number.
+                raise ParseError(str(e), self._pos + 1) from e
         parent.append(block)
         self._pos += 1
         self._parse_statements(block, min_indent + 2)
@@ -656,23 +704,38 @@ class _Parser:
 
     # -- operations ----------------------------------------------------------
 
-    def _parse_operation(self, line: str) -> Operation | None:
+    def _parse_operation(self, line: str) -> Operation:
         """Dispatch an operation line to its registered spec.
 
-        Returns ``None`` for unknown operations (the caller silently skips
-        the line). Vendor operations carry a dotted prefix; core operations
-        do not.
+        Vendor operations carry a dotted prefix; core operations do not.
+
+        Raises:
+            ParseError: If no operation is registered under the line's leading keyword.
+                Silently skipping the line (the historical behaviour) would load a *different*
+                program — a typo'd op or a vendor op whose extension isn't importable must be
+                loud, not absent.
         """
         tokens = _tokenize(line)
         if not tokens:
-            return None
+            msg = "empty operation line"
+            raise ParseError(msg, self._pos + 1)
         op_name = tokens[0]
         vendor: str | None = None
         if "." in op_name:
             vendor, op_name = op_name.split(".", 1)
         spec = get_operation_spec(vendor, op_name)
         if spec is None:
-            return None
+            if vendor is not None:
+                msg = (
+                    f"unknown vendor operation {vendor}.{op_name!r}: no operation is registered "
+                    f"under that name. Import the {vendor!r} extension package before loading, "
+                    f"and check the file's `require {vendor} <x.y>` declaration."
+                )
+            elif get_block_spec(op_name) is not None:
+                msg = f"{op_name!r} is a block keyword — block headers need a trailing colon: `{line}:`"
+            else:
+                msg = f"unknown operation {op_name!r}: no core operation is registered under that name"
+            raise ParseError(msg, self._pos + 1)
         if spec.parse is not None:
             return spec.parse(tokens[1:], self)
         return _core_specs.default_parse_operation(spec, tokens[1:], self)
@@ -682,26 +745,31 @@ class _Parser:
     def parse_value(self, token: str) -> object:
         """Decode a single ``.qp`` token into a typed value.
 
-        Recognises quoted strings, booleans, list literals, inline waveform
-        constructors, numeric literals, and references to previously
-        declared variables. Anything that doesn't match any of those is
-        returned as a plain string — this is how bus-path tokens
-        (``q[0].drive``) flow through unchanged until ``_upgrade_busrefs``
-        promotes them to typed :class:`BusRef` instances.
+        Recognises quoted strings, booleans, ``null``, list literals (as plain Python lists —
+        consumers that want arrays convert themselves), dict literals (string keys), inline
+        waveform constructors, numeric literals, and references to previously declared
+        variables. Anything that doesn't match any of those is returned as a plain string —
+        this is how bus-path tokens (``q[0].drive``) flow through unchanged until
+        ``_upgrade_busrefs`` promotes them to typed :class:`BusRef` instances.
         """
         tok = token.strip()
         if not tok:
             msg = "empty argument token"
             raise ParseError(msg, self._pos + 1)
         if tok.startswith('"') and tok.endswith('"'):
-            return _unescape_str(tok[1:-1])
+            # _QuotedStr marks "this was quoted on the wire" so the bus-path
+            # promotion pass leaves it alone. Plain str for every consumer.
+            return _QuotedStr(_unescape_str(tok[1:-1]))
         if tok == "true":
             return True
         if tok == "false":
             return False
+        if tok == "null":
+            return None
         if tok.startswith("[") and tok.endswith("]"):
-            inner = tok[1:-1]
-            return np.array([_parse_number(v.strip()) for v in inner.split(",") if v.strip()])
+            return _parse_list_literal(tok, self._variables)
+        if tok.startswith("{") and tok.endswith("}"):
+            return self._parse_dict_literal(tok)
         # Parenthesised symbolic expression — emitted by the writer for any
         # BinaryOp or UnaryOp (e.g. ``(freq + 1000000.0)``). The writer always
         # parenthesises and never leaves nested operations unwrapped, so this
@@ -730,6 +798,34 @@ class _Parser:
     def parse_error(self, message: str) -> ParseError:
         """Build a :class:`ParseError` tagged with the current line number."""
         return ParseError(message, self._pos + 1)
+
+    def _parse_dict_literal(self, tok: str) -> dict[str, object]:
+        """Parse a ``{"key": value, ...}`` token into a dict.
+
+        Keys must be quoted strings; values go through :meth:`parse_value` recursively, so nested
+        dicts, numbers, ``null``, and quoted strings all work. Used by ``set_crosstalk`` sections.
+
+        Raises:
+            ParseError: On malformed entries or unquoted keys.
+        """
+        inner = tok[1:-1].strip()
+        out: dict[str, object] = {}
+        if not inner:
+            return out
+        for entry in _split_args(inner):
+            entry_stripped = entry.strip()
+            if not entry_stripped:
+                continue
+            key_tok, sep, val_tok = _partition_dict_entry(entry_stripped)
+            if not sep:
+                msg = f'invalid dict entry {entry_stripped!r}; expected `"key": value`'
+                raise ParseError(msg, self._pos + 1)
+            key_tok = key_tok.strip()
+            if len(key_tok) < 2 or not (key_tok.startswith('"') and key_tok.endswith('"')):
+                msg = f"dict keys must be quoted strings, got {key_tok!r}"
+                raise ParseError(msg, self._pos + 1)
+            out[_unescape_str(key_tok[1:-1])] = self.parse_value(val_tok.strip())
+        return out
 
     def _parse_paren_expression(self, tok: str) -> Expression:
         """Parse a parenthesised symbolic expression token.
@@ -851,6 +947,17 @@ class _Parser:
             self._handles[name] = MeasurementHandle(name)
         return self._handles[name]
 
+    def allocate_measurement_handle(self, bus: object) -> MeasurementHandle:
+        """Auto-allocate a handle for a measurement line that carries no ``name=``.
+
+        Uses the same per-bus naming convention as :meth:`QProgram.measure`, computed against the
+        program parsed so far — hand-written files without explicit names get ``m0``, ``m1``, ...
+        exactly as the builder would have assigned them.
+        """
+        bus_str = bus if isinstance(bus, str) else ""
+        allocated = self._program._allocate_measurement_name(bus_str, requested=None)  # noqa: SLF001
+        return self.get_or_create_handle(allocated)
+
 
 # ---------------------------------------------------------------------------
 # Utility functions
@@ -858,29 +965,38 @@ class _Parser:
 
 
 def _find_comment(line: str) -> int:
+    r"""Return the index of the first ``#`` that starts a comment, or ``-1``.
+
+    Escape-aware: a ``\"`` inside a quoted string does not toggle the in-string state, so a
+    ``#`` following an escaped quote is still recognised as string content rather than a comment.
+    """
     in_str = False
-    for i, c in enumerate(line):
+    i = 0
+    n = len(line)
+    while i < n:
+        c = line[i]
+        if in_str and c == "\\" and i + 1 < n:
+            i += 2  # escaped character inside a string — never a delimiter
+            continue
         if c == '"':
             in_str = not in_str
         elif c == "#" and not in_str and line[:2] != "#!":
             return i
+        i += 1
     return -1
 
 
 def _unescape_str(s: str) -> str:
-    r"""Inverse of the writer's escape: ``\\"`` -> ``"``, ``\\\\`` -> ``\\``."""
+    r"""Inverse of the writer's escape: ``\"``, ``\\``, ``\n``, ``\r``, ``\t``."""
+    simple = {"\\": "\\", '"': '"', "n": "\n", "r": "\r", "t": "\t"}
     out = []
     i = 0
     while i < len(s):
         c = s[i]
         if c == "\\" and i + 1 < len(s):
             nxt = s[i + 1]
-            if nxt == "\\":
-                out.append("\\")
-                i += 2
-                continue
-            if nxt == '"':
-                out.append('"')
+            if nxt in simple:
+                out.append(simple[nxt])
                 i += 2
                 continue
         out.append(c)
@@ -898,14 +1014,6 @@ def _parse_major_minor(version: str) -> tuple[int, int]:
     except ValueError as e:
         msg = f"version {version!r} has non-integer major/minor components"
         raise ValueError(msg) from e
-
-
-def _parse_number(s: str) -> int | float:
-    s = s.strip()
-    val = float(s)
-    if val == int(val) and "." not in s and "e" not in s.lower():
-        return int(val)
-    return val
 
 
 def _to_expression(value: object) -> Expression:
@@ -927,33 +1035,48 @@ def _to_expression(value: object) -> Expression:
 
 
 def _tokenize(line: str) -> list[str]:
-    """Whitespace-split, respecting double quotes and parentheses.
+    r"""Whitespace-split, respecting double quotes, parentheses, brackets, and braces.
 
-    Tokens inside ``"..."`` or ``(...)`` are kept whole. ``[...]`` is NOT a
-    nesting context — list literals must appear within a parenthesised group
-    (typically a waveform constructor) or be the entire ``for ... in``
-    right-hand side (which is handled before tokenization).
+    Tokens inside ``"..."``, ``(...)``, ``[...]``, or ``{...}`` are kept whole — so list-literal
+    kwargs like ``outputs=[1, 2]`` and dict-literal kwargs like ``matrix={"a": 1.0}`` survive as
+    single tokens. Quote state is tracked at every nesting depth and ``\"`` escapes inside
+    strings are honoured, so a parenthesis or bracket inside a quoted string never perturbs the
+    nesting count.
     """
     tokens: list[str] = []
     current = ""
     in_q = False
     depth = 0
-    for c in line:
-        if c == '"' and depth == 0:
-            in_q = not in_q
+    i = 0
+    n = len(line)
+    while i < n:
+        c = line[i]
+        if in_q:
+            if c == "\\" and i + 1 < n:
+                current += line[i : i + 2]
+                i += 2
+                continue
+            if c == '"':
+                in_q = False
             current += c
-        elif c == "(" and not in_q:
+            i += 1
+            continue
+        if c == '"':
+            in_q = True
+            current += c
+        elif c in "([{":
             depth += 1
             current += c
-        elif c == ")" and not in_q:
+        elif c in ")]}":
             depth -= 1
             current += c
-        elif c == " " and not in_q and depth == 0:
+        elif c == " " and depth == 0:
             if current:
                 tokens.append(current)
                 current = ""
         else:
             current += c
+        i += 1
     if current:
         tokens.append(current)
     return tokens
@@ -1001,28 +1124,86 @@ def _parse_constructor_args(
 
 
 def _split_args(s: str) -> list[str]:
+    r"""Split a comma-separated argument list, respecting quotes and all bracket kinds.
+
+    Escape-aware inside quoted strings — a ``\"`` does not end the string, so commas after an
+    escaped quote stay inside their argument.
+    """
     parts: list[str] = []
     cur = ""
     depth = 0
     in_q = False
-    for c in s:
-        if c == '"':
-            in_q = not in_q
+    i = 0
+    n = len(s)
+    while i < n:
+        c = s[i]
+        if in_q:
+            if c == "\\" and i + 1 < n:
+                cur += s[i : i + 2]
+                i += 2
+                continue
+            if c == '"':
+                in_q = False
             cur += c
-        elif c in "([" and not in_q:
+            i += 1
+            continue
+        if c == '"':
+            in_q = True
+            cur += c
+        elif c in "([{":
             depth += 1
             cur += c
-        elif c in ")]" and not in_q:
+        elif c in ")]}":
             depth -= 1
             cur += c
-        elif c == "," and depth == 0 and not in_q:
+        elif c == "," and depth == 0:
             parts.append(cur)
             cur = ""
         else:
             cur += c
+        i += 1
     if cur.strip():
         parts.append(cur)
     return parts
+
+
+def _partition_dict_entry(entry: str) -> tuple[str, str, str]:
+    """Split one ``"key": value`` dict entry at the first colon outside quotes.
+
+    Returns ``(key, ":", value)`` on success, ``(entry, "", "")`` when no top-level colon exists
+    (mirrors :meth:`str.partition`'s no-separator contract).
+    """
+    in_q = False
+    i = 0
+    n = len(entry)
+    while i < n:
+        c = entry[i]
+        if in_q:
+            if c == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if c == '"':
+                in_q = False
+        elif c == '"':
+            in_q = True
+        elif c == ":":
+            return entry[:i], ":", entry[i + 1 :]
+        i += 1
+    return entry, "", ""
+
+
+def _parse_list_literal(tok: str, variables: dict[str, Variable] | None = None) -> list:
+    """Parse a ``[v0, v1, ...]`` token into a plain Python list.
+
+    Elements go through :func:`_parse_arg`, so numbers, quoted strings, booleans, ``null``, and
+    nested lists all work. The result is a *list*, not a numpy array — consumers that want arrays
+    (``Arbitrary``, ``Loop``) convert via ``np.asarray`` themselves, while consumers that store
+    lists (e.g. vendor ops with ``list[int]`` attributes) round-trip type-faithfully.
+    """
+    inner = tok[1:-1].strip()
+    if not inner:
+        return []
+    return [_parse_arg(v.strip(), variables) for v in _split_args(inner)]
 
 
 def _parse_arg(val: str, variables: dict[str, Variable] | None = None) -> object:
@@ -1043,8 +1224,10 @@ def _parse_arg(val: str, variables: dict[str, Variable] | None = None) -> object
         return True
     if val == "false":
         return False
+    if val == "null":
+        return None
     if val.startswith("[") and val.endswith("]"):
-        return np.array([_parse_number(v.strip()) for v in val[1:-1].split(",") if v.strip()])
+        return _parse_list_literal(val, variables)
     if "(" in val:
         return _parse_waveform_expr(val, variables)
     if variables is not None and val in variables:

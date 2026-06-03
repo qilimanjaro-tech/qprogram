@@ -846,7 +846,7 @@ def _sanitize_id(s: str) -> str:
     Replaces every non-``[A-Za-z0-9_]`` character with ``_``, prefixes a leading underscore if the
     first character is a digit, and falls back to ``"var"`` for empty input.
     """
-    out = re.sub(r"[^A-Za-z0-9_]", "_", s) if s else ""
+    out = re.sub(r"\W", "_", s) if s else ""
     if not out:
         return "var"
     if out[0].isdigit():

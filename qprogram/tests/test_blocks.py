@@ -349,7 +349,7 @@ def test_for_loop_rejects_wrong_step_direction():
 
 def test_for_loop_rejects_non_numeric_bounds():
     with pytest.raises(ValidationError, match="int or float"):
-        ForLoop(Variable("x"), "0", 10.0, 1.0)
+        ForLoop(Variable("x"), "0", 10.0, 1.0)  # ty:ignore[invalid-argument-type]
     with pytest.raises(ValidationError, match="int or float"):
         ForLoop(Variable("x"), 0.0, 10.0, True)  # noqa: FBT003 — bool-as-step is the case under test
 
@@ -388,7 +388,7 @@ def test_average_rejects_non_positive_shots():
 
 def test_average_rejects_non_integer_shots():
     with pytest.raises(ValidationError, match="integer"):
-        Average(shots=10.5)
+        Average(shots=10.5)  # ty:ignore[invalid-argument-type]
     with pytest.raises(ValidationError, match="integer"):
         Average(shots=True)
 

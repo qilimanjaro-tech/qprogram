@@ -333,7 +333,7 @@ def test_diagnostic_accepts_info_severity() -> None:
 
 
 def test_domain_constraint_is_frozen_dataclass() -> None:
-    dc = DomainConstraint(node=None, exclude=frozenset({"hw"}), reason="why")  # type: ignore[arg-type]
+    dc = DomainConstraint(node=None, exclude=frozenset({"hw"}), reason="why")  # ty:ignore[invalid-argument-type]
     assert dataclasses.is_dataclass(dc)
     with pytest.raises(dataclasses.FrozenInstanceError):
         setattr(dc, "reason", "y")  # noqa: B010

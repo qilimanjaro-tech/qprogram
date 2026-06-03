@@ -345,7 +345,7 @@ def test_iq_pair_defers_duration_check_for_symbolic_durations():
     # the check is deferred to the platform compiler.
     dur = Variable("dur")
     wf = IQPair(Square(1.0, dur), Square(0.0, dur))
-    assert wf.get_I().duration is dur
+    assert wf.get_I().duration is dur  # ty:ignore[unresolved-attribute]
 
 
 # ---------------------------------------------------------------------------

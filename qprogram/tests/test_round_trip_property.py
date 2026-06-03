@@ -10,8 +10,8 @@ path-shaped raw bus strings, ints vs floats, and deep block nesting.
 from __future__ import annotations
 
 import numpy as np
-from hypothesis import given, settings
-from hypothesis import strategies as st
+from hypothesis import given, settings  # ty:ignore[unresolved-import]
+from hypothesis import strategies as st  # ty:ignore[unresolved-import]
 
 from qprogram import CrosstalkMatrix, QProgram, dumps, loads
 from qprogram.buses import BusSchema
@@ -130,11 +130,11 @@ def programs(draw: st.DrawFn) -> QProgram:
             elif kind == "sync":
                 p.sync(draw(st.one_of(st.none(), st.lists(bus_names, min_size=1, max_size=3))))
             elif kind == "set_frequency":
-                p.set_frequency(bus, expression())
+                p.set_frequency(bus, expression())  # ty:ignore[invalid-argument-type]
             elif kind == "set_gain":
-                p.set_gain(bus, expression())
+                p.set_gain(bus, expression())  # ty:ignore[invalid-argument-type]
             elif kind == "set_offset":
-                p.set_offset(bus, expression(), draw(st.one_of(st.none(), finite_floats)))
+                p.set_offset(bus, expression(), draw(st.one_of(st.none(), finite_floats)))  # ty:ignore[invalid-argument-type]
             elif kind == "measure":
                 p.measure(bus, draw(waveform_aliases), draw(waveform_aliases))
         if depth < 2 and draw(st.booleans()):

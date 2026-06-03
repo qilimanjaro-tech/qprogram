@@ -1,7 +1,7 @@
 # .qp File Format Specification (Draft)
 
 > **Source / upstream:** https://www.notion.so/qilimanjaro/qp-File-Format-Specification-Draft-3307eec14c5381948e39e397b2062803
-> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03. **Local delta since that push:** §2.2 / §9.2 entry-point vendor discovery / auto-activation (2026-06-03) — not yet pushed to Notion.
+> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03 (including the §2.2 / §9.2 entry-point vendor discovery / auto-activation addition). This file and the Notion page are in sync.
 > **Status:** Draft (specification — the implementation matches this revision)
 
 ---

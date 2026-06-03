@@ -1,7 +1,7 @@
 # QProgram DSL Specification (Draft)
 
 > **Source / upstream:** https://www.notion.so/qilimanjaro/QProgram-DSL-Specification-Draft-32f7eec14c53815a8290d85478cdcaec
-> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03. **Local delta since that push:** §5.4 entry-point vendor discovery / auto-activation (2026-06-03) — not yet pushed to Notion.
+> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03 (including the §5.4 entry-point vendor discovery / auto-activation addition). This file and the Notion page are in sync.
 > **Status:** Draft (specification — the implementation matches this revision)
 
 ---

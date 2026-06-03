@@ -18,6 +18,7 @@ from qprogram.serialization.registry import (
     register_vendor_operation,
     register_vendor_version,
     register_waveform,
+    try_activate_vendor,
 )
 from qprogram.serialization.writer import dumps, save
 
@@ -39,6 +40,7 @@ __all__ = [
     "register_vendor_version",
     "register_waveform",
     "save",
+    "try_activate_vendor",
 ]
 
 

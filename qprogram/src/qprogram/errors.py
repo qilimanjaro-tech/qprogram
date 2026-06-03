@@ -117,6 +117,17 @@ class SerializationError(QProgramError):
     """
 
 
+class VendorActivationError(QProgramError):
+    """A discovered vendor extension could not be activated.
+
+    Raised by :func:`~qprogram.try_activate_vendor` (and, during ``.qp`` parsing, wrapped into a
+    :class:`ParseError`) when a ``qprogram.vendors`` entry point's import target raises, or imports
+    without calling :func:`~qprogram.register_vendor_version` — i.e. the package is installed but
+    broken. A vendor that simply isn't installed is *not* this error: discovery reports "no
+    matching extension".
+    """
+
+
 # ---------------------------------------------------------------------------
 # Platform-side error contracts
 # ---------------------------------------------------------------------------

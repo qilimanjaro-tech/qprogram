@@ -13,6 +13,7 @@ from qprogram.errors import (
     UnassignedVariableError,
     UnsupportedOperationError,
     ValidationError,
+    VendorActivationError,
     WaveformResolutionError,
 )
 from qprogram.platform import PlatformProtocol
@@ -38,7 +39,14 @@ from qprogram.protocol import (
 )
 from qprogram.qprogram import QProgram
 from qprogram.result import MeasurementHandle, MeasurementResult, QProgramResult
-from qprogram.serialization import dumps, register_vendor_operation, register_vendor_version, register_waveform, save
+from qprogram.serialization import (
+    dumps,
+    register_vendor_operation,
+    register_vendor_version,
+    register_waveform,
+    save,
+    try_activate_vendor,
+)
 from qprogram.validation import validate
 from qprogram.variable import (
     UNASSIGNED,
@@ -116,6 +124,7 @@ __all__ = [
     "ValidationContext",
     "ValidationError",
     "Variable",
+    "VendorActivationError",
     "VendorNamespace",
     "WaveformResolutionError",
     "Where",
@@ -143,6 +152,7 @@ __all__ = [
     "sin",
     "sqrt",
     "tan",
+    "try_activate_vendor",
     "validate",
     "where",
 ]

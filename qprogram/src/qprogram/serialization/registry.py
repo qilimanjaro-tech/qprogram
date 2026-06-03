@@ -14,16 +14,21 @@ The five registries:
 - **Vendor protocol versions** by vendor name.
 
 Vendor extensions register through :func:`register_vendor_operation` and
-:func:`register_vendor_version` at import time.
+:func:`register_vendor_version` at import time. They additionally declare a ``qprogram.vendors``
+entry point so :func:`try_activate_vendor` can import them on demand when a ``.qp`` file's
+``require`` line names a vendor that hasn't been imported yet.
 """
 
 from __future__ import annotations
 
+import importlib.metadata
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import cache
 from typing import TYPE_CHECKING, Any
 
 from qprogram._reserved import RESERVED_VENDOR_NAMES
+from qprogram.errors import VendorActivationError
 
 if TYPE_CHECKING:
     from qprogram.blocks.block import Block
@@ -401,6 +406,95 @@ def get_waveform_class(name: str) -> type[Waveform | IQWaveform] | None:
 def get_vendor_version(vendor: str) -> str | None:
     """Return the registered protocol version of an installed vendor, or None."""
     return _vendor_versions.get(vendor)
+
+
+# ---------------------------------------------------------------------------
+# Vendor discovery (entry points)
+# ---------------------------------------------------------------------------
+#
+# A `.qp` file lists its vendor dependencies via `require <vendor> <major.minor>`. Historically the
+# user had to `import qprogram_<vendor>` themselves before `loads()` so the extension registered its
+# namespace/version/operations/profile. Entry-point discovery removes that step: a vendor package
+# declares
+#
+#     [project.entry-points."qprogram.vendors"]
+#     <vendor> = "<importable_module_that_self_registers>"
+#
+# and `loads()` imports it on demand. This makes a `.qp` file a self-contained contract — any
+# environment with the extension *installed* can load it, imported or not.
+
+_VENDOR_ENTRY_POINT_GROUP = "qprogram.vendors"
+"""Entry-point group vendor packages declare for auto-activation. Each entry point's *name* is the
+vendor namespace (e.g. ``qblox``); its *value* is an importable module that self-registers on import
+(e.g. ``qprogram_qblox``)."""
+
+
+@cache
+def _vendor_entry_points() -> dict[str, importlib.metadata.EntryPoint]:
+    """Discover installed vendor extensions via the ``qprogram.vendors`` entry-point group.
+
+    Memoized — the set of installed distributions is fixed within a process. On a name clash (two
+    distributions claiming the same vendor namespace) the first discovered wins; that's a
+    pathological case we resolve only for determinism. Tests that inject entry points should patch
+    this function or call :func:`clear_vendor_discovery_cache`.
+    """
+    found: dict[str, importlib.metadata.EntryPoint] = {}
+    for ep in importlib.metadata.entry_points(group=_VENDOR_ENTRY_POINT_GROUP):
+        found.setdefault(ep.name, ep)
+    return found
+
+
+def clear_vendor_discovery_cache() -> None:
+    """Reset the memoized entry-point scan (for tests that install or patch entry points).
+
+    Tolerant of a monkeypatched ``_vendor_entry_points`` (a plain function has no ``cache_clear``),
+    so test teardown can call it regardless of patch/finaliser ordering.
+    """
+    clearer = getattr(_vendor_entry_points, "cache_clear", None)
+    if clearer is not None:
+        clearer()
+
+
+def try_activate_vendor(vendor: str) -> bool:
+    """Ensure ``vendor`` is registered, importing its extension package on demand if needed.
+
+    Returns ``True`` when the vendor is registered after the call — either it already was, or its
+    ``qprogram.vendors`` entry point was found and imported successfully. Returns ``False`` when no
+    installed package claims ``vendor`` (and it wasn't already registered); the caller decides
+    whether that's an error.
+
+    Importing the entry-point target runs the package's registration side effects
+    (``register_vendor`` / ``register_vendor_version`` / ``register_vendor_operation`` /
+    ``register_profile``). Python caches imports, so repeat calls are cheap and idempotent.
+
+    Args:
+        vendor: Vendor namespace, e.g. ``"qblox"``.
+
+    Raises:
+        VendorActivationError: If an entry point claims ``vendor`` but its import raises, or it
+            imports without registering a protocol version (a packaging bug in the extension).
+    """
+    if get_vendor_version(vendor) is not None:
+        return True
+    ep = _vendor_entry_points().get(vendor)
+    if ep is None:
+        return False
+    try:
+        ep.load()
+    except Exception as e:  # collapse any import-time failure into one clear error
+        msg = (
+            f"vendor extension for {vendor!r} is installed (entry point {ep.value!r}) but failed "
+            f"to import: {type(e).__name__}: {e}"
+        )
+        raise VendorActivationError(msg) from e
+    if get_vendor_version(vendor) is None:
+        msg = (
+            f"vendor extension for {vendor!r} imported from entry point {ep.value!r} but did not "
+            f"register a protocol version; the package must call "
+            f"register_vendor_version({vendor!r}, '<x.y.z>') on import"
+        )
+        raise VendorActivationError(msg)
+    return True
 
 
 # Legacy compatibility shims — direct callers should prefer the new APIs above.

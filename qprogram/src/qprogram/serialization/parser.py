@@ -20,7 +20,7 @@ from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
 from qprogram.buses import BusNaming, BusRef, BusSchema
-from qprogram.errors import QProgramError, ValidationError
+from qprogram.errors import QProgramError, ValidationError, VendorActivationError
 from qprogram.operations.operation import MeasurementOperation
 from qprogram.qprogram import QProgram
 from qprogram.result import MeasurementHandle
@@ -33,6 +33,7 @@ from qprogram.serialization.registry import (
     get_sweep_generator_spec,
     get_vendor_version,
     get_waveform_class,
+    try_activate_vendor,
 )
 from qprogram.variable import _ID_RE, MeasurementRef
 
@@ -79,28 +80,35 @@ class _QuotedStr(str):
     __slots__ = ()
 
 
-def loads(text: str) -> QProgram:
+def loads(text: str, *, auto_activate: bool = True) -> QProgram:
     """Parse a ``.qp``-format string into a :class:`QProgram`.
 
     Args:
         text: ``.qp`` source.
+        auto_activate: When ``True`` (default), a ``require <vendor>`` line whose extension isn't
+            yet imported triggers entry-point discovery (``qprogram.vendors`` group) — the
+            installed package is imported on demand so the file is self-contained. Set ``False``
+            to require that vendors be imported explicitly beforehand (no implicit imports).
 
     Returns:
         The reconstructed :class:`QProgram`.
 
     Raises:
-        ParseError: On malformed input or unknown registry entries.
+        ParseError: On malformed input, unknown registry entries, or a required vendor that is
+            neither registered nor discoverable (and, when its extension is installed but broken,
+            the wrapped :class:`~qprogram.VendorActivationError`).
     """
-    return _Parser(text).parse()
+    return _Parser(text, auto_activate=auto_activate).parse()
 
 
-def load(path: str) -> QProgram:
+def load(path: str, *, auto_activate: bool = True) -> QProgram:
     """Read a ``.qp`` file and parse it into a :class:`QProgram`.
 
     ``.qp`` files are always UTF-8, independent of the platform's locale.
 
     Args:
         path: Path to the ``.qp`` file.
+        auto_activate: See :func:`loads`.
 
     Returns:
         The reconstructed :class:`QProgram`.
@@ -109,7 +117,7 @@ def load(path: str) -> QProgram:
         ParseError: On malformed input or unknown registry entries.
     """
     with Path(path).open("r", encoding="utf-8") as f:
-        return loads(f.read())
+        return loads(f.read(), auto_activate=auto_activate)
 
 
 # ---------------------------------------------------------------------------
@@ -137,13 +145,14 @@ _LOGICAL_BINARY_OPS: frozenset[str] = frozenset({"and", "or"})
 
 
 class _Parser:
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: str, *, auto_activate: bool = True) -> None:
         self._lines = text.splitlines()
         self._pos = 0
         self._program = QProgram()
         self._variables: dict[str, Variable] = {}
         self._handles: dict[str, MeasurementHandle] = {}
         self._required_vendors: set[str] = set()
+        self._auto_activate = auto_activate
 
     # -- public entry point --------------------------------------------------
 
@@ -232,10 +241,25 @@ class _Parser:
 
     def _check_vendor_compat(self, vendor: str, file_version: str) -> None:
         installed = get_vendor_version(vendor)
+        if installed is None and self._auto_activate:
+            # The extension isn't imported yet — try discovering and importing it via its
+            # `qprogram.vendors` entry point so the file stays self-contained.
+            try:
+                try_activate_vendor(vendor)
+            except VendorActivationError as e:
+                raise ParseError(str(e), self._pos + 1) from e
+            installed = get_vendor_version(vendor)
         if installed is None:
+            hint = (
+                f"install the package that declares the 'qprogram.vendors' entry point for "
+                f"'{vendor}', or import the extension before loading"
+                if self._auto_activate
+                else f"auto-activation is disabled; import the extension before loading "
+                f"(e.g. `import qprogram_{vendor}`)"
+            )
             msg = (
-                f"file requires vendor '{vendor}' {file_version} but no "
-                f"matching extension is registered in this environment"
+                f"file requires vendor '{vendor}' {file_version} but no matching extension is "
+                f"registered in this environment — {hint}"
             )
             raise ParseError(msg, self._pos + 1)
         try:

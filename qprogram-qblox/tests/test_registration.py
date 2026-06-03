@@ -59,3 +59,51 @@ def test_qblox_pre_combined_qprogram_exists():
 
     assert issubclass(QbloxQProgram, QbloxMixin)
     assert issubclass(QbloxQProgram, BaseQProgram)
+
+
+def test_qblox_declares_vendor_entry_point():
+    """Step 4 (discovery): the package exposes a `qprogram.vendors` entry point named `qblox`
+    pointing at the self-registering module, so `qprogram.loads(...)` can auto-activate it."""
+    import importlib.metadata as md  # noqa: PLC0415
+
+    eps = {ep.name: ep.value for ep in md.entry_points(group="qprogram.vendors")}
+    assert eps.get("qblox") == "qprogram_qblox"
+
+
+def test_qblox_entry_point_loads_and_registers():
+    """Loading the entry point imports the self-registering module and registers the version."""
+    import importlib.metadata as md  # noqa: PLC0415
+
+    (ep,) = [e for e in md.entry_points(group="qprogram.vendors") if e.name == "qblox"]
+    mod = ep.load()
+    assert mod.__name__ == "qprogram_qblox"
+    assert get_vendor_version("qblox") is not None
+
+
+def test_qblox_autoactivates_in_fresh_process(tmp_path):
+    """End-to-end self-containment: a process that imports ONLY `qprogram` loads a file whose
+    `require qblox` line auto-imports the installed extension via its entry point — no explicit
+    `import qprogram_qblox` anywhere."""
+    import subprocess  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    qp_file = tmp_path / "prog.qp"
+    qp_file.write_text('#!QProgram 1.0\n\nrequire qblox 0.1\n\nbody:\n  qblox.set_markers "d" "0001"\n')
+    script = tmp_path / "run.py"
+    script.write_text(
+        "import sys, qprogram as qp\n"
+        "assert 'qprogram_qblox' not in sys.modules, 'qblox was pre-imported'\n"
+        f"p = qp.load({str(qp_file)!r})\n"
+        "assert 'qprogram_qblox' in sys.modules, 'loads() did not auto-activate qblox'\n"
+        "from qprogram_qblox.operations import SetMarkers\n"
+        "assert isinstance(p.body.elements[0], SetMarkers)\n"
+        "print('AUTO_OK')\n",
+    )
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, str(script)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "AUTO_OK" in result.stdout

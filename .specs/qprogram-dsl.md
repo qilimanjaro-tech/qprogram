@@ -1,7 +1,7 @@
 # QProgram DSL Specification (Draft)
 
 > **Source / upstream:** https://www.notion.so/qilimanjaro/QProgram-DSL-Specification-Draft-32f7eec14c53815a8290d85478cdcaec
-> **Reconciled:** 2026-06-02 with the reference implementation; **pushed to the Notion page 2026-06-03** (this file and the Notion page are now in sync).
+> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03. **Local delta since that push:** §5.4 entry-point vendor discovery / auto-activation (2026-06-03) — not yet pushed to Notion.
 > **Status:** Draft (specification — the implementation matches this revision)
 
 ---
@@ -945,16 +945,24 @@ register_vendor_version("qblox", version("qprogram-qblox"))
 class QProgram(QbloxMixin, BaseQProgram):
     pass
 ```
+The package also declares a `qprogram.vendors` **entry point** in its `pyproject.toml` so that
+`.qp` files requiring it can auto-activate it on load without an explicit import (see *Portability*
+below):
+```toml
+[project.entry-points."qprogram.vendors"]
+qblox = "qprogram_qblox"   # entry-point name = vendor namespace; value = the self-registering module
+```
 ### Serialization
 The Operation class registry powers `.qp` serialization. Each vendor Operation is registered with its `(vendor, name)` pair:
 - `Acquire` registered as `("qblox", "acquire")` serializes to `qblox.acquire "bus" "weights"`
 - On deserialization, the parser looks up `("qblox", "acquire")` in the registry to reconstruct the typed object
 ### Portability
 A `.qp` file containing vendor operations declares its dependencies via versioned `require` declarations (e.g. `require qblox 0.1`). The parser validates these upfront before parsing the body:
-- if the vendor is not registered in the current environment, parsing fails with a clear error;
+- if the vendor is not yet imported but its extension is **installed**, the loader discovers and imports it on demand via the `qprogram.vendors` entry point — the user need not `import qprogram_qblox` first;
+- if no installed extension provides the vendor, parsing fails with a clear error;
 - if the major version doesn't match, parsing fails;
 - if the installed minor is older than the file's minor, parsing fails.
-This means a `.qp` file is a complete, executable contract: any environment that can parse it without error is guaranteed to recognise every operation referenced by it. See the .qp File Format Specification for the full syntax and compatibility rules. See the .qp File Format Specification for details.
+This means a `.qp` file is a complete, executable contract: any environment in which the required extensions are *installed* can load it — imported or not — and is guaranteed to recognise every operation referenced by it. Callers that want no implicit imports pass `auto_activate=False` to `loads()` / `load()`. See the .qp File Format Specification for the full syntax and compatibility rules.
 ---
 # 6. Control Flow
 Control flow is expressed via Python context managers that create nested blocks in the program tree.

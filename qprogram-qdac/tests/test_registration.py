@@ -64,3 +64,22 @@ def test_qdac_pre_combined_qprogram_exists():
 
     assert issubclass(QdacQProgram, QdacMixin)
     assert issubclass(QdacQProgram, BaseQProgram)
+
+
+def test_qdac_declares_vendor_entry_point():
+    """Step 4 (discovery): the package exposes a `qprogram.vendors` entry point named `qdac`
+    pointing at the self-registering module, so `qprogram.loads(...)` can auto-activate it."""
+    import importlib.metadata as md  # noqa: PLC0415
+
+    eps = {ep.name: ep.value for ep in md.entry_points(group="qprogram.vendors")}
+    assert eps.get("qdac") == "qprogram_qdac"
+
+
+def test_qdac_entry_point_loads_and_registers():
+    """Loading the entry point imports the self-registering module and registers the version."""
+    import importlib.metadata as md  # noqa: PLC0415
+
+    (ep,) = [e for e in md.entry_points(group="qprogram.vendors") if e.name == "qdac"]
+    mod = ep.load()
+    assert mod.__name__ == "qprogram_qdac"
+    assert get_vendor_version("qdac") is not None

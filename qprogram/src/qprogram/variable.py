@@ -52,7 +52,9 @@ class _UnassignedType:
 
     def __new__(cls) -> Self:
         if cls._instance is None:
-            cls._instance: _UnassignedType = super().__new__(cls)
+            # No inline annotation here — the class-level ``_instance`` declaration above already
+            # types it, and annotating an attribute assignment is rejected by the type checker.
+            cls._instance = super().__new__(cls)
         return cls._instance  # ty:ignore[invalid-return-type]
 
     def __repr__(self) -> str:

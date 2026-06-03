@@ -1,7 +1,7 @@
 # .qp File Format Specification (Draft)
 
 > **Source / upstream:** https://www.notion.so/qilimanjaro/qp-File-Format-Specification-Draft-3307eec14c5381948e39e397b2062803
-> **Reconciled:** 2026-06-02 with the reference implementation; **pushed to the Notion page 2026-06-03** (this file and the Notion page are now in sync).
+> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03. **Local delta since that push:** §2.2 / §9.2 entry-point vendor discovery / auto-activation (2026-06-03) — not yet pushed to Notion.
 > **Status:** Draft (specification — the implementation matches this revision)
 
 ---
@@ -79,6 +79,12 @@ require qdac 1.2
   - *`require` declaration must specify a version: `require <vendor> <major.minor>`*
 - Programs using only core operations need no `require` declarations.
 - The serializer always emits the version of whichever vendor extension is currently registered, so a saved-then-loaded file pins the version that produced it.
+
+**Auto-activation (entry-point discovery).** A `require <vendor>` line whose extension is installed but not yet imported is **activated on demand**: the loader looks up the `qprogram.vendors` entry-point group, finds the entry point whose name is the vendor namespace, and imports its target module (which self-registers the namespace, version, operations, and profile). This makes a `.qp` file a self-contained contract — any environment with the extension *installed* can load it, whether or not the caller imported the package first. The compatibility check above then runs against the just-activated version. Notes:
+
+- Discovery only triggers for an unregistered vendor; an already-imported extension is used as-is (no scan).
+- If an entry point claims the vendor but its import fails (or imports without registering a version), parsing fails with a clear error naming the broken extension — distinct from "not installed".
+- `loads(text, auto_activate=False)` / `load(path, auto_activate=False)` opt out: with auto-activation off, an unimported vendor is a hard error (no implicit imports), and the message tells the caller to `import qprogram_<vendor>` first.
 
 ## 2.3 Comments
 
@@ -574,6 +580,14 @@ body:
 **Deserialization:** The parser looks up `("qblox", "acquire")` in the registry to find the `Acquire` class and reconstruct it with the correct typed attributes.
 
 **Versioned `require`:** Every `require` declaration carries a `<major>.<minor>` version (see Section 2.2). The parser validates compatibility against the installed extension before parsing the body, so unrecognised or incompatible vendor operations are caught upfront with actionable error messages — a `.qp` file is a complete, executable contract.
+
+**Discovery:** A vendor package declares a `qprogram.vendors` entry point so the loader can import it on demand when a `require` line names it (see Section 2.2, *Auto-activation*):
+
+```toml
+# in the vendor package's pyproject.toml
+[project.entry-points."qprogram.vendors"]
+qblox = "qprogram_qblox"   # entry-point name = vendor namespace; value = self-registering module
+```
 
 ## 9.3 Versioning
 

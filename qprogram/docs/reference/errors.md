@@ -12,6 +12,7 @@ library (or by a platform that adopts the contract) is a subclass of
 | `except ValidationError`              | Construction-time validation only.                      |
 | `except ParseError`                   | `.qp` parse failures only.                              |
 | `except SerializationError`           | `.qp` write failures only.                              |
+| `except VendorActivationError`        | A discovered vendor extension that failed to activate.  |
 | `except WaveformResolutionError`      | A specific platform-side failure.                       |
 
 For two construction-time exceptions, `except ValueError` keeps working too
@@ -26,12 +27,18 @@ QProgramError
     UnassignedVariableError      (also ValueError)
   ParseError
   SerializationError
+  VendorActivationError
   UnsupportedOperationError
   BusNotAvailableError
   WaveformResolutionError
   CompilationError
   HardwareError
 ```
+
+`VendorActivationError` is raised by `qp.try_activate_vendor(...)` (and surfaces, wrapped in a
+`ParseError`, during `loads()`) when a vendor's `qprogram.vendors` entry point is found but its
+import fails or registers no version — i.e. the extension is installed but broken. A vendor that
+is simply *not installed* is not this error; discovery reports "no matching extension" instead.
 
 `ParseError` lives at `qprogram.ParseError`; the construction-time and
 platform-side classes are exported from `qprogram` directly.

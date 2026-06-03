@@ -9,6 +9,12 @@ dependencies = [
     "qprogram>=0.1.0",
 ]
 
+# Vendor-discovery entry point: lets a `.qp` file's `require qdac <ver>` auto-import this
+# package on `qprogram.loads(...)` even if the user never imported it. The entry-point *name*
+# is the vendor namespace; the *value* is the module that self-registers on import.
+[project.entry-points."qprogram.vendors"]
+qdac = "qprogram_qdac"
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",

@@ -322,7 +322,10 @@ __all__ = [
 Five registration steps happen on import. Capability-token registration is
 a side effect of importing `profiles.py`, which happens at the top of
 `__init__.py`; profile registration is a separate call so the order is
-explicit.
+explicit. The sixth piece — the `qprogram.vendors` entry point in
+[`pyproject.toml`](#step-6-pyprojecttoml) — is what lets `loads()` trigger this
+whole import on demand, so a `.qp` file requiring the vendor loads without an
+explicit `import`.
 
 The vendor name (`"fake_inst"`) must not be one of the [reserved
 keywords](../reference/reserved.md) or the sentinel `"core"`.
@@ -333,6 +336,12 @@ in `pyproject.toml`.
 
 ## Step 6: `pyproject.toml`
 
+The `[project.entry-points."qprogram.vendors"]` table is what makes the extension
+**auto-discoverable**: when a `.qp` file declares `require fake_inst <ver>` and the package is
+installed but not yet imported, `qprogram.loads(...)` imports the module named here on demand (its
+import-time side effects then run the five registration steps above). The entry-point *name* is
+the vendor namespace; the *value* is the module that self-registers.
+
 ```toml
 [project]
 name = "qprogram-fakeinst"
@@ -340,6 +349,9 @@ version = "0.1.0"
 description = "Fake-instrument vendor extension for QProgram"
 requires-python = ">=3.11"
 dependencies = ["qprogram>=0.1.0"]
+
+[project.entry-points."qprogram.vendors"]
+fake_inst = "qprogram_fakeinst"
 
 [dependency-groups]
 dev = [

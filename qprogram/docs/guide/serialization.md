@@ -88,10 +88,19 @@ The parser checks:
 - The same **major** version as the installed extension is required.
 - The installed **minor** must be greater than or equal to the file's minor.
 
-If the check fails or the vendor is not installed at all, the parser raises a
-clear `ParseError` before touching the body. This makes a `.qp` file a
-complete, executable contract: any environment that parses it without error
-recognises every operation it references.
+If the vendor is **installed but not yet imported**, the parser auto-activates
+it: it imports the package registered under the `qprogram.vendors` entry point
+for that name, so you don't have to `import qprogram_myvendor` yourself before
+loading. Only if no installed package provides the vendor (or the versions are
+incompatible, or the extension is installed but broken) does it raise a clear
+`ParseError` before touching the body. This makes a `.qp` file a complete,
+executable contract: any environment in which the required extensions are
+*installed* can load it — imported or not — and recognises every operation it
+references.
+
+Pass `qp.loads(text, auto_activate=False)` (or `qp.load(path, auto_activate=False)`)
+to disable on-demand imports — then an unimported vendor is a hard error and the
+message tells you to import the extension first.
 
 ## Schemas serialise inline
 

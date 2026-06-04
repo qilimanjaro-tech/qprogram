@@ -14,6 +14,7 @@ is self-contained and ends with cross-references.
 | [Fragments](fragments.md)                              | Reusable parameterized sub-programs: `@fragment`, `Fragment`, `call`, `expand`.               |
 | [Measurements and results](measurements.md)            | `measure`, `MeasurementHandle`, `QProgramResult`, name allocation rules.                     |
 | [Capabilities, diagnostics, and profiles](capabilities.md) | What a platform supports, how to ask, what diagnostics look like.                          |
+| [Running programs](execution.md)                       | The reference executor: `qp.run`, `ReferencePlatform`, measurement models, result shapes.     |
 | [Saving and loading](serialization.md)                 | `dumps`, `loads`, `save`, `load`, round-trip guarantees.                                      |
 
 If you are looking for the exact wire format, the `.qp` grammar lives in

@@ -1,0 +1,390 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "QProgram",
+  "scopeName": "source.qp",
+  "comment": "Color contract (Dark+/Dark Modern defaults): keyword.control => purple (all words the format owns: var/for/in/if/and/..., sections, operation & block keywords); variable.* => light blue (every variable reference, declarations, loop vars, params); keyword.other.kwarg => blue (kwarg keys — deliberately distinct from variables); entity.name.namespace / entity.name.type => teal (vendor prefixes, schema elements, channel kinds); entity.name.function => yellow (anything called with parens: fragments, range/where/math); support.class => teal (Capitalized waveform constructors); constant.numeric => green; string => orange; comment => green.",
+  "patterns": [
+    {
+      "include": "#header"
+    },
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#require"
+    },
+    {
+      "include": "#metadata-section"
+    },
+    {
+      "include": "#section-heading"
+    },
+    {
+      "include": "#fragment-definition"
+    },
+    {
+      "include": "#schema-lines"
+    },
+    {
+      "include": "#var-declaration"
+    },
+    {
+      "include": "#for-loop"
+    },
+    {
+      "include": "#conditional"
+    },
+    {
+      "include": "#fragment-call"
+    },
+    {
+      "include": "#operation"
+    },
+    {
+      "include": "#expressions"
+    }
+  ],
+  "repository": {
+    "header": {
+      "match": "\\A(#!QProgram)\\s+([0-9]+\\.[0-9]+)\\s*$",
+      "captures": {
+        "1": {
+          "name": "keyword.control.directive.header.qp"
+        },
+        "2": {
+          "name": "constant.numeric.version.qp"
+        }
+      }
+    },
+    "comment": {
+      "match": "(?<!^)#(?!!).*$|^\\s*#(?!!).*$",
+      "name": "comment.line.number-sign.qp"
+    },
+    "require": {
+      "match": "^(require)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+([0-9]+\\.[0-9]+(?:\\.[0-9]+)?)",
+      "captures": {
+        "1": {
+          "name": "keyword.control.import.require.qp"
+        },
+        "2": {
+          "name": "entity.name.namespace.vendor.qp"
+        },
+        "3": {
+          "name": "constant.numeric.version.qp"
+        }
+      }
+    },
+    "metadata-section": {
+      "begin": "^(metadata)(:)\\s*$",
+      "end": "^(?=\\S)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.section.qp"
+        },
+        "2": {
+          "name": "punctuation.section.qp"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "match": "^\\s+([A-Za-z_][A-Za-z0-9_]*)(:)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.kwarg.metadata.qp"
+            },
+            "2": {
+              "name": "punctuation.separator.qp"
+            }
+          }
+        },
+        {
+          "include": "#string"
+        },
+        {
+          "include": "#number"
+        },
+        {
+          "include": "#boolean-null"
+        }
+      ]
+    },
+    "section-heading": {
+      "match": "^(schema|body)(:)\\s*$",
+      "captures": {
+        "1": {
+          "name": "keyword.control.section.qp"
+        },
+        "2": {
+          "name": "punctuation.section.qp"
+        }
+      }
+    },
+    "fragment-definition": {
+      "match": "^(fragment)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\()([^)]*)(\\))\\s*(:)",
+      "captures": {
+        "1": {
+          "name": "keyword.control.fragment.qp"
+        },
+        "2": {
+          "name": "entity.name.function.fragment.qp"
+        },
+        "3": {
+          "name": "punctuation.definition.parameters.begin.qp"
+        },
+        "4": {
+          "name": "variable.parameter.fragment.qp"
+        },
+        "5": {
+          "name": "punctuation.definition.parameters.end.qp"
+        },
+        "6": {
+          "name": "punctuation.section.qp"
+        }
+      }
+    },
+    "schema-lines": {
+      "patterns": [
+        {
+          "match": "^\\s+(naming)(:)\\s*",
+          "captures": {
+            "1": {
+              "name": "keyword.control.schema.qp"
+            },
+            "2": {
+              "name": "punctuation.separator.qp"
+            }
+          }
+        },
+        {
+          "match": "^\\s+(element)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(:)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.schema.qp"
+            },
+            "2": {
+              "name": "entity.name.type.element.qp"
+            },
+            "3": {
+              "name": "punctuation.section.qp"
+            }
+          }
+        },
+        {
+          "match": "\\b(info)(=)([A-Za-z_][A-Za-z0-9_]*(?:\\+[A-Za-z_][A-Za-z0-9_]*)*)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.kwarg.info.qp"
+            },
+            "2": {
+              "name": "keyword.operator.assignment.qp"
+            },
+            "3": {
+              "name": "entity.name.type.channel.qp"
+            }
+          }
+        }
+      ]
+    },
+    "var-declaration": {
+      "match": "^\\s*(var)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": {
+          "name": "keyword.control.var.qp"
+        },
+        "2": {
+          "name": "variable.other.declaration.qp"
+        }
+      }
+    },
+    "for-loop": {
+      "match": "\\b(for)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+(in)\\b",
+      "captures": {
+        "1": {
+          "name": "keyword.control.loop.qp"
+        },
+        "2": {
+          "name": "variable.other.loop.qp"
+        },
+        "3": {
+          "name": "keyword.control.loop.qp"
+        }
+      }
+    },
+    "conditional": {
+      "match": "^\\s*(if|elif|else)\\b",
+      "captures": {
+        "1": {
+          "name": "keyword.control.conditional.qp"
+        }
+      }
+    },
+    "fragment-call": {
+      "match": "^\\s*([A-Za-z_][A-Za-z0-9_]*)(?=\\()",
+      "captures": {
+        "1": {
+          "name": "entity.name.function.call.qp"
+        }
+      }
+    },
+    "operation": {
+      "patterns": [
+        {
+          "comment": "vendor-dotted operation at statement start: qblox.acquire ... — namespace teal, op keyword purple like core ops",
+          "match": "^\\s*([a-z_][A-Za-z0-9_]*)(\\.)([a-z_][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": {
+              "name": "entity.name.namespace.vendor.qp"
+            },
+            "2": {
+              "name": "punctuation.accessor.qp"
+            },
+            "3": {
+              "name": "keyword.control.operation.qp"
+            }
+          }
+        },
+        {
+          "comment": "core operation or block keyword at statement start (wait, play, average 10:, block:) — the format's verbs are keywords. Words with dedicated rules (for/if/var/...) are excluded: this match starts at column 0 (it includes ^\\s*), so without the exclusion it would win TextMate's leftmost-match rule against the for-loop pattern, which starts at the word.",
+          "match": "^\\s*(?!(?:for|if|elif|else|var|fragment|require|metadata|schema|body|element|naming)\\b)([a-z_][A-Za-z0-9_]*)\\b(?!\\s*[=(])",
+          "captures": {
+            "1": {
+              "name": "keyword.control.operation.qp"
+            }
+          }
+        }
+      ]
+    },
+    "expressions": {
+      "patterns": [
+        {
+          "include": "#string"
+        },
+        {
+          "include": "#bus-path"
+        },
+        {
+          "include": "#measurement-ref"
+        },
+        {
+          "include": "#constructor-call"
+        },
+        {
+          "include": "#function-call"
+        },
+        {
+          "include": "#kwarg"
+        },
+        {
+          "include": "#number"
+        },
+        {
+          "include": "#boolean-null"
+        },
+        {
+          "include": "#word-operators"
+        },
+        {
+          "include": "#operators"
+        },
+        {
+          "include": "#identifier"
+        }
+      ]
+    },
+    "string": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.qp",
+      "patterns": [
+        {
+          "match": "\\\\[\\\\\"nrt]",
+          "name": "constant.character.escape.qp"
+        }
+      ]
+    },
+    "bus-path": {
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(\\[)([0-9]+(?:,[0-9]+)*)(\\])(\\.)([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": {
+          "name": "entity.name.type.element.qp"
+        },
+        "2": {
+          "name": "punctuation.definition.index.begin.qp"
+        },
+        "3": {
+          "name": "constant.numeric.index.qp"
+        },
+        "4": {
+          "name": "punctuation.definition.index.end.qp"
+        },
+        "5": {
+          "name": "punctuation.accessor.qp"
+        },
+        "6": {
+          "name": "variable.other.member.bus.qp"
+        }
+      }
+    },
+    "measurement-ref": {
+      "match": "\\b([A-Za-z_][A-Za-z0-9_/]*)(\\.)(state)\\b",
+      "captures": {
+        "1": {
+          "name": "variable.other.measurement.qp"
+        },
+        "2": {
+          "name": "punctuation.accessor.qp"
+        },
+        "3": {
+          "name": "variable.other.member.field.qp"
+        }
+      }
+    },
+    "constructor-call": {
+      "comment": "Capitalized name immediately before ( — waveform constructors (teal, like types)",
+      "match": "\\b([A-Z][A-Za-z0-9_]*)(?=\\()",
+      "name": "support.class.waveform.qp"
+    },
+    "function-call": {
+      "comment": "lowercase name immediately before ( — range/file/where/math funcs and fragment calls in args (yellow)",
+      "match": "\\b([a-z_][A-Za-z0-9_]*)(?=\\()",
+      "name": "entity.name.function.qp"
+    },
+    "kwarg": {
+      "comment": "kwarg keys render blue (keyword fallback) — deliberately distinct from light-blue variable references",
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(=)(?![=])",
+      "captures": {
+        "1": {
+          "name": "keyword.other.kwarg.qp"
+        },
+        "2": {
+          "name": "keyword.operator.assignment.qp"
+        }
+      }
+    },
+    "number": {
+      "match": "(?<![A-Za-z0-9_.])[+-]?(?:[0-9]+\\.[0-9]*|\\.[0-9]+|[0-9]+)(?:[eE][+-]?[0-9]+)?\\b",
+      "name": "constant.numeric.qp"
+    },
+    "boolean-null": {
+      "match": "\\b(true|false|null)\\b",
+      "name": "constant.language.qp"
+    },
+    "word-operators": {
+      "comment": "and/or/not are reserved words — keyword purple like the rest of the language",
+      "match": "\\b(and|or|not)\\b",
+      "name": "keyword.control.logical.qp"
+    },
+    "operators": {
+      "match": "->|==|!=|<=|>=|<|>|\\+|-|\\*|/|\\|",
+      "name": "keyword.operator.qp"
+    },
+    "identifier": {
+      "comment": "fallback: any remaining bare identifier is a variable / parameter reference (light blue) — keeps wait_duration the same color in `var`, `for ... in`, and argument positions",
+      "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b",
+      "name": "variable.other.qp"
+    }
+  }
+}

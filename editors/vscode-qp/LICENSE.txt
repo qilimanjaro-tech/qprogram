@@ -1,0 +1,4 @@
+Copyright (c) 2026 Qilimanjaro Quantum Tech
+
+Internal tooling for the QProgram project (https://github.com/qilimanjaro-tech/qprogram).
+All rights reserved. Not for redistribution outside Qilimanjaro Quantum Tech.

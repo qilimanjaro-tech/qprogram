@@ -123,3 +123,18 @@ def test_reserved_keyword_is_reserved_vendor(keyword):
 def test_empty_string_not_reserved():
     assert is_reserved_keyword("") is False
     assert is_reserved_vendor("") is False
+
+
+def test_format_keywords_in_use_are_reserved():
+    """Keywords the .qp grammar uses *today* must be rejected as identifiers — a variable named
+    `for` would collide with the loop header grammar, `var var` with declarations, and
+    `and`/`or`/`not` with expression keywords. (Surfaced by the canonical-grammar work.)"""
+    import pytest  # noqa: PLC0415 — appended test; module header imports untouched
+
+    from qprogram import QProgram  # noqa: PLC0415
+    from qprogram.errors import InvalidVariableIdError  # noqa: PLC0415
+
+    p = QProgram()
+    for keyword in ("var", "for", "in", "and", "or", "not"):
+        with pytest.raises(InvalidVariableIdError):
+            p.variable(keyword)

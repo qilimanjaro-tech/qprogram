@@ -16,6 +16,15 @@ from qprogram.errors import (
     VendorActivationError,
     WaveformResolutionError,
 )
+from qprogram.executor import (
+    ExecutionWarning,
+    MeasurementModel,
+    MeasurementSample,
+    MockMeasurementModel,
+    ReferencePlatform,
+    reference_capabilities,
+    run,
+)
 from qprogram.explain import explain
 from qprogram.fragments import Fragment, Parameter, fragment
 from qprogram.operations.call import Call
@@ -104,6 +113,7 @@ __all__ = [
     "Domain",
     "DomainConstraint",
     "ExecutionPlan",
+    "ExecutionWarning",
     "Expression",
     "Fragment",
     "HardwareError",
@@ -112,8 +122,11 @@ __all__ = [
     "LogicalNot",
     "MathFunc",
     "MeasurementHandle",
+    "MeasurementModel",
     "MeasurementRef",
     "MeasurementResult",
+    "MeasurementSample",
+    "MockMeasurementModel",
     "Parameter",
     "ParseError",
     "PlatformCapabilities",
@@ -124,6 +137,7 @@ __all__ = [
     "QProgram",
     "QProgramError",
     "QProgramResult",
+    "ReferencePlatform",
     "SerializationError",
     "SweepKind",
     "UnaryOp",
@@ -153,6 +167,7 @@ __all__ = [
     "node_path",
     "not_",
     "or_",
+    "reference_capabilities",
     "register_capability_tokens",
     "register_profile",
     "register_vendor_operation",
@@ -161,6 +176,7 @@ __all__ = [
     "register_waveform_token",
     "resolve_path",
     "resolve_profile",
+    "run",
     "save",
     "sin",
     "sqrt",

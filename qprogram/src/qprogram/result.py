@@ -7,7 +7,7 @@ per-measurement record. :class:`QProgramResult` is the in-memory container of al
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from qprogram.errors import ValidationError
@@ -88,12 +88,17 @@ class MeasurementResult:
     Attributes:
         bus: The bus the measurement was taken on.
         name: The measurement handle's name, as assigned at program construction.
-        data: The result :class:`xarray.DataArray`.
+        data: The **primary** result :class:`xarray.DataArray` — the ``"iq"`` field when the
+            measurement requested it, else the first requested return token's array.
+        fields: One :class:`xarray.DataArray` per requested return token. Shapes per spec §8:
+            ``iq`` → ``(*sweeps, "IQ")``; ``state`` → ``(*sweeps)`` (excited-state population
+            under averaging); ``raw`` → ``(*sweeps, "time", "IQ")``.
     """
 
     bus: str
     name: str
     data: xr.DataArray
+    fields: dict[str, xr.DataArray] = field(default_factory=dict)
 
 
 class QProgramResult:
@@ -109,15 +114,24 @@ class QProgramResult:
     def __init__(self) -> None:
         self._measurements: list[MeasurementResult] = []
 
-    def append_measurement(self, bus: str, name: str, data: xr.DataArray) -> None:
+    def append_measurement(
+        self,
+        bus: str,
+        name: str,
+        data: xr.DataArray,
+        fields: dict[str, xr.DataArray] | None = None,
+    ) -> None:
         """Append a measurement record.
 
         Args:
             bus: The bus the measurement was taken on.
             name: The measurement handle name as it appears in the AST.
-            data: The result data.
+            data: The primary result data (the ``"iq"`` field when requested).
+            fields: Per-return-token arrays. Defaults to ``{"iq": data}``-style single-field
+                behaviour: when omitted, the record's :attr:`MeasurementResult.fields` is empty
+                and only the primary array is addressable.
         """
-        self._measurements.append(MeasurementResult(bus=bus, name=name, data=data))
+        self._measurements.append(MeasurementResult(bus=bus, name=name, data=data, fields=dict(fields or {})))
 
     @property
     def measurements(self) -> list[MeasurementResult]:
@@ -128,6 +142,7 @@ class QProgramResult:
         self,
         measurement: MeasurementHandle | str | int = 0,
         bus: str | None = None,
+        field: str | None = None,
     ) -> xr.DataArray:
         """Retrieve one measurement's data.
 
@@ -142,36 +157,46 @@ class QProgramResult:
                   on ``bus`` when the filter is given. Prefer handle or name in new code.
 
             bus: Optional bus name filter — narrows the search before the handle/name/position lookup.
+            field: Optional return token (``"iq"``, ``"state"``, ``"raw"``, ...). ``None`` returns
+                the primary array (the ``"iq"`` field when the measurement requested it).
 
         Returns:
             The measurement's :class:`xarray.DataArray`.
 
         Raises:
-            KeyError: ``measurement`` was a handle or name and no match exists in scope.
+            KeyError: ``measurement`` was a handle or name and no match exists in scope, or
+                ``field`` names a return token the measurement did not request.
             IndexError: ``measurement`` was an integer and is out of range.
         """
         candidates = self._measurements if bus is None else [m for m in self._measurements if m.bus == bus]
 
         if isinstance(measurement, MeasurementHandle):
-            return self._lookup_by_name(candidates, measurement.name, bus)
-        if isinstance(measurement, str):
-            return self._lookup_by_name(candidates, measurement, bus)
-        # int — positional sugar.
-        if measurement >= len(candidates):
-            scope = f" for bus '{bus}'" if bus is not None else ""
-            msg = f"Measurement index {measurement} out of range{scope} ({len(candidates)} measurements)"
-            raise IndexError(msg)
-        return candidates[measurement].data
+            record = self._lookup_by_name(candidates, measurement.name, bus)
+        elif isinstance(measurement, str):
+            record = self._lookup_by_name(candidates, measurement, bus)
+        else:  # int — positional sugar.
+            if measurement >= len(candidates):
+                scope = f" for bus '{bus}'" if bus is not None else ""
+                msg = f"Measurement index {measurement} out of range{scope} ({len(candidates)} measurements)"
+                raise IndexError(msg)
+            record = candidates[measurement]
+        if field is None:
+            return record.data
+        if field not in record.fields:
+            available = ", ".join(sorted(record.fields)) or "none"
+            msg = f"Measurement {record.name!r} has no field {field!r}; available: {available}"
+            raise KeyError(msg)
+        return record.fields[field]
 
     @staticmethod
     def _lookup_by_name(
         candidates: list[MeasurementResult],
         name: str,
         bus: str | None,
-    ) -> xr.DataArray:
+    ) -> MeasurementResult:
         for m in candidates:
             if m.name == name:
-                return m.data
+                return m
         scope = f" on bus '{bus}'" if bus is not None else ""
         msg = f"No measurement named {name!r}{scope}"
         raise KeyError(msg)

@@ -1,7 +1,7 @@
 # QProgram DSL Specification (Draft)
 
 > **Source / upstream:** https://www.notion.so/qilimanjaro/QProgram-DSL-Specification-Draft-32f7eec14c53815a8290d85478cdcaec
-> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03 (incl. vendor auto-activation, fragments, and diagnostics UX: §9.5/§9.7 severities, Diagnostic `path`, §9.8). This file and the Notion page are in sync.
+> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03 (incl. vendor auto-activation, fragments, diagnostics UX, reference executor). **Local delta since that push:** §3.x reserved-keywords wording (in-use keywords now reserved) (2026-06-03) — not yet pushed to Notion.
 > **Status:** Draft (specification — the implementation matches this revision)
 
 ---
@@ -406,7 +406,7 @@ freq = program.variable(
 
 - Must match `[A-Za-z_][A-Za-z0-9_]*` — letters, digits, underscores only; cannot start with a digit; no spaces or punctuation.
 - Must be unique within a single `QProgram`. `program.variable("freq")` raises `ValidationError` if `"freq"` is already declared.
-- Must not be one of the **reserved keywords** listed in `qprogram.RESERVED_KEYWORDS` — names that future minor versions are likely to introduce as block keywords, control-flow modifiers, or literals (e.g. `if`, `while`, `repeat`, `where`, `true`, `false`). Pre-emptively reserving them keeps an existing program from breaking the day a new keyword lands.
+- Must not be one of the **reserved keywords** listed in `qprogram.RESERVED_KEYWORDS`. The set covers keywords the format uses **today** (`var`, `for`, `in`, `and`, `or`, `not`, `if`/`elif`/`else`, `fragment`, `true`, `false`, `null`) — an id like `for` would collide with the loop grammar — plus names future minor versions are likely to introduce as block keywords, control-flow modifiers, or literals (e.g. `while`, `repeat`, `match`, `let`). Pre-emptively reserving the latter keeps an existing program from breaking the day a new keyword lands.
 - An invalid id raises `InvalidVariableIdError` (which is both a `ValidationError` and a `ValueError` subclass). `InvalidVariableIdError.reserved` distinguishes "id matched a reserved keyword" from "id failed the identifier pattern".
 
 For anything richer than a short identifier — spaces, units, full sentences — use `label` and `description`. Examples:
@@ -1166,6 +1166,11 @@ with program.for_loop(freq, 4e9, 6e9, 1e6):         # 2001 iterations
         program.measure("readout_q0", readout, weights)
 ```
 Produces a DataArray with:<br>- dims = ("freq", "gain", "IQ")<br>- shape = (2001, 101, 2)<br>- coords = \{freq: \[4e9, 4.000001e9, ...\], gain: \[0.0, 0.01, ...\], IQ: \["I", "Q"\]\}
+Pinned by the reference executor (§8.6):
+- **Loop values.** A `for_loop(v, start, stop, step)` binds `start + step * arange(num_iterations())` — both ends inclusive, consistent with `ForLoop.num_iterations()`. A `loop(v, values)` binds its values array verbatim; both become the dimension's coordinates.
+- **`average(shots)` contributes no dimension.** Values are means over the shots: `iq`/`raw` average elementwise; `state` averages to the **excited-state population** (a float in [0, 1]; 0/1 outside averaging).
+- **No enclosing loop → scalar.** A measurement outside every loop produces dims `("IQ",)` for `iq` and a 0-d array for `state`.
+- **Conditionals → NaN.** A measurement inside a `Conditional` arm holds NaN at sweep points where the arm never executed; under averaging, points are means over the *executed* shots only.
 ## 8.3 Dimension Metadata
 Since `xarray` carries dimension names and coordinates natively, there is no separate `DimensionInfo` class. All metadata is part of the `DataArray`:
 ```python
@@ -1191,6 +1196,18 @@ Results can also be accessed by bus:
 ```python
 result.get(bus="readout_q0", measurement=0)     # first measurement on readout_q0
 ```
+## 8.5 Return tokens and field access
+A measurement may request multiple return tokens (`returns=("iq", "state")`), and their shapes differ. Each `MeasurementResult` therefore carries one `xarray.DataArray` **per requested token** in `fields`, while `data` stays the **primary** array — the `"iq"` field when requested, else the first requested token — so every §8.2/§8.3 example keeps working verbatim. `result.get(measurement, bus=None, field=None)` fetches by token:
+```python
+da     = result.get("m0")                  # primary: the "iq" DataArray, dims (*sweeps, "IQ")
+states = result.get("m0", field="state")   # dims (*sweeps)         — population under average
+raw    = result.get("m0", field="raw")     # dims (*sweeps, "time", "IQ") — time: 0..N-1 samples
+```
+A `field=` naming a token the measurement didn't request raises `KeyError` listing the available fields.
+## 8.6 The reference executor
+Core qprogram ships a **reference software executor** — `ReferencePlatform`, a complete `PlatformProtocol`, plus the one-liner `qp.run(program, model=..., parameters=...)`. It is the executable definition of this section: a pure-Python interpreter that expands fragments, validates (raising `UnsupportedOperationError` on error diagnostics, surfacing warnings via `warnings.warn` with category `ExecutionWarning`, per the §9.7 convention), walks the AST driving loop variables through `Variable.set_value`, evaluates every operation's expressions (unbound variables fail loudly), writes each measurement's classified state onto the shared `MeasurementHandle` (so `handle.state` feedback works by construction), and assembles `QProgramResult` arrays with exactly the shapes above. **Vendor compilers are tested against what it produces.**
+
+Measurement outcomes come from a pluggable `MeasurementModel` (one `sample(bus, env)` per shot, where `env` carries the bound loop variables and platform parameters). The default `MockMeasurementModel(response=..., p_excited=..., noise=..., raw_samples=..., seed=...)` is deterministic given its seed — a simulated Rabi oscillation is `response=lambda bus, env: np.sin(np.pi * env["g"] / 2) ** 2 + 0j`. The reference platform supports every registered capability token (vendor operations execute generically: measurement ops record results, other ops validate their expressions and act as no-ops — no timing or waveform physics is simulated); its platform slot keeps `set_parameter`/`get_parameter`/`set_crosstalk` software-only, so plans, `forced-software` warnings, and `explain()` are meaningful against it. `set_parameter` writes to the platform's parameter store, `get_parameter` reads it, and the store is visible to the measurement model.
 ---
 # 9. Platform Protocol
 The QProgram library defines a `PlatformProtocol` — a common interface that any execution backend must implement. It has three duties:
@@ -1221,7 +1238,7 @@ class PlatformProtocol(ABC):
 Users can query the platform to inspect available resources before writing a program. Parameters are strings — each platform defines its own (replacing the old `Parameter` enum).
 
 ## 9.2 Execution
-The platform compiles and executes a QProgram, returning a `QProgramResult`. Internally it (a) validates the program against its `PlatformCapabilities`, (b) classifies each block/operation as hardware- or software-executed (see §9.7), (c) allocates hardware resources for hw-classified blocks and emits a software dispatch loop for sw-classified blocks, (d) resolves calibrated references, and (e) reports errors via the diagnostic list. Users may call `plan()` to inspect the classifier's output before executing.
+The platform compiles and executes a QProgram, returning a `QProgramResult`. Internally it (a) validates the program against its `PlatformCapabilities`, (b) classifies each block/operation as hardware- or software-executed (see §9.7), (c) allocates hardware resources for hw-classified blocks and emits a software dispatch loop for sw-classified blocks, (d) resolves calibrated references, and (e) reports errors via the diagnostic list. Users may call `plan()` to inspect the classifier's output before executing. Core qprogram ships one complete implementation: the reference software executor `ReferencePlatform` (§8.6).
 
 ## 9.3 Capability descriptors: per-bus and platform-wide
 A platform's capability surface has two grains: **per-bus** and **platform-wide**. The per-bus grain captures the fact that a logical bus is wired to a concrete instrument with its own feature set — drive and readout buses may live on a real-time waveform generator (qblox) while a flux bus may live on a slow DAC (qdac). The platform-wide grain captures features that don't belong to any single bus: control-flow blocks, expression node kinds, and bus-less operations like `set_parameter`.

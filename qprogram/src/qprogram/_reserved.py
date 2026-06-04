@@ -14,6 +14,15 @@ from typing import Final
 
 RESERVED_KEYWORDS: Final[frozenset[str]] = frozenset(
     {
+        # Keywords the format uses TODAY — an id like ``for`` would collide with the loop
+        # grammar (`for for in range(...)`) and a ``var var`` declaration is unreadable.
+        "var",
+        "for",
+        "in",
+        # Expression keywords in use today (`(a and b)`, `(not x)`)
+        "and",
+        "or",
+        "not",
         # Conditional / iteration control flow
         "if",
         "else",

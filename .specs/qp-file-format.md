@@ -1,7 +1,7 @@
 # .qp File Format Specification (Draft)
 
 > **Source / upstream:** https://www.notion.so/qilimanjaro/qp-File-Format-Specification-Draft-3307eec14c5381948e39e397b2062803
-> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03 (incl. vendor auto-activation, fragments, and the §8 source-map note). This file and the Notion page are in sync.
+> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03 (incl. vendor auto-activation, fragments, source maps). **Local delta since that push:** §7 canonical-grammar note, §8 tooling paragraph (2026-06-03) — not yet pushed to Notion.
 > **Status:** Draft (specification — the implementation matches this revision)
 
 ---
@@ -490,6 +490,15 @@ body:
 
 # 7. Grammar Summary
 
+The **canonical machine-readable grammar** ships with the package at
+`qprogram/src/qprogram/grammar/qp.lark` (Lark dialect, LALR + 2-space indenter; load it via
+`qprogram.grammar.grammar_text()` / `parser()`). It is CI-verified against the production parser
+(`tests/test_grammar.py`): every text the writer emits must parse under it, and a corpus of
+syntactic malformations must be rejected by both. The grammar deliberately over-approximates
+*semantic* rules (registry membership, duplicate declarations, section order, bus-path
+resolution) — those remain post-parse checks in the hand-written parser, which stays the
+production implementation. The EBNF below is the human-readable summary of the same language:
+
 ```
 file           := header require* section*
 header         := "#!QProgram" VERSION
@@ -578,6 +587,13 @@ program = qp.loads(text)
 The parser is implemented in pure Python with no external dependencies (no `ruamel.yaml`, no `pyyaml`, no `lark`). It is a simple recursive-descent parser following the grammar in Section 7.
 
 While parsing the `body:` section, the loader records a **source map** on the returned program — `program.source_map` maps each node's structural path (DSL spec §9.8) to the 1-based line that produced it, so a `Diagnostic.path` computed against a structurally-equal program locates the offending `.qp` line. Fragment-internal statements are not mapped.
+
+**Tooling.** The checker module `qprogram.lsp` exposes the toolchain to editors: `python -m
+qprogram.lsp check <file>` emits one-shot JSON diagnostics (the parser's line-tagged errors plus
+reference-platform capability validation mapped through the source map), `... explain <file>`
+renders the execution-plan tree, and `... serve` runs a Language Server Protocol server over
+stdio (requires the `qprogram[lsp]` extra). A no-build VS Code extension (syntax highlighting,
+live diagnostics, plan explainer) lives in-repo at `editors/vscode-qp/`.
 
 ---
 

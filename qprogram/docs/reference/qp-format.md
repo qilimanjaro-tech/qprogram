@@ -438,6 +438,25 @@ dict_literal   := "{" (STRING ":" value ("," STRING ":" value)*)? "}"
 measurement_ref:= HANDLE_NAME "." FIELD
 ```
 
+## Canonical grammar and editor tooling
+
+The machine-readable grammar ships with the package: `qprogram/grammar/qp.lark`
+(Lark dialect; `qprogram.grammar.grammar_text()` / `parser()`). CI cross-checks
+it against the production parser — everything the writer emits parses under it,
+and syntactic malformations are rejected by both — so the grammar file and this
+document cannot silently drift from the implementation.
+
+Editor support builds on the real toolchain rather than the grammar:
+
+- `python -m qprogram.lsp check <file|->` — one-shot JSON diagnostics
+  (line-tagged parse errors + reference-platform validation via source maps).
+- `python -m qprogram.lsp explain <file|->` — the execution-plan tree.
+- `python -m qprogram.lsp serve` — an LSP server over stdio (`qprogram[lsp]`
+  extra) for Neovim/Helix/Emacs.
+- `editors/vscode-qp/` — a no-build VS Code extension: TextMate syntax
+  highlighting, live diagnostics, snippets, and a `qp: Explain execution plan`
+  command.
+
 ## Parser and writer API
 
 ```python

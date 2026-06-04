@@ -1,0 +1,94 @@
+{
+  "name": "qp-language",
+  "displayName": "QProgram (.qp)",
+  "description": "Syntax highlighting, diagnostics, and execution-plan explainer for QProgram .qp files",
+  "version": "0.1.0",
+  "publisher": "qilimanjaro",
+  "license": "SEE LICENSE IN LICENSE.txt",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/qilimanjaro-tech/qprogram.git",
+    "directory": "editors/vscode-qp"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:qp"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "The checker spawns the configured Python interpreter."
+    }
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "qp",
+        "aliases": [
+          "QProgram",
+          "qp"
+        ],
+        "extensions": [
+          ".qp"
+        ],
+        "firstLine": "^#!QProgram\\b.*",
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "qp",
+        "scopeName": "source.qp",
+        "path": "./syntaxes/qp.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "qp",
+        "path": "./snippets/qp.code-snippets"
+      }
+    ],
+    "commands": [
+      {
+        "command": "qp.check",
+        "title": "qp: Check current file"
+      },
+      {
+        "command": "qp.explain",
+        "title": "qp: Explain execution plan"
+      }
+    ],
+    "configuration": {
+      "title": "QProgram",
+      "properties": {
+        "qp.python": {
+          "type": "string",
+          "default": "python3",
+          "description": "Python interpreter of an environment where `qprogram` is installed (the checker runs `python -m qprogram.lsp`)."
+        },
+        "qp.validate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run reference-platform capability validation in addition to parsing (forced-software warnings, missing capabilities, ...)."
+        },
+        "qp.checkOnChange": {
+          "type": "boolean",
+          "default": true,
+          "description": "Re-check while typing (debounced). Checking on open and save is always on."
+        },
+        "qp.debounceMs": {
+          "type": "number",
+          "default": 500,
+          "description": "Debounce for on-change checking, in milliseconds."
+        }
+      }
+    }
+  }
+}

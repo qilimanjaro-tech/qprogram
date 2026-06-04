@@ -1,0 +1,58 @@
+{
+  "QProgram skeleton": {
+    "prefix": "qprogram",
+    "body": [
+      "#!QProgram 1.0",
+      "",
+      "metadata:",
+      "  label: \"${1:experiment}\"",
+      "",
+      "body:",
+      "  var ${2:g}",
+      "",
+      "  average ${3:1000}:",
+      "    for $2 in range(${4:0.0}, ${5:1.0}, ${6:0.01}):",
+      "      ${0}"
+    ],
+    "description": "A new .qp program with metadata, a variable, and an averaged sweep"
+  },
+  "for sweep": {
+    "prefix": "for",
+    "body": [
+      "for ${1:g} in range(${2:0.0}, ${3:1.0}, ${4:0.01}):",
+      "  ${0}"
+    ],
+    "description": "Linear sweep loop"
+  },
+  "parallel sweep": {
+    "prefix": "parallel",
+    "body": [
+      "for ${1:a} in range(${2:0.0}, ${3:1.0}, ${4:0.1}) | for ${5:b} in range(${6:0}, ${7:100}, ${8:10}):",
+      "  ${0}"
+    ],
+    "description": "Two loops advancing in lockstep"
+  },
+  "fragment definition": {
+    "prefix": "fragment",
+    "body": [
+      "fragment ${1:x_pulse}(${2:drive, amp}):",
+      "  ${0:play drive Gaussian(amplitude=amp, duration=40, sigma=8)}"
+    ],
+    "description": "Reusable parameterized sub-program"
+  },
+  "measure": {
+    "prefix": "measure",
+    "body": [
+      "measure ${1:\"readout_q0\"} ${2:\"readout\"} ${3:\"weights\"} name=\"${4:m0}\"${5: returns=\"iq,state\"}"
+    ],
+    "description": "Measurement with explicit name (and optional return tokens)"
+  },
+  "conditional on state": {
+    "prefix": "if",
+    "body": [
+      "if ${1:m0}.state == ${2:1}:",
+      "  ${0}"
+    ],
+    "description": "Branch on a classified measurement outcome"
+  }
+}

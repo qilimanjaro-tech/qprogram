@@ -45,10 +45,12 @@ def test_parse_error_lands_on_its_line():
 
 def test_validation_warning_mapped_via_source_map():
     diagnostics = check_text(_WARNY)
-    assert len(diagnostics) == 1
-    d = diagnostics[0]
+    # The forced-software warning; the average also draws a "reorderable-averaging" info hint
+    # (its measurement is hardware-capable), so filter to the warning we're mapping here.
+    warnings = [d for d in diagnostics if d.code == "forced-software"]
+    assert len(warnings) == 1
+    d = warnings[0]
     assert d.severity == "warning"
-    assert d.code == "forced-software"
     assert _WARNY.splitlines()[d.line].strip() == "average 10:"  # the highest forced block's line
     assert d.lsp_severity == 2
 

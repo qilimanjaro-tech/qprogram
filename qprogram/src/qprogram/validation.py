@@ -16,7 +16,10 @@ The classification rules implemented here match the spec:
   units and don't constrain the parent's domain. If a block contains all-HW op-children the
   block's natural domain is ``{hw, sw}`` (HW ops can run real-time or be dispatched per shot);
   if all-SW the block must be ``{sw}``; mixed op-children at the same level → ``mixed-domain``
-  error (spec (d)).
+  error (spec (d)). An :class:`~qprogram.blocks.Average` is the one exception: it accumulates
+  **measurement results**, so only its averaging-relevant op-children
+  (:attr:`Operation.AFFECTS_AVERAGING`) enter the consensus — the rest still validate and run but
+  don't pull the average into software (see :func:`_domain_relevant_ops`).
 * :class:`~qprogram.DomainConstraint` predicate outputs target **block** nodes (typically the
   binding loop of a swept variable) and subtract from the targeted block's domain. The
   operation's classification is unaffected (spec (e2)).
@@ -24,8 +27,13 @@ The classification rules implemented here match the spec:
   block-children — an SW block-child inside an HW block-parent emits ``sw-in-hw`` error (spec
   (e1)). The reverse (HW block inside SW block) is always allowed.
 * A block whose natural ``{hw, sw}`` is reduced to ``{sw}`` by a constraint surfaces a single
-  ``severity="warning"`` ``"forced-software"`` diagnostic on the highest such block in its chain,
-  carrying the constraint reasons collected from the forced subtree.
+  ``severity="warning"`` ``"forced-software"`` diagnostic on the highest such block in its chain.
+  The reason is attributed to the block's *immediate* cause — its own constraints, or (for a block
+  forced merely by containing a software sub-block) the named sub-block.
+* An :class:`~qprogram.blocks.Average` that is software-only solely because it encloses a software
+  sweep — while its measurements all support hardware — gets a ``severity="info"``
+  ``"reorderable-averaging"`` hint pointing at :func:`qprogram.optimize`, which rewrites it to run
+  the averaging in hardware.
 
 Every node-bearing diagnostic is stamped with a structural :attr:`Diagnostic.path` (see
 :mod:`qprogram.paths`) so tooling can locate it in a serialized ``.qp`` file via
@@ -151,8 +159,9 @@ def validate(
          applied to the op; they are routed to the **block** they target (typically the binding
          loop of a swept variable).
        - For blocks: ``support = own_available & natural_from_ops - exclude_from_constraints``,
-         where ``natural_from_ops = {sw} | (ops_consensus & {hw})`` captures the rule that all-HW
-         op-children permit either an HW block or an SW-dispatched block. Mixed op-children produce a
+         where ``natural_from_ops`` is the op-children consensus directly (an all-HW block is
+         shifted to SW by the (e2) fallback, not by widening the consensus). For an ``Average``
+         only the averaging-relevant op-children enter the consensus. Mixed op-children produce a
          ``mixed-domain`` error. Block-children act as units; they don't constrain the parent's
          domain but the parent's domain constrains them (no SW block inside an HW block).
     3. Whole-program limit checks (loop nesting, parallel arity, measurement count) against the
@@ -206,6 +215,7 @@ def validate(
     diagnostics.extend(_check_limits(qprogram, ctx, caps))
     diagnostics.extend(_check_conditional_classification(qprogram, ctx))
     _emit_forced_software(diagnostics, available, support, parent, constraints_by_block)
+    _emit_averaging_hints(diagnostics, support)
 
     return _stamp_paths(diagnostics, qprogram), support
 
@@ -318,15 +328,28 @@ def _classify_block(  # noqa: PLR0913
     _route_constraints(own_dcs, block, diagnostics, constraints_by_block)
 
     # 4. Op-children consensus → block's natural domain (spec (c) + (d)).
+    # Two distinct subsets of op-children matter here:
+    #  - `has_defective_op` considers EVERY op-child: if any op can run nowhere, the whole block
+    #    can't execute (regardless of which ops gate its domain).
+    #  - the domain *consensus* is taken only over the op-children that gate this block's domain
+    #    (`_domain_relevant_ops`): for an Average that is just its averaging-relevant (measurement)
+    #    op-children — the rest are repeated in the body but don't decide whether the averaging is
+    #    a hardware feature; for every other block it is all op-children.
     # Op-children whose own support is already empty are excluded from the consensus: they were
     # diagnosed at their own node (missing-capability / predicate error), and folding their empty
     # set in would manufacture a misleading extra "mixed-domain" error on the parent. The block
     # still can't execute, so its support goes empty — silently, the child diagnostic explains it.
-    healthy_ops = [op for op in op_children if support[op]]
-    has_defective_op = len(healthy_ops) < len(op_children)
-    if healthy_ops:
+    has_defective_op = any(not support[op] for op in op_children)
+    # `_domain_relevant_ops` relaxes an Average's consensus to its measurement op-children. That
+    # relaxation must never *widen* the domain: an Average that has op-children but NO measurement
+    # has nothing to relax onto, so it falls back to all op-children — a software-only op there
+    # still pulls the average to sw, exactly as for any other block. (A block with no op-children
+    # at all stays unconstrained by content, as before.)
+    relevant_ops = _domain_relevant_ops(block, op_children) or op_children
+    consensus_ops = [op for op in relevant_ops if support[op]]
+    if consensus_ops:
         ops_consensus = _ALL_DOMAINS
-        for op in healthy_ops:
+        for op in consensus_ops:
             ops_consensus &= support[op]
         if not ops_consensus:
             diagnostics.append(
@@ -336,7 +359,7 @@ def _classify_block(  # noqa: PLR0913
                     message=(
                         f"Block '{type(block).__name__}' has op-children with incompatible "
                         f"domain singletons: "
-                        f"{[(type(op).__name__, sorted(support[op])) for op in healthy_ops]}"
+                        f"{[(type(op).__name__, sorted(support[op])) for op in consensus_ops]}"
                     ),
                     node=block,
                 ),
@@ -349,7 +372,7 @@ def _classify_block(  # noqa: PLR0913
         # fallback below.
         natural_from_ops = ops_consensus
     else:
-        # No (healthy) op-children — the block's domain is unconstrained by content.
+        # No (relevant, healthy) op-children — the block's domain is unconstrained by its ops.
         natural_from_ops = _ALL_DOMAINS
     if has_defective_op:
         # At least one op-child can run nowhere: the block as a whole cannot execute. The child's
@@ -471,6 +494,59 @@ def _route_constraints(
                     node=source_node if isinstance(source_node, Operation | Block) else None,
                 ),
             )
+
+
+def _domain_relevant_ops(block: Block, op_children: list[Operation]) -> list[Operation]:
+    """Op-children that gate ``block``'s natural execution domain (spec (c)).
+
+    For most blocks this is *every* op-child — a parameter sweep is real-time only if its whole
+    body is. An :class:`~qprogram.blocks.Average` is special: it repeats its body and accumulates
+    **measurement results**, so only the averaging-relevant op-children
+    (:attr:`Operation.AFFECTS_AVERAGING` — measurements/acquisitions) decide whether the averaging
+    can be a hardware feature. The other ops still validate and execute inside the body; they just
+    don't pull the Average into software.
+    """
+    if isinstance(block, Average):
+        return [op for op in op_children if op.AFFECTS_AVERAGING]
+    return op_children
+
+
+def reorderable_average_split(
+    average: Average,
+    support: Mapping[Operation | Block, frozenset[Domain]],
+) -> tuple[list[Operation], list[Operation]] | None:
+    """If ``average`` matches the reorder-to-hardware pattern, return ``(hoist, keep)``; else ``None``.
+
+    The single supported shape: the Average's **sole** child is one flat sweep loop
+    (``ForLoop``/``Loop``) whose body is a *leading contiguous run* of software-only ops (to hoist
+    out, ahead of the loop) followed by hardware-capable ops including at least one averaging-relevant
+    op (to keep inside a hardware ``average``). The leading-run requirement matters: a software-only
+    op that sits *after* a kept op can't be hoisted without reordering it past that op, which could
+    change results — such an Average is not reorderable.
+
+    Shared by the validator's ``reorderable-averaging`` hint (:func:`_emit_averaging_hints`) and the
+    rewrite (:func:`qprogram.optimize`) so the two never disagree.
+    """
+    children = average.elements
+    if len(children) != 1 or not isinstance(children[0], (ForLoop, Loop)):
+        return None
+    body = children[0].elements
+    if any(isinstance(el, Block) for el in body):
+        return None  # only the flat-body case is handled
+    prefix = 0
+    while prefix < len(body) and support.get(body[prefix]) == _SW_ONLY:
+        prefix += 1
+    hoist = [el for el in body[:prefix] if isinstance(el, Operation)]
+    keep = [el for el in body[prefix:] if isinstance(el, Operation)]
+    if not hoist or not keep:
+        return None
+    # Everything kept must be hardware-capable (this also rejects any software-only op that landed
+    # after the leading run) and the average must still have something to average.
+    if not all("hw" in (support.get(op) or frozenset()) for op in keep):
+        return None
+    if not any(op.AFFECTS_AVERAGING for op in keep):
+        return None
+    return hoist, keep
 
 
 def _immediate_children(block: Block) -> tuple[list[Operation], list[Block]]:
@@ -697,10 +773,12 @@ def _emit_forced_software(
     forced-sw chain is the one whose parent isn't itself forced sw — emitting only there keeps
     the diagnostic output skimmable.
 
-    The message carries the *reasons*: the highest forced block typically lost ``"hw"`` via the
-    implicit sw-block-child propagation, so the human-readable causes are the
-    :class:`DomainConstraint` reasons recorded anywhere in its subtree. When no constraint is on
-    record (a purely propagated force), a generic explanation is used.
+    The message attributes the force to the block's **immediate** cause, not the whole subtree:
+    a block forced by DomainConstraints targeting *it* reports those reasons; a block
+    forced by *containing* a software-only sub-block (the implicit sw-block-child propagation)
+    reports that structurally — naming the sub-block(s) and, for context, the sub-block's own
+    constraint reasons. This keeps each level's diagnostic about *that* level (e.g. an ``average``
+    says "contains a software loop", while the loop itself says why it is software).
     """
     for node, sup in support.items():
         if not isinstance(node, Block):
@@ -712,16 +790,33 @@ def _emit_forced_software(
         p = parent.get(node)
         if p is not None and support.get(p) == _SW_ONLY and "hw" in available.get(p, frozenset()):
             continue
-        reasons: list[str] = []
-        for sub in node.walk():
-            for dc in constraints_by_block.get(id(sub), ()):
-                if dc.reason and dc.reason not in reasons:
-                    reasons.append(dc.reason)
-        detail = (
-            "; ".join(reasons)
-            if reasons
-            else "a contained operation or software-only sub-block requires software dispatch"
-        )
+        # Reason attribution: this block's own constraints take precedence; otherwise it was forced
+        # by a software-only sub-block (structural propagation), which we name.
+        own_reasons = [dc.reason for dc in constraints_by_block.get(id(node), ()) if dc.reason]
+        sw_child_blocks = [
+            child
+            for child in support
+            if isinstance(child, Block) and parent.get(child) is node and support.get(child) == _SW_ONLY
+        ]
+        if own_reasons:
+            detail = "; ".join(dict.fromkeys(own_reasons))
+        elif sw_child_blocks:
+            names = ", ".join(f"'{type(c).__name__}'" for c in sw_child_blocks)
+            # Gather the real causes from the forced sub-tree, not just one level down — the
+            # constraint may sit deeper (e.g. average → block → for_loop), with unconstrained
+            # blocks in between.
+            nested = [
+                dc.reason
+                for c in sw_child_blocks
+                for sub in c.walk()
+                for dc in constraints_by_block.get(id(sub), ())
+                if dc.reason
+            ]
+            detail = f"contains software-only sub-block {names}"
+            if nested:
+                detail += " (" + "; ".join(dict.fromkeys(nested)) + ")"
+        else:
+            detail = "a contained operation requires software dispatch"
         diagnostics.append(
             Diagnostic(
                 severity="warning",
@@ -729,6 +824,40 @@ def _emit_forced_software(
                 message=f"Block '{type(node).__name__}' falls back to software execution: {detail}.",
                 node=node,
                 domain="sw",
+            ),
+        )
+
+
+def _emit_averaging_hints(
+    diagnostics: list[Diagnostic],
+    support: Mapping[Operation | Block, frozenset[Domain]],
+) -> None:
+    """Emit one ``severity="info"`` ``"reorderable-averaging"`` hint per optimisable Average.
+
+    Fires only for Averages that :func:`qprogram.optimize` could *actually* rewrite —
+    the precondition is the shared :func:`reorderable_average_split` predicate, so the hint never
+    advertises a no-op. Such an Average is software-only only because it encloses a software sweep
+    whose hardware-capable measurement sequence could run in a real-time inner ``average`` if the
+    sweep were lifted out (and the software-only setup hoisted alongside). The validator can't prove
+    that reorder preserves the author's intent (interleaved vs grouped shots differ on a drifting
+    device), so it only *suggests* the change.
+    """
+    for node in support:
+        if not isinstance(node, Average):
+            continue
+        if reorderable_average_split(node, support) is None:
+            continue
+        diagnostics.append(
+            Diagnostic(
+                severity="info",
+                code="reorderable-averaging",
+                message=(
+                    f"Block '{type(node).__name__}' runs in software only because it encloses a "
+                    f"software sweep; its measurement sequence supports hardware. Moving the sweep "
+                    f"outside the average (hoisting the software-only setup with it) would let the "
+                    f"averaging run in hardware — see qprogram.optimize()."
+                ),
+                node=node,
             ),
         )
 

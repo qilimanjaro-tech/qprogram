@@ -1,7 +1,7 @@
 # QProgram DSL Specification (Draft)
 
 > **Source / upstream:** https://www.notion.so/qilimanjaro/QProgram-DSL-Specification-Draft-32f7eec14c53815a8290d85478cdcaec
-> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03 (incl. vendor auto-activation, fragments, diagnostics UX, reference executor). **Local delta since that push:** §3.x reserved-keywords wording (in-use keywords now reserved) (2026-06-03) — not yet pushed to Notion.
+> **Reconciled:** 2026-06-02 with the reference implementation; pushed to the Notion page 2026-06-03 (incl. vendor auto-activation, fragments, diagnostics UX, reference executor). **Local delta since that push (not yet pushed to Notion):** §3.x reserved-keywords wording (in-use keywords now reserved) (2026-06-03); §9.7 averaging-domain rule — `average` blocks classify from their averaging-relevant (`AFFECTS_AVERAGING`) op-children only, the `forced-software` reason is attributed to the immediate cause, and a `reorderable-averaging` info hint + the free function `optimize(program, capabilities)` (in `optimization.py`) were added (2026-06-16).
 > **Status:** Draft (specification — the implementation matches this revision)
 
 ---
@@ -1466,6 +1466,15 @@ consensus**; block-children act as units rather than entering the consensus:
   op-children make it SW. A block with no op-children is unconstrained by content. Op-children
   whose own support is already empty (they were diagnosed in pass 1) are excluded from the
   consensus — the block's support goes empty without an extra diagnostic.
+  - **Average exception.** An `average(shots)` block repeats its body and accumulates
+    **measurement results**, so whether the *averaging itself* is a real-time hardware feature is
+    decided only by its **averaging-relevant** op-children — those whose op class sets
+    `AFFECTS_AVERAGING = True` (measurements/acquisitions; the default is `False`). The other
+    op-children are still validated and still execute inside the body, but they don't enter the
+    Average's consensus, so a software-only setup op next to a hardware-capable measurement does
+    not by itself pull the average into software. (Defectiveness in step (c) still considers
+    *every* op-child: if any op can run nowhere, the whole block can't either.) Vendors mark their
+    own averaging-relevant ops via the same class attribute.
 - **(d) Mixed domain.** Healthy op-children with disjoint singleton supports (one `{hw}`-only,
   one `{sw}`-only at the same level) cannot share a block: one `severity="error"`
   `"mixed-domain"` diagnostic on the block.
@@ -1483,10 +1492,20 @@ Then:
   diagnostics), emit one `severity="error"` `"empty-domain"` diagnostic listing the contributing
   constraint reasons.
 - If a block's support was reduced from a set containing `"hw"` to `{sw}`, emit one
-  `severity="warning"` `"forced-software"` diagnostic attached to the **highest** such block,
-  with the `DomainConstraint` reasons collected from the forced subtree joined into the message.
-  Ancestors that are software-only purely because of this block are not separately reported —
-  the highest-block rule keeps the output skimmable.
+  `severity="warning"` `"forced-software"` diagnostic attached to the **highest** such block.
+  The reason is attributed to the block's *immediate* cause: a block forced by `DomainConstraint`s
+  targeting it reports those reasons; a block forced merely by *containing* a software-only
+  sub-block reports that structurally — naming the sub-block (and, for context, the sub-block's own
+  constraint reasons). Ancestors that are software-only purely because of this block are not
+  separately reported — the highest-block rule keeps the output skimmable.
+- If an `average` ended up software-only **solely because it encloses a software sweep** — while
+  every measurement it would repeat supports hardware — emit one `severity="info"`
+  `"reorderable-averaging"` hint on it. Moving the sweep outside the average (and hoisting the
+  software-only setup with it) would let the averaging run in hardware; the validator only
+  *suggests* this (the reorder groups all shots of a sweep point together rather than interleaving
+  passes, which differs on a drifting device). The free function `optimize(program, capabilities)`
+  (a capability-aware rewrite, the analogue of `validate`) applies it on request, returning a copy
+  with the matching `average { sweep { … } }` pattern turned into `sweep { setup; average { … } }`.
 - Whole-program limit checks (max nesting, max parallel arity, max measurements, min wait
   duration) fire against the relevant slot's limits.
 - Finally, every node-bearing diagnostic is stamped with its structural `path` (§9.8).

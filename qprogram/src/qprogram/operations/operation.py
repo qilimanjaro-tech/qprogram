@@ -47,6 +47,17 @@ class Operation:
     touches *every* bus in the program (e.g. ``Sync(targets=None)``). The validator then routes
     it across all program buses instead of the default-bus profile."""
 
+    AFFECTS_AVERAGING: ClassVar[bool] = False
+    """Whether this op participates in what an :class:`~qprogram.blocks.Average` block averages.
+
+    An ``average`` block repeats its body and accumulates **measurement results**; only the ops
+    that produce those results determine whether the averaging itself can run as a real-time
+    hardware feature. Ops with ``AFFECTS_AVERAGING = False`` are still validated and still execute
+    inside the body — they just don't gate the *Average block's* execution domain (see
+    :func:`qprogram.validation.validate`). Defaults to ``False``; :class:`MeasurementOperation`
+    sets it ``True``, so core ``measure`` and vendor ``acquire`` opt in automatically. A vendor
+    adding another averaging-relevant op sets it on its own class."""
+
     def variables(self) -> set[Variable]:
         """Return every :class:`Variable` referenced by this op, transitively.
 
@@ -131,6 +142,10 @@ class MeasurementOperation(Operation):
 
     handle: MeasurementHandle
     returns: tuple[str, ...]
+
+    AFFECTS_AVERAGING: ClassVar[bool] = True
+    """Measurements are exactly what an ``average`` block accumulates — see
+    :attr:`Operation.AFFECTS_AVERAGING`."""
 
     @property
     def name(self) -> str:

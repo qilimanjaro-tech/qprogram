@@ -21,6 +21,7 @@ from qprogram import QProgram
 from qprogram.buses import BusSchema
 from qprogram.operations.play import Play
 from qprogram.operations.wait import Wait
+from qprogram.optimization import optimize
 from qprogram.protocol import (
     BusCapabilities,
     CompilerCapabilities,
@@ -797,3 +798,232 @@ def test_average_counts_as_one_loop_level() -> None:
         p.play("drive_q0", Square(0.5, 100))
     ctx = _build_context(p)
     assert ctx.max_loop_nesting == 2
+
+
+# ---------------------------------------------------------------------------
+# Average concerns only its measurement op-children (AFFECTS_AVERAGING)
+# ---------------------------------------------------------------------------
+
+
+def _heterogeneous_caps() -> PlatformCapabilities:
+    """MyPlatform-shaped caps: drive/readout hardware+software, flux software-only."""
+    register_capability_tokens()
+    drive = _slot("drive", _BUS_TOKENS)
+    readout = _slot("readout", _BUS_TOKENS)
+    flux = _slot("flux", _BUS_TOKENS, hw=False)  # slow DAC: no hardware engine
+    platform = _slot("platform", _PLATFORM_TOKENS)
+    return PlatformCapabilities(
+        bus={("q", "drive"): drive, ("q", "readout"): readout, ("q", "flux"): flux},
+        platform=platform,
+        default_bus_profile=drive,
+    )
+
+
+def _node(p: QProgram, type_name: str):
+    return next(n for n in p.body.walk() if type(n).__name__ == type_name)
+
+
+def test_affects_averaging_marker_defaults() -> None:
+    """Measurements opt in to averaging-relevance; ordinary ops don't."""
+    from qprogram.operations.measure import Measure  # noqa: PLC0415
+    from qprogram.operations.play import Play  # noqa: PLC0415
+    from qprogram.operations.set_offset import SetOffset  # noqa: PLC0415
+
+    assert Measure.AFFECTS_AVERAGING is True
+    assert Play.AFFECTS_AVERAGING is False
+    assert SetOffset.AFFECTS_AVERAGING is False
+
+
+def test_average_domain_ignores_non_measurement_op_children() -> None:
+    """A software-only, non-measurement op directly in an average does not pull it to software —
+    only the measurement (averaging-relevant) op-children gate the average's domain."""
+    caps = _heterogeneous_caps()
+    schema = BusSchema.flux_tunable_transmon()
+    q0 = schema.q[0]
+    p = QProgram(schema=schema)
+    with p.average(100):
+        p.set_offset(q0.flux, 0.1)  # software-only (flux has no hw), NOT a measurement
+        p.measure(q0.readout, "wf", "w")  # hardware-capable measurement
+    diagnostics, plan = validate(p, caps)
+    assert [d for d in diagnostics if d.severity == "error"] == []
+    assert plan[_node(p, "Average")] == frozenset({"hw", "sw"})  # gated by the measurement only
+    assert plan[_node(p, "SetOffset")] == frozenset({"sw"})  # the op itself is still software
+
+
+def test_average_enclosing_software_sweep_forced_with_structural_reason_and_hint() -> None:
+    """Example 1: average outside the sweep. The average is forced software because it *contains*
+    a software loop (structural reason), and draws a reorderable-averaging hint."""
+    caps = _heterogeneous_caps()
+    schema = BusSchema.flux_tunable_transmon()
+    q0 = schema.q[0]
+    p = QProgram(schema=schema)
+    bias = p.variable("bias")
+    with p.average(100), p.for_loop(bias, -0.5, 0.5, 0.1):
+        p.set_offset(q0.flux, bias)  # software-only
+        p.measure(q0.readout, "wf", "w")
+    diagnostics, plan = validate(p, caps)
+    avg, floop = _node(p, "Average"), _node(p, "ForLoop")
+    assert plan[avg] == frozenset({"sw"})
+    assert plan[floop] == frozenset({"sw"})
+
+    forced = [d for d in diagnostics if d.code == "forced-software"]
+    assert len(forced) == 1
+    assert forced[0].node is avg
+    assert "contains software-only sub-block 'ForLoop'" in forced[0].message
+
+    hints = [d for d in diagnostics if d.code == "reorderable-averaging"]
+    assert len(hints) == 1
+    assert hints[0].node is avg
+    assert hints[0].severity == "info"
+
+
+def test_average_inside_software_sweep_runs_in_hardware() -> None:
+    """Example 2: sweep outside, average inside. The average holds only the measurement sequence,
+    so it runs in hardware; no forced-software warning and no reorder hint."""
+    caps = _heterogeneous_caps()
+    schema = BusSchema.flux_tunable_transmon()
+    q0 = schema.q[0]
+    p = QProgram(schema=schema)
+    bias = p.variable("bias")
+    with p.for_loop(bias, -0.5, 0.5, 0.1):
+        p.set_offset(q0.flux, bias)
+        with p.average(100):
+            p.measure(q0.readout, "wf", "w")
+    diagnostics, plan = validate(p, caps)
+    assert plan[_node(p, "Average")] == frozenset({"hw", "sw"})
+    assert [d for d in diagnostics if d.code in ("forced-software", "reorderable-averaging")] == []
+
+
+def test_optimize_averaging_rewrites_to_hardware() -> None:
+    """``optimize`` turns example 1 into example 2: sweep outer, hardware average inner."""
+    caps = _heterogeneous_caps()
+    schema = BusSchema.flux_tunable_transmon()
+    q0 = schema.q[0]
+    p = QProgram(schema=schema)
+    bias = p.variable("bias")
+    with p.average(100), p.for_loop(bias, -0.5, 0.5, 0.1):
+        p.set_offset(q0.flux, bias)
+        p.measure(q0.readout, "wf", "w")
+
+    optimized = optimize(p, caps)
+
+    # The sweep is now the outer block; the average is nested inside and runs in hardware.
+    assert type(optimized.body.elements[0]).__name__ == "ForLoop"
+    diagnostics, plan = validate(optimized, caps)
+    assert plan[_node(optimized, "Average")] == frozenset({"hw", "sw"})
+    assert [d for d in diagnostics if d.code in ("forced-software", "reorderable-averaging")] == []
+    # The original program is untouched.
+    assert type(p.body.elements[0]).__name__ == "Average"
+
+
+def test_optimize_averaging_is_noop_when_nothing_is_software() -> None:
+    """An all-hardware average has no software-only setup to hoist — the program is unchanged."""
+    caps = _full_caps()
+    p = QProgram()
+    amp = p.variable("amp")
+    with p.average(100), p.for_loop(amp, 0, 1, 0.1):
+        p.play("drive_q0", IQDrag(amplitude=amp, duration=40, sigma=8, beta=0.1))
+        p.measure("readout_q0", "wf", "w")
+    assert optimize(p, caps).body == p.body
+
+
+def test_average_without_measurement_keeps_software_only_op_in_software() -> None:
+    """An Average with a software-only op and NO measurement must stay {sw}: the measurement-only
+    relaxation must never *widen* a measurement-less average to hardware."""
+    caps = _heterogeneous_caps()
+    schema = BusSchema.flux_tunable_transmon()
+    q0 = schema.q[0]
+    p = QProgram(schema=schema)
+    with p.average(50):
+        p.set_offset(q0.flux, 0.1)  # software-only (flux has no hw), not a measurement
+    diagnostics, plan = validate(p, caps)
+    assert plan[_node(p, "Average")] == frozenset({"sw"})
+    assert plan[_node(p, "SetOffset")] == frozenset({"sw"})
+    assert [d for d in diagnostics if d.severity == "error"] == []
+
+
+def test_average_consensus_spans_multiple_measurement_children() -> None:
+    """Two hardware-capable measurements keep the Average {hw,sw} — the consensus intersects over
+    every averaging-relevant op-child, not just the first."""
+    caps = _heterogeneous_caps()
+    schema = BusSchema.flux_tunable_transmon()
+    q0 = schema.q[0]
+    p = QProgram(schema=schema)
+    with p.average(100):
+        p.measure(q0.readout, "wf", "w", name="m0")
+        p.measure(q0.readout, "wf", "w", name="m1")
+    _, plan = validate(p, caps)
+    assert plan[_node(p, "Average")] == frozenset({"hw", "sw"})
+
+
+def test_forced_software_reason_surfaces_cause_through_intervening_block() -> None:
+    """An unconstrained block between the forced Average and the constrained loop must not swallow
+    the real reason — the Average names the sub-block AND carries the deep constraint reason."""
+    caps = _full_caps(bus_predicates=(_drag_sigma_excludes_hw,))
+    p = QProgram()
+    sigma = p.variable("sigma")
+    with p.average(100), p.block(), p.for_loop(sigma, 1, 10, 1):
+        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, sigma=sigma, beta=0.1))
+    forced = [d for d in _diagnostics(p, caps) if d.code == "forced-software"]
+    assert len(forced) == 1
+    assert type(forced[0].node).__name__ == "Average"
+    assert "contains software-only sub-block 'Block'" in forced[0].message
+    assert "IQDrag.sigma sweep is not real-time" in forced[0].message  # deep cause preserved
+
+
+def test_reorderable_hint_not_emitted_for_block_wrapped_sweep() -> None:
+    """The hint fires only for the shape ``optimize`` can rewrite. A forced-sw Average whose sweep
+    is wrapped in a plain block is not reorderable — no hint, and optimize is a no-op."""
+    caps = _heterogeneous_caps()
+    schema = BusSchema.flux_tunable_transmon()
+    q0 = schema.q[0]
+    p = QProgram(schema=schema)
+    bias = p.variable("bias")
+    with p.average(100), p.block(), p.for_loop(bias, -0.5, 0.5, 0.1):
+        p.set_offset(q0.flux, bias)
+        p.measure(q0.readout, "wf", "w", name="m")
+    diagnostics, plan = validate(p, caps)
+    assert plan[_node(p, "Average")] == frozenset({"sw"})  # still forced sw
+    assert [d for d in diagnostics if d.code == "reorderable-averaging"] == []
+    assert optimize(p, caps).body == p.body  # shape doesn't match -> no rewrite
+
+
+def test_reorderable_hint_suppressed_when_measurement_is_software_only() -> None:
+    """If the averaged measurement itself can't run in hardware, the reorder wouldn't help: no hint."""
+    register_capability_tokens()
+    drive = _slot("drive", _BUS_TOKENS)
+    readout = _slot("readout", _BUS_TOKENS, hw=False)  # measurement is software-only here
+    flux = _slot("flux", _BUS_TOKENS, hw=False)
+    caps = PlatformCapabilities(
+        bus={("q", "drive"): drive, ("q", "readout"): readout, ("q", "flux"): flux},
+        platform=_slot("platform", _PLATFORM_TOKENS),
+        default_bus_profile=drive,
+    )
+    schema = BusSchema.flux_tunable_transmon()
+    q0 = schema.q[0]
+    p = QProgram(schema=schema)
+    bias = p.variable("bias")
+    with p.average(100), p.for_loop(bias, -0.5, 0.5, 0.1):
+        p.set_offset(q0.flux, bias)
+        p.measure(q0.readout, "wf", "w", name="m")
+    diagnostics, plan = validate(p, caps)
+    assert plan[_node(p, "Measure")] == frozenset({"sw"})
+    assert [d for d in diagnostics if d.code == "reorderable-averaging"] == []
+
+
+def test_optimize_averaging_rewrites_arbitrary_sweep_loop() -> None:
+    """The rewrite handles an arbitrary-sweep ``Loop``, not just a linear ``ForLoop``."""
+    caps = _heterogeneous_caps()
+    schema = BusSchema.flux_tunable_transmon()
+    q0 = schema.q[0]
+    p = QProgram(schema=schema)
+    bias = p.variable("bias")
+    with p.average(100), p.loop(bias, np.array([-0.5, 0.0, 0.5])):
+        p.set_offset(q0.flux, bias)
+        p.measure(q0.readout, "wf", "w", name="m")
+    optimized = optimize(p, caps)
+    outer = optimized.body.elements[0]
+    assert type(outer).__name__ == "Loop"
+    assert np.array_equal(outer.values, [-0.5, 0.0, 0.5])  # sweep values preserved
+    _, plan = validate(optimized, caps)
+    assert plan[_node(optimized, "Average")] == frozenset({"hw", "sw"})

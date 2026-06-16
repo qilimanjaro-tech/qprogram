@@ -34,10 +34,13 @@ def test_forced_software_reason_inline():
     with p.average(100), p.for_loop(sigma, 1, 10, 1):
         p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, sigma=sigma, beta=0.1))
     out = explain(p, caps)
-    # The warning lands on the highest forced block (Average) with the constraint's reason.
+    # The warning lands on the highest forced block (Average). It is forced by *containing* the
+    # software-only ForLoop, so its reason is structural — naming the sub-block — and carries the
+    # sub-block's own constraint reason for context.
     average_line = next(line for line in out.splitlines() if line.lstrip("└─├│ ").startswith("average 100:"))
     assert "[sw]" in average_line
-    assert "~ forced-sw: IQDrag.sigma sweep is not real-time" in average_line
+    assert "~ forced-sw: contains software-only sub-block 'ForLoop'" in average_line
+    assert "IQDrag.sigma sweep is not real-time" in average_line
     assert "warnings: 1" in out.splitlines()[0]
 
 

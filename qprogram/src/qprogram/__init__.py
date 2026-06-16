@@ -28,6 +28,7 @@ from qprogram.executor import (
 from qprogram.explain import explain
 from qprogram.fragments import Fragment, Parameter, fragment
 from qprogram.operations.call import Call
+from qprogram.optimization import optimize
 from qprogram.paths import AstPath, format_path, node_path, resolve_path
 from qprogram.platform import PlatformProtocol
 from qprogram.profiles import QPROGRAM_BASE_V1
@@ -166,6 +167,7 @@ __all__ = [
     "ne",
     "node_path",
     "not_",
+    "optimize",
     "or_",
     "reference_capabilities",
     "register_capability_tokens",

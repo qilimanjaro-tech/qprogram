@@ -37,6 +37,10 @@ drives:
 * A `for_loop` that sweeps a **drive amplitude** stays real-time hardware — `[hw|sw]`.
 * A `for_loop` that sweeps a **flux bias** is forced to software dispatch — `[sw]`, with a
   `forced-software` warning explaining why.
+* An `average` *enclosing* that flux sweep is software too — but only because of the nesting.
+  Since averaging only accumulates **measurements** (the `AFFECTS_AVERAGING` op flag), the
+  classifier flags it as **reorderable**, and `qp.optimize(program, caps)` rewrites the loops so
+  the averaging runs in hardware.
 * A **qblox** op on the flux bus (or a **qdac** op on the drive bus) is a hard error —
   the buses speak different vendor dialects.
 * Per-bus **limits and predicates** differ too: a sub-16 ns `Wait` is rejected on readout

@@ -7,7 +7,7 @@ import pickle
 
 import pytest
 
-from qprogram import BusNaming, BusRef, BusSchema
+from qprogram import BusNaming, BusRef, BusSchema, QProgram, dumps, loads
 from qprogram.buses import (
     CouplerFactory,
     ElementSchema,
@@ -307,3 +307,113 @@ def test_preset_with_custom_naming():
     schema = BusSchema.transmon(naming=BusNaming("{kind}_{element}{index}_bus"))
     assert str(schema.q[0].drive) == "drive_q0_bus"
     assert str(schema.q[0].readout) == "readout_q0_bus"
+
+
+# ---------------------------------------------------------------------------
+# Schema composition (combine / +)
+# ---------------------------------------------------------------------------
+
+
+def _switch_schema(naming: BusNaming | None = None) -> BusSchema:
+    """A small dynamic schema with one ``switch`` element — used as a combine() operand."""
+    schema = BusSchema(naming=naming)
+    schema.add_element("switch", {"rf": ("single", False)})
+    return schema
+
+
+def test_combine_instance_plus_instance():
+    combined = BusSchema.flux_tunable_transmon() + _switch_schema()
+    assert isinstance(combined, BusSchema)
+    assert set(combined.elements) == {"q", "switch"}
+    assert str(combined.q[0].drive) == "q0/drive"
+    assert str(combined.switch[0].rf) == "switch0/rf"
+
+
+def test_combine_busref_backpointer_is_the_combined_schema():
+    combined = BusSchema.flux_tunable_transmon() + _switch_schema()
+    assert combined.q[0].flux.schema is combined
+    assert combined.switch[0].rf.schema is combined
+
+
+def test_combine_class_plus_class_via_metaclass():
+    # A schema subclass whose __init__ cooperates via super() composes by class addition too.
+    class SwitchSchema(BusSchema):
+        def __init__(self, naming: BusNaming | None = None) -> None:
+            super().__init__(naming=naming)
+            self.add_element("switch", {"rf": ("single", False)})
+
+    combined = FluxTunableTransmonSchema + SwitchSchema  # class + class
+    assert isinstance(combined, BusSchema)
+    assert set(combined.elements) == {"q", "switch"}
+
+
+def test_combine_class_plus_instance():
+    combined = FluxTunableTransmonSchema + _switch_schema()
+    assert set(combined.elements) == {"q", "switch"}
+
+
+def test_combine_chaining():
+    coupler = BusSchema()
+    coupler.add_element("c", {"flux": ("single", False)})
+    combined = BusSchema.flux_tunable_transmon() + _switch_schema() + coupler
+    assert set(combined.elements) == {"q", "switch", "c"}
+
+
+def test_combine_static_method_multiple():
+    coupler = BusSchema()
+    coupler.add_element("c", {"flux": ("single", False)})
+    combined = BusSchema.combine(BusSchema.flux_tunable_transmon(), _switch_schema(), coupler)
+    assert set(combined.elements) == {"q", "switch", "c"}
+
+
+def test_combine_requires_at_least_one():
+    with pytest.raises(ValueError, match="at least one schema"):
+        BusSchema.combine()
+
+
+def test_combine_duplicate_element_different_buses_raises():
+    with pytest.raises(ValueError, match="defined differently"):
+        _ = BusSchema.transmon() + BusSchema.flux_tunable_transmon()  # both define 'q' differently
+
+
+def test_combine_duplicate_identical_element_is_idempotent():
+    combined = BusSchema.transmon() + BusSchema.transmon()
+    assert set(combined.elements) == {"q"}
+    assert combined.elements["q"].buses == {"drive": ("IQ", False), "readout": ("IQ", True)}
+
+
+def test_combine_conflicting_naming_raises():
+    a = BusSchema.flux_tunable_transmon()
+    b = _switch_schema(naming=BusNaming("{kind}_{element}{index}"))
+    with pytest.raises(ValueError, match="different naming patterns"):
+        _ = a + b
+
+
+def test_combine_explicit_naming_resolves_conflict():
+    a = BusSchema.flux_tunable_transmon()
+    b = _switch_schema(naming=BusNaming("{kind}_{element}{index}"))
+    combined = BusSchema.combine(a, b, naming=BusNaming())
+    assert str(combined.switch[0].rf) == "switch0/rf"
+    assert str(combined.q[0].drive) == "q0/drive"
+
+
+def test_combine_custom_shared_naming_preserved():
+    naming = BusNaming("{kind}_{element}{index}")
+    combined = BusSchema.transmon(naming=naming) + _switch_schema(naming=naming)
+    assert str(combined.q[0].drive) == "drive_q0"
+    assert str(combined.switch[0].rf) == "rf_switch0"
+
+
+def test_combine_bad_operand_returns_notimplemented():
+    with pytest.raises(TypeError):
+        _ = BusSchema.flux_tunable_transmon() + 5
+
+
+def test_combined_schema_program_round_trips():
+    combined = BusSchema.flux_tunable_transmon() + _switch_schema()
+    prog = QProgram(label="rt", schema=combined)
+    prog.set_offset(combined.q[0].flux, 0.1)
+    prog.wait(combined.switch[0].rf, 16)
+    reloaded = loads(dumps(prog))
+    assert reloaded.body == prog.body
+    assert set(reloaded.schema.elements) == {"q", "switch"}

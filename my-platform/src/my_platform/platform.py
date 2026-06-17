@@ -1,7 +1,7 @@
 """The (imaginary) MyPlatform QPU — a worked example of per-bus capabilities.
 
-MyPlatform is a small flux-tunable-transmon device assembled from two *real* vendor
-back-ends that this monorepo already ships:
+MyPlatform is a small flux-tunable-transmon device — plus an RF-switch matrix — assembled from
+two *real* vendor back-ends this monorepo already ships, and MyPlatform's own vendor ops:
 
 ============  ==========================  ===================  =======================
 bus kind      back-end                    domains (hw / sw)    capability profile
@@ -9,13 +9,17 @@ bus kind      back-end                    domains (hw / sw)    capability profil
 ``drive``     qblox real-time generator   hw + sw              ``qblox-default-v1``
 ``readout``   qblox real-time generator   hw + sw              ``myplatform-readout-v1``
 ``flux``      qdac slow DAC (no FPGA)      sw only              ``myplatform-flux-v1``
+``rf``        MyPlatform RF switch        hw + sw              ``myplatform-rfswitch-v1``
 ============  ==========================  ===================  =======================
 
 The interesting member is :pyattr:`MyPlatform.capabilities`. It maps each
 ``(element, bus_kind)`` selector to a *different* ``BusCapabilities``, so the validator
 and planner treat the same control-flow construct differently depending on which bus it
-touches: a drive/readout sweep stays real-time hardware, while a flux sweep is forced to
+touches: a drive/readout/switch sweep stays real-time hardware, while a flux sweep is forced to
 software dispatch (the qdac back-end has no FPGA).
+
+MyPlatform also publishes two vendor ops of its own: ``set_crosstalk`` on the flux buses and
+``set_rf_switch`` on the switch buses (see :mod:`my_platform.operations`).
 
 Implementing :class:`~qprogram.platform.PlatformProtocol` requires six members
 (``get_bus_schema``, ``get_buses``, ``get_parameters``, ``get_global_parameters``, the
@@ -35,6 +39,8 @@ from qprogram.platform import PlatformProtocol
 from qprogram.protocol import BusCapabilities, CompilerCapabilities, PlatformCapabilities
 from qprogram.validation import validate
 
+from my_platform.schema import RFSwitchSchema
+
 if TYPE_CHECKING:
     from qprogram.executor import MeasurementModel
     from qprogram.qprogram import QProgram
@@ -46,6 +52,7 @@ class MyPlatform(PlatformProtocol):
 
     Args:
         n_qubits: Number of qubits the device exposes (drive/readout/flux per qubit).
+        n_switches: Number of RF switches the device exposes (one ``rf`` control line each).
         model: Optional measurement model handed to the reference simulator that backs
             :meth:`execute`. Defaults to the seed-deterministic mock model.
         parameters: Optional platform parameter values (e.g. local-oscillator frequencies)
@@ -55,26 +62,33 @@ class MyPlatform(PlatformProtocol):
     def __init__(
         self,
         n_qubits: int = 2,
+        n_switches: int = 2,
         model: MeasurementModel | None = None,
         parameters: dict[str, float] | None = None,
     ) -> None:
-        self._schema = BusSchema.flux_tunable_transmon()
+        # Build the device topology by *composing* schemas: the core flux-tunable-transmon preset
+        # (q.drive / q.readout / q.flux) unioned with this package's RF-switch schema (switch.rf),
+        # via the BusSchema ``+`` operator. No dedicated combined class needed.
+        self._schema = BusSchema.flux_tunable_transmon() + RFSwitchSchema()
         self._n_qubits = n_qubits
+        self._n_switches = n_switches
         self._model = model
         self.parameters = dict(parameters or {})
 
     # ------------------------------------------------------------------ topology
 
     def get_bus_schema(self) -> BusSchema:
-        """The chip topology: a flux-tunable transmon (drive + readout + flux per qubit)."""
+        """The chip topology: a flux-tunable transmon (drive + readout + flux per qubit) combined
+        with an RF-switch matrix (one ``rf`` control line per switch)."""
         return self._schema
 
     def get_buses(self) -> list[str]:
-        """Every addressable bus name, e.g. ``['q0/drive', 'q0/readout', 'q0/flux', ...]``."""
+        """Every addressable bus name, e.g. ``['q0/drive', 'q0/readout', 'q0/flux', ..., 'switch0/rf']``."""
         buses: list[str] = []
         for i in range(self._n_qubits):
             qubit = self._schema.q[i]
             buses += [str(qubit.drive), str(qubit.readout), str(qubit.flux)]
+        buses += [str(self._schema.switch[i].rf) for i in range(self._n_switches)]
         return buses
 
     def get_parameters(self, bus: str) -> list[str]:
@@ -85,6 +99,8 @@ class MyPlatform(PlatformProtocol):
             return ["lo_frequency", "integration_length", "threshold"]
         if bus.endswith("flux"):
             return ["offset", "dwell"]
+        if bus.endswith("rf"):
+            return ["active_channel", "insertion_loss_db"]
         return []
 
     def get_global_parameters(self) -> list[str]:
@@ -113,10 +129,16 @@ class MyPlatform(PlatformProtocol):
 
         # Flux: a slow qdac DAC. It inherits the qdac vendor ops + single-channel
         # waveforms via an ad-hoc profile, plus a platform-authored predicate enforcing a
-        # minimum dwell. Critically it has NO hardware engine (``hw=None``) — there is no
-        # FPGA — so every flux op, and any loop that sweeps a flux value, is dispatched
-        # from software.
+        # minimum dwell, and MyPlatform's own ``set_crosstalk`` op. Critically it has NO
+        # hardware engine (``hw=None``) — there is no FPGA — so every flux op, and any loop
+        # that sweeps a flux value, is dispatched from software.
         flux = CompilerCapabilities.from_profile("myplatform-flux-v1")
+
+        # RF switch: a fast microwave routing matrix MyPlatform owns. It carries MyPlatform's
+        # ``set_rf_switch`` op plus the core timing ops (sync/wait), and IS real-time capable, so it
+        # fills BOTH domains — a swept-channel loop on a switch bus can stay real-time hardware and
+        # be aligned with the pulse program.
+        rf_switch = CompilerCapabilities.from_profile("myplatform-rfswitch-v1")
 
         # Platform slot: core blocks / sweeps / expressions / bus-less ops. This is where
         # `for_loop`, `average`, `if_`, expression nodes and `set_parameter` are checked,
@@ -128,6 +150,7 @@ class MyPlatform(PlatformProtocol):
                 ("q", "drive"): BusCapabilities(hw=drive, sw=drive),
                 ("q", "readout"): BusCapabilities(hw=readout, sw=readout),
                 ("q", "flux"): BusCapabilities(hw=None, sw=flux),
+                ("switch", "rf"): BusCapabilities(hw=rf_switch, sw=rf_switch),
             },
             platform=BusCapabilities(hw=base, sw=base),
             # Schema-less / raw-string buses fall here. Treat unknown buses as generic

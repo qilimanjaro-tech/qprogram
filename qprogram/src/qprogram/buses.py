@@ -311,7 +311,42 @@ class CouplerFactory(_TypedElementFactory):
 # ---------------------------------------------------------------------------
 
 
-class BusSchema:
+def _coerce_to_schema_instance(value: object) -> BusSchema | None:
+    """Return ``value`` as a :class:`BusSchema` instance, or ``None`` if it isn't one.
+
+    Accepts a :class:`BusSchema` instance (returned as-is) or a :class:`BusSchema` *subclass*
+    (instantiated with default naming). Anything else returns ``None`` so the ``+`` operators can
+    yield ``NotImplemented`` and let Python raise the usual ``TypeError``. Used by both the
+    instance-level :meth:`BusSchema.__add__` and the class-level :meth:`_BusSchemaMeta.__add__` so
+    ``A + B`` behaves the same whether ``A`` / ``B`` are schema classes or instances.
+    """
+    if isinstance(value, BusSchema):
+        return value
+    if isinstance(value, type) and issubclass(value, BusSchema):
+        return value()
+    return None
+
+
+class _BusSchemaMeta(type):
+    """Metaclass that lets two schema *classes* be combined with ``+``.
+
+    Defining ``+`` between classes (``FluxTunableTransmonSchema + RFSwitchSchema``) requires the
+    operator to live on the metaclass — ``__add__`` on the class body only governs instances. This
+    mirrors :meth:`BusSchema.__add__` so the class form and the instance form
+    (``FluxTunableTransmonSchema() + RFSwitchSchema()``) produce the *same* result: a new combined
+    :class:`BusSchema` instance. The metaclass adds nothing else, so construction, ``isinstance`` and
+    ``issubclass`` are unaffected.
+    """
+
+    def __add__(cls, other: object) -> BusSchema:
+        left = _coerce_to_schema_instance(cls)
+        right = _coerce_to_schema_instance(other)
+        if left is None or right is None:
+            return NotImplemented  # type: ignore[return-value]
+        return BusSchema.combine(left, right)
+
+
+class BusSchema(metaclass=_BusSchemaMeta):
     """Declares the bus types for each element kind on a chip.
 
     Three construction modes:
@@ -323,13 +358,20 @@ class BusSchema:
     3. **Custom typed** — subclass :class:`BusSchema` to expose your own typed accessors; see the user
        guide for the template.
 
+    Schemas **compose**: ``schema_a + schema_b`` (or :meth:`combine` for three or more, or for naming
+    control) returns a new schema with the union of both element families. Either operand may be a
+    schema instance or a schema class, e.g. ``FluxTunableTransmonSchema + RFSwitchSchema``. The result
+    is a plain (dynamic) :class:`BusSchema` — runtime access like ``combined.q[0].drive`` works, but it
+    carries no static typing (the same trade-off as :meth:`add_element`). Build refs from the
+    *combined* schema, not the originals, so their :attr:`BusRef.schema` back-pointer matches the
+    schema you attach to a program.
+
     Each :class:`~qprogram.QProgram` holds at most one schema, passed at construction. The ``.qp``
     writer reads ``program.schema`` to format bus references; there is no per-bus back-pointer.
 
     Attributes:
         KIND: Class-level identifier set by built-in presets (``"transmon"``, ``"fluxonium"``, ...).
-            Used by the ``.qp`` writer when emitting the schema header. User subclasses should set
-            their own.
+            Informational; user subclasses may set their own. A combined schema keeps the base ``""``.
     """
 
     KIND: ClassVar[str] = ""
@@ -377,6 +419,74 @@ class BusSchema:
             buses = ", ".join(f"{b}: {info}" for b, info in schema.buses.items())
             parts.append(f"{name}({buses})")
         return f"BusSchema({', '.join(parts)})"
+
+    # ------------------------------------------------------------------
+    # Composition
+    # ------------------------------------------------------------------
+
+    def __add__(self, other: object) -> BusSchema:
+        """Combine this schema with another via ``schema_a + schema_b``.
+
+        ``other`` may be a :class:`BusSchema` instance or subclass. Returns a new combined schema
+        (see :meth:`combine`); returns ``NotImplemented`` for unrelated operands so Python raises the
+        usual ``TypeError``.
+        """
+        right = _coerce_to_schema_instance(other)
+        if right is None:
+            return NotImplemented  # type: ignore[return-value]
+        return BusSchema.combine(self, right)
+
+    @staticmethod
+    def combine(*schemas: BusSchema, naming: BusNaming | None = None) -> BusSchema:
+        """Merge two or more schemas into a new dynamic :class:`BusSchema`.
+
+        The result holds the **union** of every input schema's elements. It is a plain
+        :class:`BusSchema` (not a typed subclass), so ``combined.q[0].drive`` resolves at runtime but
+        without static typing — the same trade-off as building a schema with :meth:`add_element`.
+        The ``+`` operator (:meth:`__add__`, and the class-level form via the metaclass) delegates
+        here; use ``combine`` directly when joining three or more schemas in one call or when you need
+        to pick the naming convention explicitly.
+
+        Args:
+            *schemas: The schemas to merge (at least one). Each must be a :class:`BusSchema` instance.
+            naming: Naming convention for the combined schema. When omitted, every input schema must
+                share the same naming pattern (a combined schema can carry only one) — they usually
+                do, since the default is universal. Pass an explicit ``naming`` to resolve a clash.
+
+        Returns:
+            A new :class:`BusSchema` whose ``elements`` are the union of the inputs'.
+
+        Raises:
+            ValueError: If no schemas are given, if the inputs disagree on naming and none is given,
+                or if two inputs define the *same* element name with *different* buses (an ambiguous
+                merge — rename one element). Re-declaring an identical element is allowed (idempotent).
+        """
+        if not schemas:
+            msg = "BusSchema.combine() requires at least one schema"
+            raise ValueError(msg)
+        if naming is None:
+            patterns = {s.naming.pattern for s in schemas}
+            if len(patterns) > 1:
+                msg = (
+                    f"cannot combine schemas with different naming patterns {sorted(patterns)}; "
+                    f"pass naming=BusNaming(...) to BusSchema.combine() to choose one explicitly"
+                )
+                raise ValueError(msg)
+            naming = BusNaming(next(iter(patterns)))
+        combined = BusSchema(naming=naming)
+        for schema in schemas:
+            for name, element in schema.elements.items():
+                existing = combined.elements.get(name)
+                if existing is not None:
+                    if existing.buses != element.buses:
+                        msg = (
+                            f"cannot combine schemas: element {name!r} is defined differently "
+                            f"({existing.buses} vs {element.buses}); rename one element before combining"
+                        )
+                        raise ValueError(msg)
+                    continue  # identical element already merged — idempotent
+                combined.add_element(name, dict(element.buses))
+        return combined
 
     # ------------------------------------------------------------------
     # Presets — return fully typed subclasses

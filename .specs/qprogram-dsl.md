@@ -105,6 +105,14 @@ schema.add_element("q", buses={
 })
 schema.add_element("resonator", buses={"probe": ("IQ", True)})
 ```
+### Combining schemas
+Schemas compose. `schema_a + schema_b` returns a new schema holding the **union** of both schemas' elements — useful when a device mixes element families that ship as separate schemas (e.g. a flux-tunable transmon plus a separately-defined RF-switch matrix). Either operand may be a schema **instance** or a schema **class**, so all of these are equivalent and return a ready-to-use combined schema instance:
+```python
+combined = FluxTunableTransmonSchema() + RFSwitchSchema()   # instance + instance
+combined = FluxTunableTransmonSchema  + RFSwitchSchema       # class + class
+combined = BusSchema.flux_tunable_transmon() + RFSwitchSchema()
+```
+`+` chains (`a + b + c`), and `BusSchema.combine(a, b, c, naming=...)` is the explicit form for joining three or more schemas at once or for choosing the naming convention. The result is a **dynamic** `BusSchema` (mode 2): runtime access like `combined.q[0].drive` / `combined.switch[0].rf` works, but there is no static typing for the combined accessors — the same trade-off as `add_element`. Build bus references from the *combined* schema (not the originals) so each `BusRef.schema` back-pointer matches the schema you attach to a program. Combining is rejected when two schemas define the same element name with different buses (rename one) or carry different naming patterns (pass an explicit `naming=` to `combine`). For a combination you reuse often and want statically typed, define a custom typed subclass instead (see "Defining custom typed schemas" below) — multiple inheritance composes the accessors: `class MyChip(FluxTunableTransmonSchema, RFSwitchSchema): pass`.
 ### Usage
 Access bus names through the schema with `element[index].<kind>` syntax (where `<kind>` is one of the bus kind names declared by the schema, e.g. `drive`, `readout`, `flux`):
 ```python

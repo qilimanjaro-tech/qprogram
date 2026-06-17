@@ -1,7 +1,7 @@
 [project]
 name = "my-platform"
 version = "0.1.0"
-description = "An imaginary QProgram platform wiring qblox drive/readout and qdac flux per-bus"
+description = "An imaginary QProgram platform (qblox drive/readout, qdac flux) and vendor extension (RF switch + crosstalk)"
 authors = [{name = "Qilimanjaro Quantum Tech", email = "info@qilimanjaro.tech"}]
 readme = "README.md"
 requires-python = ">=3.11"
@@ -11,10 +11,16 @@ dependencies = [
     "qprogram-qdac>=0.1.0",
 ]
 
-# NOTE: unlike the qblox/qdac vendor packages, this package is a *platform*, not a
-# vendor. It adds no `program.<name>` namespace and no .qp `require <name>` token, so
-# it deliberately declares NO `[project.entry-points."qprogram.vendors"]` table. It
-# only consumes the capability machinery the core and vendor packages expose.
+# NOTE: this package wears two hats. It is a *platform* (MyPlatform declares per-bus
+# capabilities and validates/explains/executes against them) AND a *vendor* extension:
+# it ships the `myplatform` namespace (`program.myplatform.*`), a couple of vendor
+# operations, a new RF-switch bus schema, and its own capability profiles. Because it is
+# now also a vendor, it declares the `qprogram.vendors` entry point below so a `.qp` file
+# carrying `require myplatform <x.y>` auto-activates this package on load (run `uv sync`
+# after editing this table so the entry point lands in the installed metadata).
+
+[project.entry-points."qprogram.vendors"]
+myplatform = "my_platform"
 
 [dependency-groups]
 dev = [

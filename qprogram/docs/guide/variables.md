@@ -203,7 +203,7 @@ hash(v1) == hash(v2)      # True
 ```
 
 That structural-by-id rule is what makes a full program survive `deepcopy`,
-`qp.loads(qp.dumps(...))`, and `with_bus_mapping` while still comparing equal
+`qp.loads(qp.dumps(...))`, and `rebind` while still comparing equal
 to the original. Within a single program, `QProgram.variable` enforces id
 uniqueness, so identity and id-equality coincide in practice.
 

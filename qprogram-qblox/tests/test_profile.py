@@ -114,7 +114,6 @@ def test_qprogram_base_profile_carries_platform_side_tokens() -> None:
         "expr.measurement_ref",
         "op.set_parameter",
         "op.get_parameter",
-        "op.set_crosstalk",
     ):
         assert token in caps.capabilities, token
     # measure.returns.* belongs on the bus profile.

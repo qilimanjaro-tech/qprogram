@@ -15,12 +15,10 @@ from qprogram.blocks.block import Block
 from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
-from qprogram.crosstalk_matrix import CrosstalkMatrix
 from qprogram.operations.get_parameter import GetParameter
 from qprogram.operations.measure import Measure
 from qprogram.operations.play import Play
 from qprogram.operations.reset_phase import ResetPhase
-from qprogram.operations.set_crosstalk import SetCrosstalk
 from qprogram.operations.set_frequency import SetFrequency
 from qprogram.operations.set_gain import SetGain
 from qprogram.operations.set_offset import SetOffset
@@ -161,11 +159,6 @@ def test_get_parameter_token() -> None:
     assert GetParameter(variable=v, alias="dev", parameter="y").required_capabilities() == {
         "op.get_parameter",
     }
-
-
-def test_set_crosstalk_token() -> None:
-    caps = SetCrosstalk(crosstalk=CrosstalkMatrix()).required_capabilities()
-    assert caps == {"op.set_crosstalk"}
 
 
 # ---------------------------------------------------------------------------

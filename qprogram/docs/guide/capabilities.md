@@ -94,7 +94,7 @@ touches:
 | Bus-touching op with a raw-string bus                       | `caps.default_bus_profile`                               |
 | Bus-touching op with no bus (e.g. `Sync(targets=None)`)     | `caps.default_bus_profile`                               |
 | Multi-bus op (e.g. `Sync(targets=[a, b])`)                 | Each bus's slot — intersected across them                |
-| Bus-less op (`SetParameter`, `GetParameter`, `SetCrosstalk`) | `caps.platform`                                          |
+| Bus-less op (`SetParameter`, `GetParameter`)               | `caps.platform`                                          |
 | Any block (`for_loop`, `loop`, `average`, `parallel`, `conditional`, plain `block`) | `caps.platform`                                          |
 
 Within the routed slot, the node's required tokens split: tokens in the `expr.*` namespace check
@@ -155,7 +155,7 @@ regardless of routing:
 | Prefix                 | Examples                                                            | Lives on        |
 |------------------------|---------------------------------------------------------------------|-----------------|
 | `op.<name>` (bus)      | `op.play`, `op.measure`, `op.set_frequency`, `op.wait`, `op.sync`   | bus             |
-| `op.<name>` (bus-less) | `op.set_parameter`, `op.get_parameter`, `op.set_crosstalk`          | platform        |
+| `op.<name>` (bus-less) | `op.set_parameter`, `op.get_parameter`                              | platform        |
 | `block.<name>`         | `block.for_loop`, `block.loop`, `block.average`, `block.parallel`, `block.conditional` | platform |
 | `sweep.<shape>`        | `sweep.linear` (from `for_loop`), `sweep.arbitrary` (from `loop`)   | platform        |
 | `waveform.<kind>`      | `waveform.single`, `waveform.iq`, `waveform.alias`                  | bus             |
@@ -373,7 +373,7 @@ MYVENDOR_DEFAULT_V1.limits
 
 Core qprogram ships `qprogram-base-v1` containing every non-bus capability the DSL declares:
 block-structure tokens, expression tokens, sweep-shape tokens, and bus-less ops
-(`set_parameter` / `get_parameter` / `set_crosstalk`). Vendor platforms typically set their
+(`set_parameter` / `get_parameter`). Vendor platforms typically set their
 platform-level slot via `CompilerCapabilities.from_profile("qprogram-base-v1", limit_overrides=...)`
 and only declare what's different.
 

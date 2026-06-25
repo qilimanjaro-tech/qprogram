@@ -531,7 +531,7 @@ class _Writer:
             return f"[{', '.join(self.serialize_value(v) for v in elements)}]"
         if isinstance(val, (list, tuple)):
             return f"[{', '.join(self.serialize_value(v) for v in val)}]"
-        # String-keyed dicts → ``{"k": v, ...}`` (used by set_crosstalk).
+        # String-keyed dicts → ``{"k": v, ...}`` (the generic brace-literal form for dict kwargs).
         if isinstance(val, dict):
             if not all(isinstance(k, str) for k in val):
                 msg = "Cannot serialize a dict with non-string keys"

@@ -35,9 +35,17 @@ class MeasurementHandle:
 
     Raises:
         ValidationError: If ``name`` is not a non-empty string.
+
+    Note:
+        ``_auto_named`` records whether :meth:`QProgram.measure` allocated the name (``True``) or the
+        user supplied it (``False``). It distinguishes a bus-derived auto-name (``q0/readout/m0``) that
+        :meth:`QProgram.rebind` must re-derive when the bus changes from a deliberate user label that
+        must be preserved — the two are byte-identical once serialized, so the flag is the only sound
+        signal. It is in-memory state (like the platform parameter store): it is not serialized, so it
+        defaults to ``False`` on a handle reconstructed from ``.qp`` (rebind before dumping).
     """
 
-    __slots__ = ("_values", "name")
+    __slots__ = ("_auto_named", "_values", "name")
 
     def __init__(self, name: str) -> None:
         if not isinstance(name, str) or not name:
@@ -45,6 +53,7 @@ class MeasurementHandle:
             raise ValidationError(msg)
         self.name = name
         self._values: dict[str, int | float] = {}
+        self._auto_named: bool = False
 
     @property
     def state(self) -> _HandleFieldAccess:

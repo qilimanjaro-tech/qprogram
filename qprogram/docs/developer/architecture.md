@@ -23,7 +23,6 @@ qprogram/
 │   ├── profiles.py             # QPROGRAM_BASE_V1 (core platform-level profile)
 │   ├── validation.py           # the two-pass validator + classifier
 │   ├── result.py               # MeasurementHandle, QProgramResult
-│   ├── crosstalk_matrix.py
 │   ├── operations/
 │   ├── blocks/
 │   ├── waveforms/
@@ -52,8 +51,10 @@ on it falls into one of three categories.
 - **Context managers** (`for_loop`, `loop`, `average`, `block`) push a new
   `Block` onto a stack on `__enter__` and pop it on `__exit__`. Inside the
   `with`, the new block is the active one.
-- **Transformers** (`with_bus_mapping`, `with_waveforms`) deep-copy the
-  program and rewrite the AST in-place.
+- **Transformers** (`rebind`, `with_waveforms`) deep-copy the
+  program and rewrite the AST in-place — `rebind` re-resolves bus references
+  structurally through the schema; `with_waveforms` resolves string waveform
+  names per bus against a `WaveformLibrary`.
 
 The active block is `self._block_stack[-1]`. Operations append into it; block
 context managers push and pop.
@@ -196,7 +197,7 @@ lines.
 
 - Operations dispatch via the registry. The default serializer reflects on
   `__init__` to emit positional args followed by `key=value` kwargs;
-  special-cased ops (`sync`, `get_parameter`, `set_crosstalk`, ...) supply
+  special-cased ops (`sync`, `get_parameter`, ...) supply
   their own callbacks in `_specs.py`.
 - Variable identifiers are allocated up-front in `_allocate_var_idents`,
   sanitised against the reserved keyword set, and de-duplicated. Since

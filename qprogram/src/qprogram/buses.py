@@ -656,3 +656,40 @@ class FluxoniumCoupledSchema(FluxoniumSchema):
     @property
     def c(self) -> CouplerFactory:
         return CouplerFactory("c", self._naming, self)
+
+
+# ---------------------------------------------------------------------------
+# Structural re-resolution — shared by the parser and QProgram.rebind
+# ---------------------------------------------------------------------------
+
+
+def resolve_ref(schema: BusSchema, element: str, index: int | tuple[int, ...], kind: str) -> BusRef:
+    """Re-resolve an ``(element, index, kind)`` coordinate into a typed :class:`BusRef`.
+
+    The single source of truth for turning a structural bus coordinate into a :class:`BusRef` under
+    ``schema``'s naming. Used both when loading ``element[i].kind`` paths
+    (:meth:`~qprogram.serialization.parser._Parser._resolve_bus_path`) and when porting a program to
+    new indices or a new schema (:meth:`~qprogram.QProgram.rebind`).
+
+    Raises:
+        AttributeError: If ``element`` is not an element of ``schema`` or ``kind`` is not one of that
+            element's bus kinds.
+        KeyError: From the factory subscription on a malformed index.
+    """
+    factory = getattr(schema, element)
+    accessor = factory[index]
+    return getattr(accessor, kind)
+
+
+def naming_substituted_schema(schema: BusSchema, naming: BusNaming) -> BusSchema:
+    """Return a dynamic copy of ``schema`` with every element re-declared under ``naming``.
+
+    Used by :meth:`~qprogram.QProgram.rebind` for naming-only ports: the structural element/bus content
+    is preserved but :class:`BusRef` strings (and the serialized ``schema:`` block) adopt the new
+    pattern. The result is a plain (untyped) :class:`BusSchema` — the same trade-off as
+    :meth:`BusSchema.combine`.
+    """
+    new_schema = BusSchema(naming=naming)
+    for name, element in schema.elements.items():
+        new_schema.add_element(name, dict(element.buses))
+    return new_schema

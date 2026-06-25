@@ -49,7 +49,6 @@ _BASE_TOKENS: frozenset[str] = frozenset(
         "op.set_offset",
         "op.set_parameter",
         "op.get_parameter",
-        "op.set_crosstalk",
         # block.* — control-flow presence
         "block.block",
         "block.average",

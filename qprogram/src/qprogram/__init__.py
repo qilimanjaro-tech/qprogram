@@ -2,7 +2,6 @@
 
 from qprogram._reserved import RESERVED_KEYWORDS
 from qprogram.buses import BusNaming, BusRef, BusSchema
-from qprogram.crosstalk_matrix import CrosstalkMatrix
 from qprogram.errors import (
     BusNotAvailableError,
     CompilationError,
@@ -91,6 +90,7 @@ from qprogram.variable import (
     where,
 )
 from qprogram.vendor import VendorNamespace
+from qprogram.waveform_library import WaveformLibrary
 
 __all__ = [
     "QPROGRAM_BASE_V1",
@@ -109,7 +109,6 @@ __all__ = [
     "CompilationError",
     "CompilerCapabilities",
     "Constant",
-    "CrosstalkMatrix",
     "Diagnostic",
     "Domain",
     "DomainConstraint",
@@ -149,6 +148,7 @@ __all__ = [
     "Variable",
     "VendorActivationError",
     "VendorNamespace",
+    "WaveformLibrary",
     "WaveformResolutionError",
     "Where",
     "and_",

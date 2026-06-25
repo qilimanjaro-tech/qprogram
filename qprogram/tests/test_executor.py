@@ -7,6 +7,7 @@ import pytest
 
 import qprogram as qp
 from qprogram import (
+    BusSchema,
     ExecutionWarning,
     Fragment,
     MockMeasurementModel,
@@ -404,3 +405,22 @@ def test_loaded_program_executes_identically():
     b = run(reloaded, model=model()).get("m0")
     assert np.array_equal(a.values, b.values)
     assert a.dims == b.dims
+
+
+# ---------------------------------------------------------------------------
+# Platform waveform-library resolution
+# ---------------------------------------------------------------------------
+
+
+def _alias_program(schema: BusSchema) -> QProgram:
+    q = schema.q
+    p = QProgram(schema=schema)
+    p.play(q[0].drive, "pi")
+    p.measure(q[0].readout, "ro", "w")
+    return p
+
+
+def test_alias_only_program_runs_without_a_library():
+    schema = BusSchema.transmon()
+    # No library: aliases are left as-is and the reference model no-ops them.
+    run(_alias_program(schema), schema=schema)

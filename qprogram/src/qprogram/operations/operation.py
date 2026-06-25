@@ -31,12 +31,11 @@ class Operation:
 
     - :attr:`BUS_ATTRS` lists which ``__init__`` parameter names hold bus references. The default
       ``("bus",)`` matches every core op except :class:`~qprogram.operations.Sync` (which holds a list
-      under ``targets``) and :class:`~qprogram.operations.SetParameter` / ``GetParameter`` /
-      ``SetCrosstalk`` (no bus).
+      under ``targets``) and :class:`~qprogram.operations.SetParameter` / ``GetParameter`` (no bus).
     - :attr:`WAVEFORM_ATTRS` lists which ``__init__`` parameters carry waveform values. Default empty.
 
     Equality and hashing are structural; once an instance has been used as a ``set`` / ``dict`` key, do
-    not mutate its attributes. Callers like :meth:`QProgram.with_bus_mapping` that rewrite operations do
+    not mutate its attributes. Callers like :meth:`QProgram.rebind` that rewrite operations do
     so on a fresh ``deepcopy``.
     """
 

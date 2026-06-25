@@ -19,7 +19,7 @@ from qprogram.blocks.conditional import Conditional
 from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
-from qprogram.buses import BusNaming, BusRef, BusSchema
+from qprogram.buses import BusNaming, BusRef, BusSchema, resolve_ref
 from qprogram.errors import QProgramError, ValidationError, VendorActivationError
 from qprogram.fragments import Fragment, bind_arguments
 from qprogram.operations.call import Call
@@ -481,9 +481,7 @@ class _Parser:
         element, idx_str, kind = m.groups()
         index: int | tuple = tuple(int(p) for p in idx_str.split(",")) if "," in idx_str else int(idx_str)
         try:
-            factory = getattr(schema, element)
-            accessor = factory[index]
-            ref = getattr(accessor, kind)
+            ref = resolve_ref(schema, element, index, kind)
         except (AttributeError, KeyError) as e:
             msg = f"bus path {token!r} does not resolve against the program schema: {e}"
             raise ParseError(msg, self._pos + 1) from e
@@ -1015,7 +1013,8 @@ class _Parser:
         """Parse a ``{"key": value, ...}`` token into a dict.
 
         Keys must be quoted strings; values go through :meth:`parse_value` recursively, so nested
-        dicts, numbers, ``null``, and quoted strings all work. Used by ``set_crosstalk`` sections.
+        dicts, numbers, ``null``, and quoted strings all work. The generic brace-literal form for
+        dict-valued operation kwargs.
 
         Raises:
             ParseError: On malformed entries or unquoted keys.

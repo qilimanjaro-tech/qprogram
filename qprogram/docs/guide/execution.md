@@ -73,7 +73,7 @@ warnings surface as `ExecutionWarning` via `warnings.warn` (a swept
 through. Its capabilities cover **every registered token** — vendor operations
 execute generically (measurement ops record results; other ops validate their
 expressions and are otherwise no-ops; there is no timing simulation) — while
-`set_parameter`/`get_parameter`/`set_crosstalk` stay software-only, so
+`set_parameter`/`get_parameter` stay software-only, so
 `platform.explain(p)` shows meaningful hw/sw plans.
 
 State feedback works by construction: each measurement writes its classified

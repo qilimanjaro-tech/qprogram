@@ -199,9 +199,8 @@ factor is what is inside it.
 
 - **Likely hardware**: only pulse-level operations (`play`, `set_frequency`,
   `set_phase`, `set_gain`, `wait`, `sync`, `measure`).
-- **Always software**: any of `set_parameter`, `get_parameter`,
-  `set_crosstalk`. These talk to slow-control plumbing that the compiler
-  cannot lift into a sequencer loop.
+- **Always software**: any of `set_parameter`, `get_parameter`. These talk to
+  slow-control plumbing that the compiler cannot lift into a sequencer loop.
 
 Programs often mix the two:
 

@@ -167,7 +167,6 @@ set_offset "flux_q0" 0.1
 set_offset "flux_q0" 0.1 0.2
 set_parameter "cluster" "lo_frequency" 5e9
 get_parameter "cluster" "lo_frequency" -> lo_freq
-set_crosstalk matrix={"flux_q0": {"flux_q0": 1.0, "flux_q1": 0.03}} offsets={"flux_q0": 0.1}
 ```
 
 Key rules:
@@ -176,10 +175,9 @@ Key rules:
 - Variable references are bare identifiers.
 - Inline waveforms use constructor syntax.
 - `get_parameter` uses `->` to assign the result to a variable.
-- Sequence kwargs are bracket literals (`outputs=[1, 2]`), dict kwargs are brace literals
-  (`matrix={"a": 1.0}`), and `null` is the literal for Python `None`.
-- `set_crosstalk` carries its full matrix in `matrix=` / `offsets=` / `resistances=` sections,
-  each omitted when empty (an empty matrix is the bare keyword).
+- Sequence kwargs are bracket literals (`outputs=[1, 2]`), string-keyed dict kwargs are brace
+  literals (`weights={"a": 1.0}` — a generic form available to any op that carries a dict), and
+  `null` is the literal for Python `None`.
 - Unknown operations, unknown block keywords, and excess positional tokens are hard parse
   errors — a file never loads with content silently missing. Symmetrically, the writer raises
   `SerializationError` for anything it cannot represent faithfully (and never truncates arrays).

@@ -10,7 +10,6 @@ import pytest
 from qprogram import (
     BusNaming,
     BusSchema,
-    CrosstalkMatrix,
     QProgram,
     SerializationError,
     cos,
@@ -309,27 +308,6 @@ def test_dumps_get_parameter_with_channel_id():
     text = dumps(p)
     assert "channel_id=3" in text
     assert "->" in text
-
-
-def test_dumps_set_crosstalk_empty_matrix_bare_keyword():
-    p = QProgram()
-    p.set_crosstalk(CrosstalkMatrix())
-    text = dumps(p)
-    assert "set_crosstalk\n" in text
-
-
-def test_dumps_set_crosstalk_full_matrix():
-    m = CrosstalkMatrix()
-    m["flux_q0"] = {"flux_q0": 1.0, "flux_q1": 0.03}
-    m.set_offset({"flux_q0": 0.1})
-    m.set_resistances({"flux_q0": 100.0})
-    m.resistances["flux_q1"] = None
-    p = QProgram()
-    p.set_crosstalk(m)
-    text = dumps(p)
-    assert 'matrix={"flux_q0": {"flux_q0": 1.0, "flux_q1": 0.03}}' in text
-    assert 'offsets={"flux_q0": 0.1}' in text
-    assert 'resistances={"flux_q0": 100.0, "flux_q1": null}' in text
 
 
 # ---------------------------------------------------------------------------

@@ -80,7 +80,7 @@ The rule of thumb:
 | Inside the loop                                              | Likely execution    |
 |--------------------------------------------------------------|---------------------|
 | Only pulse-level operations (`play`, `set_frequency`, ...)   | Hardware            |
-| Any of `set_parameter`, `get_parameter`, `set_crosstalk`     | Software            |
+| Any of `set_parameter`, `get_parameter`                      | Software            |
 
 The same `for_loop` in the same `.qp` file can therefore run hardware on one
 backend and software on another. You describe what; the platform decides how.

@@ -47,7 +47,6 @@ default:
 |-------------------|-------------------------------------------------------------------------|
 | `Sync`            | Variadic list of targets, no positional args.                            |
 | `GetParameter`    | `-> var` arrow syntax for the output variable.                          |
-| `SetCrosstalk`    | Carries a non-trivial `CrosstalkMatrix`, written as `crosstalk` ident.   |
 | `Average` header  | Needs to emit a number rather than args.                                |
 | `range(...)`      | Sweep generator with its own syntax.                                    |
 | `[...]` / `file(...)` | Sweep generator alternatives.                                       |

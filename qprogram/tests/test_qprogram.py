@@ -8,21 +8,22 @@ import numpy as np
 import pytest
 
 from qprogram import (
-    CrosstalkMatrix,
     InvalidVariableIdError,
     MeasurementHandle,
     QProgram,
     ValidationError,
     Variable,
+    WaveformLibrary,
+    dumps,
+    loads,
 )
 from qprogram.blocks import Average, Block, ForLoop, Loop, Parallel
-from qprogram.buses import BusSchema
+from qprogram.buses import BusNaming, BusRef, BusSchema
 from qprogram.operations import (
     GetParameter,
     Measure,
     Play,
     ResetPhase,
-    SetCrosstalk,
     SetFrequency,
     SetGain,
     SetOffset,
@@ -258,12 +259,6 @@ def test_get_parameter_with_channel_id(empty_program):
     assert op.channel_id == 4
 
 
-def test_set_crosstalk_appends(empty_program):
-
-    empty_program.set_crosstalk(CrosstalkMatrix())
-    assert isinstance(empty_program.body.elements[0], SetCrosstalk)
-
-
 # ---------------------------------------------------------------------------
 # Bus validation (schema-backed)
 # ---------------------------------------------------------------------------
@@ -490,63 +485,202 @@ def test_allocate_measurement_name_finds_first_free(schema_program):
 
 
 # ---------------------------------------------------------------------------
-# Bus mapping & waveform resolution
+# rebind — structural bus re-resolution (replaces with_bus_mapping)
 # ---------------------------------------------------------------------------
 
 
-def test_with_bus_mapping_remaps(empty_program):
-    empty_program.play("a", "wf")
-    empty_program.play("b", "wf")
-    empty_program.sync(["a", "b"])
+def test_rebind_reindexes_qubit(transmon_schema):
+    q = transmon_schema.q
+    p = QProgram(schema=transmon_schema)
+    p.play(q[0].drive, "pi")
+    p.measure(q[0].readout, "ro", "w")
 
-    mapped = empty_program.with_bus_mapping({"a": "x", "b": "y"})
-    assert mapped.buses == {"x", "y"}
-    assert empty_program.buses == {"a", "b"}  # original unchanged
-
-
-def test_with_bus_mapping_leaves_unmapped_buses(empty_program):
-    empty_program.play("a", "wf")
-    empty_program.play("c", "wf")
-    mapped = empty_program.with_bus_mapping({"a": "x"})
-    assert mapped.buses == {"x", "c"}
+    ported = p.rebind(elements={("q", 0): ("q", 1)})
+    assert ported.buses == {"q1/drive", "q1/readout"}
+    assert p.buses == {"q0/drive", "q0/readout"}  # original untouched
 
 
-def test_with_bus_mapping_handles_sync_list():
+def test_rebind_result_stays_busref_and_serializes_as_path(transmon_schema):
+    q = transmon_schema.q
+    p = QProgram(schema=transmon_schema)
+    p.play(q[0].drive, "pi")
+    ported = p.rebind(elements={("q", 0): ("q", 1)})
+
+    play_op = ported.body.elements[0]
+    assert isinstance(play_op.bus, BusRef)  # not demoted to a plain str
+    assert play_op.bus.element == "q"
+    assert play_op.bus.idx == 1
+    assert play_op.bus.channel == "IQ"
+
+    text = dumps(ported)
+    assert "q[1].drive" in text  # path form, not a quoted string
+    assert loads(text).body == ported.body  # round-trips body-equal
+
+
+def test_rebind_absent_kind_raises(transmon_schema):
+    # transmon coupler `c` has only `flux`, so re-elementing a drive op onto it cannot resolve.
+    q = transmon_schema.q
+    p = QProgram(schema=transmon_schema)
+    p.play(q[0].drive, "pi")
+    with pytest.raises(AttributeError):
+        p.rebind(schema=BusSchema.transmon_coupled(), elements={("q", 0): ("c", 0)})
+
+
+def test_rebind_naming_reconciles_cross_platform(transmon_schema):
+    q = transmon_schema.q
+    p = QProgram(schema=transmon_schema)
+    p.play(q[0].drive, "pi")
+
+    ported = p.rebind(naming=BusNaming("{kind}_{element}{index}_bus"))
+    play_op = ported.body.elements[0]
+    assert play_op.bus == "drive_q0_bus"
+    assert isinstance(play_op.bus, BusRef)
+    assert loads(dumps(ported)).body == ported.body
+
+
+def test_rebind_handles_sync_list(transmon_schema):
+    q = transmon_schema.q
+    p = QProgram(schema=transmon_schema)
+    p.sync([q[0].readout, q[1].readout])
+    ported = p.rebind(elements={("q", 0): ("q", 2)})
+    sync_op = ported.body.elements[0]
+    assert isinstance(sync_op, Sync)
+    assert sync_op.targets == ["q2/readout", "q1/readout"]
+
+
+def test_rebind_rederives_auto_measurement_name(transmon_schema):
+    q = transmon_schema.q
+    p = QProgram(schema=transmon_schema)
+    handle = p.measure(q[0].readout, "ro", "w")
+    assert handle.name == "q0/readout/m0"
+
+    ported = p.rebind(elements={("q", 0): ("q", 1)})
+    assert ported.measurement_handles()[0].name == "q1/readout/m0"
+
+
+def test_rebind_preserves_user_measurement_name(transmon_schema):
+    q = transmon_schema.q
+    p = QProgram(schema=transmon_schema)
+    p.measure(q[0].readout, "ro", "w", name="my_meas")
+    ported = p.rebind(elements={("q", 0): ("q", 1)})
+    assert ported.measurement_handles()[0].name == "my_meas"
+
+
+def test_rebind_raw_string_unported_raises():
     p = QProgram()
+    p.play("aux_line", "wf")
+    with pytest.raises(ValidationError, match="aux_line"):
+        p.rebind(elements={("q", 0): ("q", 1)})
+
+
+def test_rebind_raw_string_via_strings_map():
+    p = QProgram()
+    p.play("a", "wf")
     p.sync(["a", "b", "c"])
-    mapped = p.with_bus_mapping({"a": "X", "c": "Z"})
-    sync_op = mapped.body.elements[0]
+    ported = p.rebind(strings={"a": "X", "c": "Z"}, allow_unported_strings=True)
+    sync_op = ported.body.elements[1]
     assert isinstance(sync_op, Sync)
     assert sync_op.targets == ["X", "b", "Z"]
+    assert ported.body.elements[0].bus == "X"
 
 
-def test_with_waveforms_replaces_aliases():
+def test_rebind_raw_string_allow_unported_leaves_in_place():
+    p = QProgram()
+    p.play("aux_line", "wf")
+    ported = p.rebind(allow_unported_strings=True)
+    assert ported.body.elements[0].bus == "aux_line"
+
+
+def test_rebind_strings_self_map_marks_intentional():
+    p = QProgram()
+    p.play("aux_line", "wf")
+    ported = p.rebind(strings={"aux_line": "aux_line"})  # explicit no-raise marker
+    assert ported.body.elements[0].bus == "aux_line"
+
+
+def test_rebind_original_unchanged(transmon_schema):
+    q = transmon_schema.q
+    p = QProgram(schema=transmon_schema)
+    p.play(q[0].drive, "pi")
+    p.rebind(elements={("q", 0): ("q", 1)})
+    assert p.buses == {"q0/drive"}
+
+
+# ---------------------------------------------------------------------------
+# with_waveforms — per-bus waveform resolution via WaveformLibrary
+# ---------------------------------------------------------------------------
+
+
+def test_with_waveforms_per_bus_resolution(transmon_schema):
+    """The same name resolves to different pulses on q0 vs q1 (the portability win)."""
+    q = transmon_schema.q
+    library = WaveformLibrary()
+    library.set("pi", IQDrag(0.5, 40, 8, 0.1), element="q", idx=0, kind="drive")
+    library.set("pi", IQDrag(0.9, 40, 8, 0.1), element="q", idx=1, kind="drive")
+
+    p0 = QProgram(schema=transmon_schema)
+    p0.play(q[0].drive, "pi")
+    p1 = QProgram(schema=transmon_schema)
+    p1.play(q[1].drive, "pi")
+
+    assert p0.with_waveforms(library).body.elements[0].waveform.amplitude == 0.5
+    assert p1.with_waveforms(library).body.elements[0].waveform.amplitude == 0.9
+
+
+def test_with_waveforms_family_tier(transmon_schema):
+    q = transmon_schema.q
+    library = WaveformLibrary()
+    ro = IQPair(Square(1.0, 100), Square(0.0, 100))
+    library.set("readout", ro, element="q", kind="readout")  # any q[*].readout
+
+    p = QProgram(schema=transmon_schema)
+    p.measure(q[3].readout, "readout", IQPair(Square(1.0, 100), Square(1.0, 100)))
+    resolved = p.with_waveforms(library)
+    assert resolved.body.elements[0].waveform is ro
+
+
+def test_with_waveforms_exact_shadows_global(transmon_schema):
+    q = transmon_schema.q
+    library = WaveformLibrary()
+    library.set("pi", IQDrag(0.1, 40, 8, 0.1))  # global
+    library.set("pi", IQDrag(0.7, 40, 8, 0.1), element="q", idx=0, kind="drive")  # exact
+
+    p = QProgram(schema=transmon_schema)
+    p.play(q[0].drive, "pi")
+    assert p.with_waveforms(library).body.elements[0].waveform.amplitude == 0.7
+
+
+def test_with_waveforms_bare_dict_global_tier():
+    """A plain dict resolves on every bus — the legacy global behavior."""
     p = QProgram()
     p.play("bus", "pi_pulse")
     p.measure("bus_r", "readout", "weights")
-
     pi = Gaussian(0.5, 40, 8)
     readout = IQPair(Square(1.0, 100), Square(0.0, 100))
     weights = IQPair(Square(1.0, 100), Square(1.0, 100))
 
     resolved = p.with_waveforms({"pi_pulse": pi, "readout": readout, "weights": weights})
-    # Concrete waveforms now live on the AST.
-    play_op = resolved.body.elements[0]
-    measure_op = resolved.body.elements[1]
-    assert isinstance(play_op, Play)
-    assert isinstance(measure_op, Measure)
-    assert play_op.waveform is pi
-    assert measure_op.waveform is readout
-    assert measure_op.weights is weights
+    assert resolved.body.elements[0].waveform is pi
+    assert resolved.body.elements[1].waveform is readout
+    assert resolved.body.elements[1].weights is weights
 
 
-def test_with_waveforms_preserves_unmapped_aliases():
+def test_with_waveforms_preserves_unmatched_names():
     p = QProgram()
     p.play("bus", "pi_pulse")
     resolved = p.with_waveforms({"unrelated": Gaussian(0.5, 40, 8)})
-    play_op = resolved.body.elements[0]
-    assert isinstance(play_op, Play)
-    assert play_op.waveform == "pi_pulse"
+    assert resolved.body.elements[0].waveform == "pi_pulse"
+
+
+def test_with_waveforms_channel_revalidation(flux_tunable_schema):
+    """A single-channel waveform resolved onto an IQ bus is caught at resolution time."""
+    q = flux_tunable_schema.q
+    p = QProgram(schema=flux_tunable_schema)
+    p.play(q[0].drive, "foo")  # drive is IQ
+    library = WaveformLibrary()
+    library.set("foo", Square(0.5, 100))  # single-channel
+    with pytest.raises(ValidationError):
+        p.with_waveforms(library)
 
 
 def test_with_waveforms_nested_inside_block():
@@ -556,13 +690,25 @@ def test_with_waveforms_nested_inside_block():
         p.play("bus", "pi_pulse")
     pi = Gaussian(0.5, 40, 8)
     resolved = p.with_waveforms({"pi_pulse": pi})
-    avg = resolved.body.elements[0]
-    assert isinstance(avg, Block)
-    for_loop = avg.elements[0]
-    assert isinstance(for_loop, Block)
-    deepest_op = for_loop.elements[0]
+    deepest_op = resolved.body.elements[0].elements[0].elements[0]
     assert isinstance(deepest_op, Play)
     assert deepest_op.waveform is pi
+
+
+def test_waveform_library_invalid_combination_raises():
+    library = WaveformLibrary()
+    with pytest.raises(ValidationError, match="exact entry"):
+        library.set("pi", Gaussian(0.5, 40, 8), element="q", idx=0)  # missing kind
+
+
+def test_waveform_library_apply_equals_with_waveforms(transmon_schema):
+    q = transmon_schema.q
+    library = WaveformLibrary()
+    pi = IQDrag(0.5, 40, 8, 0.1)
+    library.set("pi", pi, element="q", idx=0, kind="drive")
+    p = QProgram(schema=transmon_schema)
+    p.play(q[0].drive, "pi")
+    assert library.apply(p).body == p.with_waveforms(library).body
 
 
 # ---------------------------------------------------------------------------

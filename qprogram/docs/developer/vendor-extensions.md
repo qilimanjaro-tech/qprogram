@@ -235,7 +235,7 @@ A few notes:
 - **List the bus-side capabilities the backend supports.** Bus-touching ops (`op.play`,
   `op.measure`, `op.wait`, ...), waveforms, and `measure.returns.*` all live on the bus profile
   because the corresponding nodes route there. Block / expression / sweep tokens and the bus-less
-  ops (`op.set_parameter`, `op.get_parameter`, `op.set_crosstalk`) come from core
+  ops (`op.set_parameter`, `op.get_parameter`) come from core
   `qprogram-base-v1` — the platform-level slot of `PlatformCapabilities` (you'll wire this up
   alongside the bus profile when building the platform descriptor below). Leaving out a
   bus-touching token your backend can actually run means programs using it will fail validation
@@ -466,6 +466,6 @@ exists for IDE autocomplete.
 - **Avoid `from qprogram import *`.** Pick the symbols you need; star
   imports tend to trigger circular imports during registration.
 - **Keep operations frozen on attribute set.** If you want
-  `with_bus_mapping` to remap your vendor's buses, your operation's
-  attributes must be plain string-typed; `BUS_ATTRS` tells the remapper
-  which ones to rewrite.
+  `rebind` to re-resolve your vendor's buses, your operation's
+  attributes must be plain string- / `BusRef`-typed; `BUS_ATTRS` tells the
+  rebinder which ones to rewrite.

@@ -27,7 +27,6 @@ the narrative guides where helpful.
         - set_offset
         - set_parameter
         - get_parameter
-        - set_crosstalk
         - for_loop
         - loop
         - average
@@ -35,7 +34,7 @@ the narrative guides where helpful.
         - if_
         - elif_
         - else_
-        - with_bus_mapping
+        - rebind
         - with_waveforms
 
 ## Bus schemas
@@ -149,7 +148,6 @@ the narrative guides where helpful.
         - SetOffset
         - SetParameter
         - GetParameter
-        - SetCrosstalk
         - normalize_returns
 
 ## Blocks
@@ -164,12 +162,6 @@ the narrative guides where helpful.
         - Loop
         - Parallel
         - Conditional
-
-## Crosstalk
-
-::: qprogram.CrosstalkMatrix
-    options:
-      show_root_full_path: false
 
 ## Results
 

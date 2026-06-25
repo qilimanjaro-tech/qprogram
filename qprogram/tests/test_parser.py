@@ -665,44 +665,6 @@ def test_loads_get_parameter_missing_alias_raises():
         loads(text)
 
 
-def test_loads_set_crosstalk_bare():
-    text = "#!QProgram 1.0\n\nbody:\n  set_crosstalk\n"
-    p = loads(text)
-    op = p.body.elements[0]
-    assert op.crosstalk.matrix == {}
-
-
-def test_loads_set_crosstalk_full():
-    text = (
-        "#!QProgram 1.0\n\nbody:\n"
-        '  set_crosstalk matrix={"flux_q0": {"flux_q0": 1.0, "flux_q1": 0.03}} '
-        'offsets={"flux_q0": 0.1} resistances={"flux_q0": 100.0, "flux_q1": null}\n'
-    )
-    p = loads(text)
-    op = p.body.elements[0]
-    assert op.crosstalk.matrix == {"flux_q0": {"flux_q0": 1.0, "flux_q1": 0.03}}
-    assert op.crosstalk.flux_offsets == {"flux_q0": 0.1}
-    assert op.crosstalk.resistances == {"flux_q0": 100.0, "flux_q1": None}
-
-
-def test_loads_set_crosstalk_rejects_positional_token():
-    text = "#!QProgram 1.0\n\nbody:\n  set_crosstalk crosstalk\n"
-    with pytest.raises(ParseError, match="matrix= / offsets= / resistances="):
-        loads(text)
-
-
-def test_loads_set_crosstalk_rejects_unknown_section():
-    text = '#!QProgram 1.0\n\nbody:\n  set_crosstalk bogus={"a": 1.0}\n'
-    with pytest.raises(ParseError, match="no 'bogus' section"):
-        loads(text)
-
-
-def test_loads_set_crosstalk_rejects_non_dict_section():
-    text = "#!QProgram 1.0\n\nbody:\n  set_crosstalk matrix=42\n"
-    with pytest.raises(ParseError, match="must be a dict literal"):
-        loads(text)
-
-
 def test_loads_unknown_operation_raises():
     """An operation name not in any registry is a hard error — silently skipping the
     line would load a different program than the file describes."""
@@ -1072,8 +1034,8 @@ def test_loads_tokenizer_keeps_list_kwarg_whole():
 def test_loads_tokenizer_keeps_dict_kwarg_whole():
     from qprogram.serialization.parser import _tokenize  # noqa: PLC0415
 
-    assert _tokenize('set_crosstalk matrix={"a": {"b": 1.0}}') == [
-        "set_crosstalk",
+    assert _tokenize('op matrix={"a": {"b": 1.0}}') == [
+        "op",
         'matrix={"a": {"b": 1.0}}',
     ]
 

@@ -46,7 +46,7 @@ body:
   ...
 ```
 
-Operations can use concrete inline waveforms directly (e.g. `Gaussian(amplitude=0.5, duration=40, sigma=8)`), or string aliases (e.g. `"pi_pulse"`) that are resolved externally via `with_waveforms()` at execution time.
+Operations can use concrete inline waveforms directly (e.g. `Gaussian(amplitude=0.5, duration=40, sigma=8)`), or string names (e.g. `"pi_pulse"`) that are resolved externally via `with_waveforms()` (a `WaveformLibrary` or a bare dict) before execution. The library itself is **not** serialized into `.qp` — it is calibration/snapshot state that travels alongside the file (it has its own `.wfl` format, §10), not inside it.
 
 ## 2.1 Header
 
@@ -280,14 +280,13 @@ set_offset "flux_q0" 0.1
 set_offset "flux_q0" 0.1 offset_path1=0.2
 set_parameter "cluster" "lo_frequency" 5e9
 get_parameter "cluster" "lo_frequency" -> lo_freq
-set_crosstalk matrix={"flux_q0": {"flux_q0": 1.0, "flux_q1": 0.03}} offsets={"flux_q0": 0.1}
 qblox.set_trigger "drive_q0" 100 outputs=[1, 2] position="start"
 qblox.wait_trigger "drive_q0" 1000 port=1
 ```
 
 **Key syntax rules:**
 
-- Waveform aliases (to be resolved externally via `with_waveforms()`) are in quotes: `"pi_pulse"`
+- Waveform names (to be resolved externally via `with_waveforms()`) are in quotes: `"pi_pulse"`
 - Variable references are unquoted: `freq`, `gain`
 - Inline waveform constructors can appear directly: `Gaussian(amplitude=gain, duration=40, sigma=8)`
 - `get_parameter` uses `->` to assign to a variable
@@ -296,11 +295,9 @@ qblox.wait_trigger "drive_q0" 1000 port=1
   with the same convention the Python builder uses. (Older files with the name as a bare 4th
   positional token still load.)
 - **Sequence values** are bracket literals: `outputs=[1, 2]`. **Dict values** (string keys) are
-  brace literals: `matrix={"a": {"b": 1.0}}`. `null` is the literal for Python `None`. The
+  brace literals: `weights={"a": {"b": 1.0}}` (a generic dict kwarg — a vendor operation that
+  carries a string-keyed dict reuses this form). `null` is the literal for Python `None`. The
   tokenizer treats `(...)`, `[...]`, and `{...}` as nesting, so spaces inside them are safe.
-- `set_crosstalk` serialises its full matrix through three optional dict-literal sections —
-  `matrix=`, `offsets=`, `resistances=` (each omitted when empty; an entirely empty matrix is
-  the bare keyword).
 
 **Strictness:** unknown operation keywords (core or vendor-dotted), unknown block keywords, and
 unknown top-level sections are hard `ParseError`s — a file never loads with content silently
@@ -672,7 +669,45 @@ Older parsers must reject files with a higher major version. Minor version incre
 
 ---
 
-# 10. Open Questions
+# 10. Waveform Library (`.wfl`) Format
+
+A `WaveformLibrary` maps waveform *names* (the string aliases a program plays, e.g. `"pi_pulse"`) to
+concrete waveforms, scoped per bus (see DSL spec §2.2). It is **not** part of a `.qp` program file — it is
+calibration/snapshot state — but it has its own portable text format, conventionally saved with the
+`.wfl` extension. This keeps the program (stable, name-bearing) and its calibration (per-chip, changes
+often) as separate, independently shareable artifacts.
+
+```
+#!WaveformLibrary 1.0
+"pi_pulse" q[0].drive = IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
+"pi_pulse" q[1].drive = IQDrag(amplitude=0.9, duration=40, sigma=8, beta=0.1)
+"readout" q[*].readout = IQPair(I=Square(amplitude=1.0, duration=2000), Q=Square(amplitude=0.0, duration=2000))
+"weights" = IQPair(I=Square(amplitude=1.0, duration=2000), Q=Square(amplitude=1.0, duration=2000))
+```
+
+- **Header**: `#!WaveformLibrary <major.minor>` (independent of the `.qp` `FORMAT_VERSION`). Same
+  major-version rule as `.qp`.
+- **Entry**: `"<name>" [<coord>] = <waveform>`, one per line. The name is a quoted string (same escaping
+  as `.qp`); the waveform reuses the exact inline-constructor syntax of §4.3.
+- **Coordinate** (the resolution tier): `element[idx].kind` (exact, e.g. `q[0].drive` or the tuple form
+  `c[0,1].flux`), `element[*].kind` (family — any index of that element/kind), or **absent** (global —
+  matches every bus, the tier a raw-string bus and a bare `dict` reach). `get(bus, name)` tries exact →
+  family → global.
+- **Comments / blank lines**: lines that are empty or start with `#` are ignored (the header `#!…` is
+  consumed first).
+- **Strictness**: a missing/incompatible header, a malformed entry, or an unknown waveform type raises
+  `ParseError`. Stored waveforms must be **concrete** — a symbolic (`Variable`-carrying) waveform raises
+  `SerializationError` on `dumps()`.
+- **Vendor waveforms**: the format carries no `require` line — all built-in waveforms are always
+  resolvable, and no current vendor ships custom waveforms. (A future vendor waveform would need its
+  package imported before `loads()`.)
+
+API: `WaveformLibrary.dumps() -> str`, `.save(path)`, `WaveformLibrary.loads(text)`, `.load(path)`.
+`loads(dumps(lib))` reproduces the library (entries are emitted in insertion order).
+
+---
+
+# 11. Open Questions
 
 - [x] **Encoding**: **Resolved** — UTF-8 only; `save()`/`load()` pin the encoding explicitly.
 - [ ] **Max line length**: Should there be a recommended max line length for readability?

@@ -2,8 +2,8 @@
 
 Bridges the registry's spec metadata to the concrete operation, block, and sweep classes. Exports
 signature-driven default callbacks for the majority of operations plus the few special-case callbacks
-(``sync`` variadic, ``get_parameter`` arrow, ``set_crosstalk`` stub) and the built-in sweep
-generators (``range``, ``values``, ``file``).
+(``sync`` variadic, ``get_parameter`` arrow) and the built-in sweep generators (``range``, ``values``,
+``file``).
 
 The ``ctx`` parameter on every callback is the writer or parser instance, duck-typed to a small
 surface; a formal :class:`typing.Protocol` is plausible future work but doesn't change the runtime
@@ -25,13 +25,11 @@ from qprogram.blocks.average import Average
 from qprogram.blocks.block import Block
 from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
-from qprogram.crosstalk_matrix import CrosstalkMatrix
 from qprogram.errors import ValidationError
 from qprogram.operations.get_parameter import GetParameter
 from qprogram.operations.measure import Measure
 from qprogram.operations.play import Play
 from qprogram.operations.reset_phase import ResetPhase
-from qprogram.operations.set_crosstalk import SetCrosstalk
 from qprogram.operations.set_frequency import SetFrequency
 from qprogram.operations.set_gain import SetGain
 from qprogram.operations.set_offset import SetOffset
@@ -316,64 +314,6 @@ def get_parameter_parse(tokens: list[str], ctx: Any) -> GetParameter:
     )
 
 
-def set_crosstalk_serialize(op: SetCrosstalk, ctx: Any) -> str:
-    """Serialise the full crosstalk matrix as dict-literal kwargs.
-
-    Wire form: ``set_crosstalk matrix={"flux_q0": {"flux_q0": 1.0, ...}, ...}`` plus optional
-    ``offsets={...}`` and ``resistances={...}`` sections (each omitted when empty). An entirely
-    empty matrix serialises as the bare keyword. ``None`` resistances emit as ``null``.
-    """
-    xtalk = op.crosstalk
-    parts: list[str] = ["set_crosstalk"]
-    if xtalk.matrix:
-        parts.append(f"matrix={ctx.serialize_value(xtalk.matrix)}")
-    if xtalk.flux_offsets:
-        parts.append(f"offsets={ctx.serialize_value(xtalk.flux_offsets)}")
-    if xtalk.resistances:
-        parts.append(f"resistances={ctx.serialize_value(xtalk.resistances)}")
-    return " ".join(parts)
-
-
-def set_crosstalk_parse(tokens: list[str], ctx: Any) -> SetCrosstalk:
-    """Inverse of :func:`set_crosstalk_serialize` — rebuild the full :class:`CrosstalkMatrix`.
-
-    Raises:
-        ParseError: On positional tokens, unknown kwargs, or section values that aren't
-            dict literals of the expected shape.
-    """
-    xtalk = CrosstalkMatrix()
-    for tok in tokens:
-        tok_stripped = tok.strip()
-        if not tok_stripped:
-            continue
-        if not _looks_like_kwarg(tok_stripped):
-            msg = (
-                f"set_crosstalk takes only matrix= / offsets= / resistances= sections; "
-                f"unexpected token {tok_stripped!r}"
-            )
-            raise ctx.parse_error(msg)
-        key, _, val = tok_stripped.partition("=")
-        key = key.strip()
-        parsed = ctx.parse_value(val.strip())
-        if not isinstance(parsed, dict):
-            msg = f"set_crosstalk {key}= must be a dict literal, got {parsed!r}"
-            raise ctx.parse_error(msg)
-        if key == "matrix":
-            for src, row in parsed.items():
-                if not isinstance(row, dict):
-                    msg = f"set_crosstalk matrix= rows must be dicts, got {row!r} for {src!r}"
-                    raise ctx.parse_error(msg)
-                xtalk.matrix[src] = {tgt: float(coeff) for tgt, coeff in row.items()}
-        elif key == "offsets":
-            xtalk.flux_offsets.update({bus: float(v) for bus, v in parsed.items()})
-        elif key == "resistances":
-            xtalk.resistances.update({bus: (None if v is None else float(v)) for bus, v in parsed.items()})
-        else:
-            msg = f"set_crosstalk has no {key!r} section; allowed: matrix, offsets, resistances"
-            raise ctx.parse_error(msg)
-    return SetCrosstalk(crosstalk=xtalk)
-
-
 # ---------------------------------------------------------------------------
 # Block header callbacks
 # ---------------------------------------------------------------------------
@@ -521,12 +461,6 @@ def _register_core_specs() -> None:
         GetParameter,
         serialize=get_parameter_serialize,
         parse=get_parameter_parse,
-    )
-    register_operation(
-        "set_crosstalk",
-        SetCrosstalk,
-        serialize=set_crosstalk_serialize,
-        parse=set_crosstalk_parse,
     )
 
     # Blocks — the generic ``block:`` has no header data and uses defaults.

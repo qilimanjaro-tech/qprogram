@@ -13,7 +13,7 @@ import numpy as np
 from hypothesis import given, settings  # ty:ignore[unresolved-import]
 from hypothesis import strategies as st  # ty:ignore[unresolved-import]
 
-from qprogram import CrosstalkMatrix, Fragment, QProgram, dumps, loads
+from qprogram import Fragment, QProgram, dumps, loads
 from qprogram.buses import BusSchema
 from qprogram.waveforms import Arbitrary, Gaussian, IQDrag, IQPair, Square
 
@@ -187,27 +187,6 @@ def test_round_trip_structural_equality(p: QProgram) -> None:
 def test_round_trip_byte_stability(p: QProgram) -> None:
     text = dumps(p)
     assert dumps(loads(text)) == text
-
-
-@given(
-    st.dictionaries(
-        st.from_regex(r"[a-z][a-z0-9_/]{0,8}", fullmatch=True),
-        st.dictionaries(st.from_regex(r"[a-z][a-z0-9_/]{0,8}", fullmatch=True), finite_floats, max_size=3),
-        min_size=1,
-        max_size=3,
-    ),
-    st.dictionaries(st.from_regex(r"[a-z][a-z0-9_/]{0,8}", fullmatch=True), finite_floats, max_size=2),
-)
-@settings(max_examples=40, deadline=None)
-def test_round_trip_crosstalk_property(matrix: dict, offsets: dict) -> None:
-    m = CrosstalkMatrix()
-    for src, row in matrix.items():
-        m[src] = dict(row)
-    m.set_offset(offsets)
-    p = QProgram()
-    p.set_crosstalk(m)
-    reloaded = loads(dumps(p))
-    assert reloaded.body == p.body
 
 
 @given(st.lists(finite_floats, min_size=51, max_size=200))

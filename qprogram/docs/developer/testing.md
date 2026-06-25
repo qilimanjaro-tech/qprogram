@@ -26,8 +26,7 @@ The suite is function-style (no test classes). The structure mirrors the
 source layout.
 
 - `test_buses.py`, `test_variable.py`, `test_waveforms.py`,
-  `test_operations.py`, `test_blocks.py`, `test_crosstalk_matrix.py`: unit
-  tests per module.
+  `test_operations.py`, `test_blocks.py`: unit tests per module.
 - `test_qprogram.py`: the builder methods on `QProgram`, validation, and
   the context managers.
 - `test_result.py`: `MeasurementHandle`, `QProgramResult`.

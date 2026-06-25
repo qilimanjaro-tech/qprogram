@@ -8,13 +8,12 @@ import numpy as np
 import pytest
 
 from qprogram import (
-    CrosstalkMatrix,
     MeasurementHandle,
     QProgram,
     Variable,
 )
 from qprogram.blocks import Average, ForLoop, Loop
-from qprogram.operations import GetParameter, SetCrosstalk, SetFrequency, SetParameter, Sync
+from qprogram.operations import GetParameter, SetFrequency, SetParameter, Sync
 from qprogram.serialization._specs import (
     average_parse_header,
     average_serialize_header,
@@ -25,8 +24,6 @@ from qprogram.serialization._specs import (
     get_parameter_serialize,
     range_parse,
     range_write,
-    set_crosstalk_parse,
-    set_crosstalk_serialize,
     sync_parse,
     sync_serialize,
     values_parse,
@@ -205,44 +202,6 @@ def test_get_parameter_parse_missing_alias_raises():
     # Arrow present but body before it is empty (< 2 tokens).
     with pytest.raises(Exception, match="alias and parameter"):
         get_parameter_parse(['"alias"', "->", "result"], p)
-
-
-# ---------------------------------------------------------------------------
-# set_crosstalk
-# ---------------------------------------------------------------------------
-
-
-def test_set_crosstalk_serialize_empty():
-
-    op = SetCrosstalk(crosstalk=CrosstalkMatrix())
-    assert set_crosstalk_serialize(op, _writer()) == "set_crosstalk"
-
-
-def test_set_crosstalk_serialize_full():
-    m = CrosstalkMatrix()
-    m["flux_q0"] = {"flux_q0": 1.0}
-    m.set_offset({"flux_q0": 0.5})
-    op = SetCrosstalk(crosstalk=m)
-    out = set_crosstalk_serialize(op, _writer())
-    assert out == 'set_crosstalk matrix={"flux_q0": {"flux_q0": 1.0}} offsets={"flux_q0": 0.5}'
-
-
-def test_set_crosstalk_parse_empty():
-    op = set_crosstalk_parse([], _parser())
-    assert isinstance(op, SetCrosstalk)
-    assert op.crosstalk.matrix == {}
-
-
-def test_set_crosstalk_parse_round_trips_matrix():
-    from qprogram.serialization.parser import _tokenize  # noqa: PLC0415
-
-    m = CrosstalkMatrix()
-    m["flux_q0"] = {"flux_q0": 1.0, "flux_q1": 0.03}
-    m.set_resistances({"flux_q0": 100.0})
-    original = SetCrosstalk(crosstalk=m)
-    line = set_crosstalk_serialize(original, _writer())
-    parsed = set_crosstalk_parse(_tokenize(line)[1:], _parser())
-    assert parsed.crosstalk == m
 
 
 # ---------------------------------------------------------------------------

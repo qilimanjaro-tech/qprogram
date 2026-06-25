@@ -11,7 +11,6 @@ from qprogram.operations.measure import Measure
 from qprogram.operations.operation import Operation
 from qprogram.operations.play import Play
 from qprogram.operations.reset_phase import ResetPhase
-from qprogram.operations.set_crosstalk import SetCrosstalk
 from qprogram.operations.set_frequency import SetFrequency
 from qprogram.operations.set_gain import SetGain
 from qprogram.operations.set_offset import SetOffset
@@ -27,7 +26,6 @@ __all__ = [
     "Operation",
     "Play",
     "ResetPhase",
-    "SetCrosstalk",
     "SetFrequency",
     "SetGain",
     "SetOffset",

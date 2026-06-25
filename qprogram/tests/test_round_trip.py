@@ -5,7 +5,6 @@ from __future__ import annotations
 import numpy as np
 
 from qprogram import (
-    CrosstalkMatrix,
     QProgram,
     cos,
     dumps,
@@ -100,7 +99,6 @@ def test_round_trip_all_core_operations(transmon_schema):
     p.sync()
     p.set_parameter("alias", "param", 5e9, channel_id=3)
     p.get_parameter("alias", "param")
-    p.set_crosstalk(CrosstalkMatrix())
     _assert_byte_stable(p)
 
 
@@ -262,12 +260,22 @@ def test_round_trip_loaded_equals_original(transmon_schema):
     assert hash(reloaded.body) == hash(p.body)
 
 
-def test_round_trip_with_with_bus_mapping():
+def test_round_trip_with_rebind_raw_strings():
     p = QProgram()
     p.play("a", "wf")
     p.sync(["a", "b"])
-    remapped = p.with_bus_mapping({"a": "x"})
+    remapped = p.rebind(strings={"a": "x", "b": "b"})
     _assert_byte_stable(remapped)
+
+
+def test_round_trip_with_rebind_schema_path(transmon_schema):
+    q = transmon_schema.q
+    p = QProgram(schema=transmon_schema)
+    p.play(q[0].drive, "pi")
+    p.measure(q[0].readout, "ro", "w")
+    ported = p.rebind(elements={("q", 0): ("q", 1)})
+    assert "q[1].drive" in dumps(ported)
+    _assert_byte_stable(ported)
 
 
 def test_round_trip_with_with_waveforms():
@@ -315,20 +323,6 @@ def test_round_trip_long_arbitrary_samples_lossless():
     reloaded = loads(dumps(p))
     wf = reloaded.body.elements[1].waveform
     assert np.array_equal(wf.samples, samples)
-
-
-def test_round_trip_crosstalk_matrix_lossless():
-    m = CrosstalkMatrix()
-    m["flux_q0"] = {"flux_q0": 1.0, "flux_q1": 0.03}
-    m["flux_q1"] = {"flux_q0": 0.02, "flux_q1": 1.0}
-    m.set_offset({"flux_q0": 0.1})
-    m.set_resistances({"flux_q0": 100.0})
-    m.resistances["flux_q1"] = None
-    p = QProgram()
-    p.set_crosstalk(m)
-    reloaded = loads(dumps(p))
-    assert reloaded.body.elements[0].crosstalk == m
-    assert reloaded.body == p.body
 
 
 def test_round_trip_vendor_op_inside_conditional(transmon_schema, dummy_vendor):  # noqa: ARG001

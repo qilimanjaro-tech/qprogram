@@ -21,7 +21,6 @@ from test_round_trip_property import fragment_programs, programs
 import qprogram as qp
 from qprogram import Fragment, QProgram, fragment
 from qprogram.buses import BusSchema
-from qprogram.crosstalk_matrix import CrosstalkMatrix
 from qprogram.grammar import grammar_text, parser
 from qprogram.waveforms import Arbitrary, FlatTop, Gaussian, IQDrag, IQPair, Square
 
@@ -65,10 +64,6 @@ def _full_feature_program() -> QProgram:
     p.set_offset("flux_q0", 0.1, 0.2)
     p.set_parameter("cluster", "lo_frequency", 5e9)
     p.get_parameter("cluster", "lo_frequency")
-    xtalk = CrosstalkMatrix()
-    xtalk["flux_q0"] = {"flux_q0": 1.0, "flux_q1": 0.03}
-    xtalk.set_offset({"flux_q0": 0.1})
-    p.set_crosstalk(xtalk)
     with p.average(1000), p.for_loop(g, 0.0, 1.0, 0.01):
         p.set_gain("drive_q0", g)
         m = p.measure(
@@ -217,7 +212,7 @@ _SYNTACTIC_REJECTS = {
     "for-without-in": "#!QProgram 1.0\n\nbody:\n  for g range(0, 1, 0.1):\n    sync\n",
     "if-without-condition": "#!QProgram 1.0\n\nbody:\n  if:\n    sync\n",
     "else-with-condition": ("#!QProgram 1.0\n\nbody:\n  if m0.state == 0:\n    sync\n  else m0.state:\n    sync\n"),
-    "dangling-dict": '#!QProgram 1.0\n\nbody:\n  set_crosstalk matrix={"a": 1.0\n',
+    "dangling-dict": '#!QProgram 1.0\n\nbody:\n  set_parameter "a" "b" matrix={"a": 1.0\n',
     "fragment-missing-parens": "#!QProgram 1.0\n\nfragment f1:\n  sync\n\nbody:\n",
 }
 

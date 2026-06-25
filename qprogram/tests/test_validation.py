@@ -65,7 +65,6 @@ _PLATFORM_TOKENS: frozenset[str] = frozenset(
     {
         "op.set_parameter",
         "op.get_parameter",
-        "op.set_crosstalk",
         "block.block",
         "block.average",
         "block.for_loop",

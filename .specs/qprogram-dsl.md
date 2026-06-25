@@ -55,21 +55,52 @@ program = qp.QProgram(label="rabi", description="Rabi oscillation experiment")
 <td>All declared variables (read-only)</td>
 </tr>
 </table>
-## 2.2 Mappings
-Programs reference buses and waveforms by logical name. Both can be remapped, returning a new QProgram (the original is unchanged).
-**Bus mapping** — remap bus references:
+## 2.2 Porting and waveform resolution
+A program references buses and waveforms by logical name. Porting it to a different qubit, naming
+convention, or chip — and binding its waveform names to concrete pulses — are two transforms that both
+return a new QProgram (the original is unchanged) and share one coordinate system: the schema's
+`(element, idx, kind)`.
+
+**Bus rebinding** (`rebind`) — re-resolve bus references *structurally* through the schema, rather than
+rewriting bus strings. Because a `BusRef` carries `(element, idx, kind)` and the schema's accessors are
+pure functions of that coordinate, a port re-picks the coordinate and asks the schema for the ref; the
+result stays a typed `BusRef` (serializing as a `q[1].drive` path, not a quoted string). An absent bus
+kind on the target raises `AttributeError`.
 ```python
-mapped = program.with_bus_mapping({"drive_q0": "drive_q1", "readout_q0": "readout_q1"})
+ported = program.rebind(elements={("q", 0): ("q", 1)})              # re-index a qubit
+ported = program.rebind(naming=BusNaming("{kind}_{element}{index}_bus"))  # cross-platform naming
+ported = program.rebind(schema=chip_b, elements={("q", 0): ("q", 3)})     # move onto another chip
 ```
-**Waveform mapping** — resolve string waveform aliases to concrete waveforms:
+Raw-string buses carry no schema metadata, so they can only be moved via the explicit `strings={...}`
+escape hatch; a raw-string bus left unported raises unless `allow_unported_strings=True`. Auto-allocated
+measurement names embed the bus (`q0/readout/m0`), so `rebind` re-derives them for the rebound buses
+while leaving user-supplied names untouched.
+
+**Waveform resolution** (`with_waveforms`) — fill string waveform names with concrete waveforms, scoped
+**per bus** via a `WaveformLibrary`. The same name (`"pi_pulse"`) can resolve to a different concrete
+pulse on `q[0].drive` than on `q[1].drive` — so after a `rebind` from q0 to q1, resolution automatically
+picks up q1's calibration. Lookup tries the most specific tier first: exact `(element, idx, kind, name)`
+→ family `(element, kind, name)` → global `(name,)`. Each replacement is channel-type-validated.
 ```python
-resolved = program.with_waveforms({
-    "pi_pulse": IQDrag(0.5, 40, 8, 0.1),
-    "readout": IQPair(Square(1.0, 2000), Square(0.0, 2000)),
-    "weights": IQPair(Square(1.0, 2000), Square(1.0, 2000)),
-})
+library = WaveformLibrary()
+library.set("pi_pulse", IQDrag(0.5, 40, 8, 0.1), element="q", idx=0, kind="drive")  # exact, per-qubit
+library.set("readout", IQPair(Square(1.0, 2000), Square(0.0, 2000)), element="q", kind="readout")  # family
+library.set("weights", IQPair(Square(1.0, 2000), Square(1.0, 2000)))                # global
+resolved = program.with_waveforms(library)
 ```
-This is how calibration data is applied to a program. The QProgram itself uses string aliases (e.g. `"pi_pulse"`); concrete waveform values are provided externally — by the platform, the calibration system, or the user — and mapped in via `with_waveforms()`. This keeps the program definition stable across calibration runs.
+A bare `dict[str, Waveform]` is also accepted and lands on the global tier — resolving on every bus, the
+legacy behavior:
+```python
+resolved = program.with_waveforms({"pi_pulse": IQDrag(0.5, 40, 8, 0.1)})
+```
+This is how calibration data is applied to a program. The QProgram references waveforms by name;
+concrete values are resolved in as a pre-execution step — `program.with_waveforms(library)` or
+`WaveformLibrary.apply(program)` — producing a concrete program to execute. This keeps the program
+definition stable across calibration runs. The `WaveformLibrary` is a **standalone artifact**,
+independent of any platform: it is not part of the `.qp` program file (it is snapshot state, like the
+platform parameter store), but it has its own portable text format (`.wfl`): `library.dumps()` /
+`library.save(path)` and `WaveformLibrary.loads(text)` / `WaveformLibrary.load(path)`, so a calibration
+set can be saved, shared, and reloaded independently of any program (see the `.qp` format spec §10).
 ## 2.3 Bus References
 Every operation in QProgram targets a bus by name (e.g. `"drive_q0"`, `"readout_q0"`, `"flux_q0"`). Raw strings work, but they are error-prone (typos are silent until runtime), non-discoverable (no tab-completion), and platform-coupled (each platform uses different naming conventions).
 The `BusSchema` system provides typed, validated, discoverable bus references that resolve to plain strings at the AST level.
@@ -552,7 +583,7 @@ No external helper function is required — every `Expression` instance carries 
 Constant(5).variables()                           # -> set()
 ```
 ## 3.8 Identity
-Variables compare equal **by id**: two `Variable` instances are equal iff their `id` strings match. This is structural equality, just with `id` as the structural key — it makes a full program survive `copy.deepcopy`, `qp.loads(qp.dumps(...))`, and `with_bus_mapping` while still comparing equal to the original.
+Variables compare equal **by id**: two `Variable` instances are equal iff their `id` strings match. This is structural equality, just with `id` as the structural key — it makes a full program survive `copy.deepcopy`, `qp.loads(qp.dumps(...))`, and `rebind` while still comparing equal to the original.
 
 Within a `QProgram`, ids must be unique. `program.variable("freq")` raises `ValidationError` if `"freq"` was already declared, so two distinct variables on the same program never share an id. (At the bare `Variable` constructor level, you can still create two `Variable("freq")` instances; they will compare equal under structural-by-id semantics.)
 
@@ -665,7 +696,7 @@ These target a specific bus.
 ```python
 program.play(bus: str, waveform: Waveform | IQWaveform | str)
 ```
-If `waveform` is a string, it is an alias that must be resolved via `with_waveforms()` or by the platform before execution.
+If `waveform` is a string, it is a waveform *name* that must be resolved to a concrete waveform before execution — via `with_waveforms()` (with a `WaveformLibrary` or a bare dict; see §2.2). A name that reaches the hardware compiler unresolved surfaces as a `WaveformResolutionError` (platform-side).
 **`measure(bus, waveform, weights, *, name=None, returns=("iq",))`** — play a readout pulse and acquire the result; returns a :class:`MeasurementHandle`
 ```python
 program.measure(
@@ -724,10 +755,7 @@ program.set_parameter(alias: str, parameter: str, value: int | float | bool | Va
 ```python
 var = program.get_parameter(alias: str, parameter: str) -> Variable
 ```
-**`set_crosstalk(crosstalk)`** — apply a crosstalk correction matrix
-```python
-program.set_crosstalk(crosstalk: CrosstalkMatrix)
-```
+> Crosstalk correction is **not** a core operation. It is a vendor concern (e.g. flux crosstalk on a specific control stack); a vendor extension that needs it ships its own operation under its namespace (`program.<vendor>.set_crosstalk(...)`).
 ## 5.4 Vendor Extensions
 The QProgram library provides a registration mechanism for vendor-specific operations. Core operations (play, measure, wait, etc.) are always available. Vendor operations are registered under a namespace and accessed via `program.<vendor>.<operation>()`.
 
@@ -1064,7 +1092,7 @@ with program.average(shots=1000):
 ## 6.3 Hardware vs Software Execution
 The QProgram language makes **no distinction** between hardware and software loops. The compiler analyzes the block tree and decides:
 - Blocks containing only pulse/timing operations **may** be compiled to hardware loops
-- Blocks containing `set_parameter`, `get_parameter`, or `set_crosstalk` **require** software orchestration
+- Blocks containing `set_parameter` or `get_parameter` **require** software orchestration
 - The same `for_loop` may run in hardware on one platform and in software on another.
 This is intentional. Users describe *what* they want; the compiler decides *how*. The mechanism is the classifier in §9.7 — each platform declares per-bus hw/sw capabilities, and the validator returns an `ExecutionPlan` mapping each block to the domain(s) it can run in.
 ## 6.4 Fragments — Reusable Parameterized Sub-Programs
@@ -1107,14 +1135,8 @@ Expansion is deterministic (document order): expanding twice yields structurally
 ### Validation and execution
 `validate()` **auto-expands** programs containing `Call` nodes — capabilities are checked against the substituted bodies, and `Call` itself needs no capability token. Callers that need the identity-keyed `ExecutionPlan` for nodes they hold should call `expand()` explicitly and validate the expanded program. The platform convention is the same: `execute()` lowers via `expand()` before compilation.
 ---
-# 7. CrosstalkMatrix (?)
-A `CrosstalkMatrix` models flux crosstalk between buses. It can be applied at runtime via `set_crosstalk()`.
-```python
-xtalk = qp.CrosstalkMatrix()
-xtalk["flux_q0"] = {"flux_q0": 1.0, "flux_q1": 0.03}
-xtalk["flux_q1"] = {"flux_q0": 0.02, "flux_q1": 1.0}
-```
-Methods: `to_array()`, `inverse()`, `from_array(buses, matrix)`, `from_buses(dict)`, `set_offset(dict)`, `set_resistances(dict)`.
+# 7. Crosstalk correction (vendor concern)
+Crosstalk correction (e.g. flux crosstalk between buses) is **not** part of the core DSL. It is hardware-stack specific, so a vendor extension that needs it ships its own correction type and operation under its own namespace (e.g. `program.<vendor>.set_crosstalk(...)`) following the vendor-extension protocol (§5.4). Core qprogram has no `CrosstalkMatrix` type and no `set_crosstalk` operation.
 ---
 # 8. Results
 A `QProgramResult` is the in-memory object returned by a platform after executing a QProgram. It is provided by the QProgram library so that all platforms return a consistent result type.
@@ -1215,7 +1237,7 @@ A `field=` naming a token the measurement didn't request raises `KeyError` listi
 ## 8.6 The reference executor
 Core qprogram ships a **reference software executor** — `ReferencePlatform`, a complete `PlatformProtocol`, plus the one-liner `qp.run(program, model=..., parameters=...)`. It is the executable definition of this section: a pure-Python interpreter that expands fragments, validates (raising `UnsupportedOperationError` on error diagnostics, surfacing warnings via `warnings.warn` with category `ExecutionWarning`, per the §9.7 convention), walks the AST driving loop variables through `Variable.set_value`, evaluates every operation's expressions (unbound variables fail loudly), writes each measurement's classified state onto the shared `MeasurementHandle` (so `handle.state` feedback works by construction), and assembles `QProgramResult` arrays with exactly the shapes above. **Vendor compilers are tested against what it produces.**
 
-Measurement outcomes come from a pluggable `MeasurementModel` (one `sample(bus, env)` per shot, where `env` carries the bound loop variables and platform parameters). The default `MockMeasurementModel(response=..., p_excited=..., noise=..., raw_samples=..., seed=...)` is deterministic given its seed — a simulated Rabi oscillation is `response=lambda bus, env: np.sin(np.pi * env["g"] / 2) ** 2 + 0j`. The reference platform supports every registered capability token (vendor operations execute generically: measurement ops record results, other ops validate their expressions and act as no-ops — no timing or waveform physics is simulated); its platform slot keeps `set_parameter`/`get_parameter`/`set_crosstalk` software-only, so plans, `forced-software` warnings, and `explain()` are meaningful against it. `set_parameter` writes to the platform's parameter store, `get_parameter` reads it, and the store is visible to the measurement model.
+Measurement outcomes come from a pluggable `MeasurementModel` (one `sample(bus, env)` per shot, where `env` carries the bound loop variables and platform parameters). The default `MockMeasurementModel(response=..., p_excited=..., noise=..., raw_samples=..., seed=...)` is deterministic given its seed — a simulated Rabi oscillation is `response=lambda bus, env: np.sin(np.pi * env["g"] / 2) ** 2 + 0j`. The reference platform supports every registered capability token (vendor operations execute generically: measurement ops record results, other ops validate their expressions and act as no-ops — no timing or waveform physics is simulated); its platform slot keeps `set_parameter`/`get_parameter` software-only, so plans, `forced-software` warnings, and `explain()` are meaningful against it. `set_parameter` writes to the platform's parameter store, `get_parameter` reads it, and the store is visible to the measurement model.
 ---
 # 9. Platform Protocol
 The QProgram library defines a `PlatformProtocol` — a common interface that any execution backend must implement. It has three duties:
@@ -1242,11 +1264,16 @@ class PlatformProtocol(ABC):
     def execute(self, qprogram: QProgram, **kwargs) -> QProgramResult: ...
 ```
 
+A platform knows nothing about `WaveformLibrary` — waveform-name resolution (§2.2) is a separate,
+platform-independent step the caller applies before execution (`program.with_waveforms(library)`). A
+platform receives a program that should already be concrete; a string waveform name that reaches the
+hardware compiler is the platform's own error to report (e.g. `WaveformResolutionError`).
+
 ## 9.1 Discovery
 Users can query the platform to inspect available resources before writing a program. Parameters are strings — each platform defines its own (replacing the old `Parameter` enum).
 
 ## 9.2 Execution
-The platform compiles and executes a QProgram, returning a `QProgramResult`. Internally it (a) validates the program against its `PlatformCapabilities`, (b) classifies each block/operation as hardware- or software-executed (see §9.7), (c) allocates hardware resources for hw-classified blocks and emits a software dispatch loop for sw-classified blocks, (d) resolves calibrated references, and (e) reports errors via the diagnostic list. Users may call `plan()` to inspect the classifier's output before executing. Core qprogram ships one complete implementation: the reference software executor `ReferencePlatform` (§8.6).
+The platform compiles and executes a QProgram, returning a `QProgramResult`. Internally it (a) validates the program against its `PlatformCapabilities`, (b) classifies each block/operation as hardware- or software-executed (see §9.7), (c) allocates hardware resources for hw-classified blocks and emits a software dispatch loop for sw-classified blocks, and (d) reports errors via the diagnostic list. The program is expected to be concrete (string waveform names resolved via `with_waveforms` beforehand — §2.2). Users may call `plan()` to inspect the classifier's output before executing. Core qprogram ships one complete implementation: the reference software executor `ReferencePlatform` (§8.6).
 
 ## 9.3 Capability descriptors: per-bus and platform-wide
 A platform's capability surface has two grains: **per-bus** and **platform-wide**. The per-bus grain captures the fact that a logical bus is wired to a concrete instrument with its own feature set — drive and readout buses may live on a real-time waveform generator (qblox) while a flux bus may live on a slow DAC (qdac). The platform-wide grain captures features that don't belong to any single bus: control-flow blocks, expression node kinds, and bus-less operations like `set_parameter`.
@@ -1275,7 +1302,7 @@ The validator's routing rules:
 
 - An op that touches a `BusRef` routes its required-tokens to `caps.bus[(bus.element, bus.kind)]`, falling back to `caps.default_bus_profile` when no entry exists.
 - An op that touches a raw-string bus routes to `caps.default_bus_profile`.
-- An op with no bus (block-structure, `set_parameter`, `set_crosstalk`, `get_parameter`) routes to `caps.platform`.
+- An op with no bus (block-structure, `set_parameter`, `get_parameter`) routes to `caps.platform`.
 - Multi-bus ops (`Sync(targets=[...])`) intersect across every touched bus's capability set.
 
 Each `CompilerCapabilities` slot retains the three-axis structure unchanged (the same separation Vulkan uses for features, limits, and extensions — flags, numbers, and AST-shape checks have different shapes of check):
@@ -1294,7 +1321,7 @@ class CompilerCapabilities:
 **Capability tokens** stay flat dotted strings. The split between bus and platform lives in *where the token is declared*, not in the token text:
 
 - `op.<name>` for bus-touching ops (`op.play`, `op.measure`, `op.wait`, `op.sync`, `op.set_frequency`, `op.set_phase`, `op.set_gain`, `op.reset_phase`, `op.set_offset`) — **bus** profile.
-- `op.<name>` for bus-less ops (`op.set_parameter`, `op.get_parameter`, `op.set_crosstalk`) — **platform** profile.
+- `op.<name>` for bus-less ops (`op.set_parameter`, `op.get_parameter`) — **platform** profile.
 - `block.<name>` (`block.for_loop`, `block.loop`, `block.parallel`, `block.average`, `block.conditional`, `block.block`) — **platform** profile.
 - `waveform.<kind>` (`waveform.single`, `waveform.iq`, `waveform.alias`) and `waveform.<class>` (`waveform.square`, `waveform.iq_drag`, …) — **bus** profile.
 - `sweep.<shape>` (`sweep.linear`, `sweep.arbitrary`) — **platform** profile, since loop blocks (`ForLoop`, `Loop`) declare these in their own ``required_capabilities`` alongside the `block.*` token, and blocks route to the platform slot.
@@ -1406,7 +1433,7 @@ Predicates run on every visited node, see the same context, and emit zero or mor
 ## 9.6 Profile bundles and `qprogram-base-v1`
 A `Profile` is a named, versioned bundle of (capabilities, limits, predicates, vendor_versions). Profiles are **domain-agnostic** — a platform decides which profile fills each (bus, domain) slot. The same `qblox-default-v1` profile may sit at both `bus[("q","drive")].hw` and `bus[("q","readout")].hw` on the same platform; identical tokens, predicates, and limits, optionally tightened per-slot via `limit_overrides`.
 
-Core qprogram ships **`qprogram-base-v1`** — a platform-level base bundle declaring everything the DSL has that doesn't touch a bus: every `block.*` token, every `expr.*` and `expr.math.*` token, every `measure.returns.*` token, and the bus-less `op.set_parameter` / `op.get_parameter` / `op.set_crosstalk`. Vendor platforms typically set their platform-level slot via `extends="qprogram-base-v1"` and add only what's different.
+Core qprogram ships **`qprogram-base-v1`** — a platform-level base bundle declaring everything the DSL has that doesn't touch a bus: every `block.*` token, every `expr.*` and `expr.math.*` token, every `measure.returns.*` token, and the bus-less `op.set_parameter` / `op.get_parameter`. Vendor platforms typically set their platform-level slot via `extends="qprogram-base-v1"` and add only what's different.
 
 ```python
 QBLOX_DEFAULT_V1 = Profile(
@@ -1594,14 +1621,16 @@ with program.average(shots=1000):
 # Save to file
 qp.save(program, "rabi.qp")
 
-# Resolve waveform aliases with concrete values (e.g. from calibration data)
+# Resolve waveform names with concrete values (e.g. from calibration data).
+# A bare dict resolves on every bus; pass a WaveformLibrary for per-qubit pulses (see §2.2).
 resolved = program.with_waveforms({
     "pi_pulse": IQDrag(0.5, 40, 8, 0.1),
     "readout": IQPair(Square(1.0, 2000), Square(0.0, 2000)),
     "weights": IQPair(Square(1.0, 2000), Square(1.0, 2000)),
 })
 
-# Execute on a platform — returns in-memory QProgramResult
+# Execute on a platform — returns in-memory QProgramResult. (If the platform owns a
+# WaveformLibrary, execute() resolves any still-unresolved names from it automatically.)
 result = platform.execute(resolved)
 
 # Access results as xarray.DataArray

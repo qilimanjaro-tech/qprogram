@@ -153,10 +153,11 @@ class BusNotAvailableError(QProgramError):
 
 
 class WaveformResolutionError(QProgramError):
-    """Platform-side: a string waveform alias remained unresolved at execution time.
+    """Platform-side: a string waveform name reached execution without a concrete waveform.
 
-    Typically the user forgot to wire the alias through :meth:`QProgram.with_waveforms` or the
-    calibration library handing waveforms to the platform omitted it.
+    Resolve names before execution with :meth:`QProgram.with_waveforms` (or
+    :meth:`WaveformLibrary.apply`); this is raised when one was missed or the
+    :class:`~qprogram.WaveformLibrary` used had no entry for it.
     """
 
 

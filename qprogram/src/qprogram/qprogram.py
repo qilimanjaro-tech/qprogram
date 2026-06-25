@@ -13,14 +13,13 @@ from qprogram.blocks.conditional import Conditional
 from qprogram.blocks.for_loop import ForLoop
 from qprogram.blocks.loop import Loop
 from qprogram.blocks.parallel import Parallel
-from qprogram.buses import BusRef
+from qprogram.buses import BusRef, naming_substituted_schema, resolve_ref
 from qprogram.errors import ValidationError
 from qprogram.operations.get_parameter import GetParameter
 from qprogram.operations.measure import Measure
 from qprogram.operations.operation import MeasurementOperation, Operation
 from qprogram.operations.play import Play
 from qprogram.operations.reset_phase import ResetPhase
-from qprogram.operations.set_crosstalk import SetCrosstalk
 from qprogram.operations.set_frequency import SetFrequency
 from qprogram.operations.set_gain import SetGain
 from qprogram.operations.set_offset import SetOffset
@@ -30,15 +29,15 @@ from qprogram.operations.sync import Sync
 from qprogram.operations.wait import Wait
 from qprogram.result import MeasurementHandle
 from qprogram.variable import Comparison, Expression, Variable
+from qprogram.waveform_library import WaveformLibrary
 from qprogram.waveforms.waveform import IQWaveform, Waveform
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
 
     import numpy as np
 
-    from qprogram.buses import BusSchema
-    from qprogram.crosstalk_matrix import CrosstalkMatrix
+    from qprogram.buses import BusNaming, BusSchema
     from qprogram.fragments import Fragment
     from qprogram.vendor import VendorNamespace
 
@@ -532,6 +531,7 @@ class QProgram:
         _validate_waveform_channel(bus, weights)
         allocated = self._allocate_measurement_name(bus, requested=name)
         handle = MeasurementHandle(allocated)
+        handle._auto_named = name is None
         self._append_to_active(
             Measure(bus=bus, waveform=waveform, weights=weights, handle=handle, returns=returns),
         )
@@ -633,10 +633,6 @@ class QProgram:
         var = self.variable(var_id, label=f"{alias}.{parameter}")
         self._append_to_active(GetParameter(variable=var, alias=alias, parameter=parameter, channel_id=channel_id))
         return var
-
-    def set_crosstalk(self, crosstalk: CrosstalkMatrix) -> None:
-        """Append a :class:`~qprogram.operations.SetCrosstalk` — install a program-wide crosstalk matrix."""
-        self._append_to_active(SetCrosstalk(crosstalk=crosstalk))
 
     # --- Fragments ---
 
@@ -875,67 +871,184 @@ class QProgram:
 
         return expand_program(self)
 
-    def with_bus_mapping(self, bus_mapping: dict[str, str]) -> QProgram:
-        """Return a deep copy with bus references rewritten by ``bus_mapping``.
+    def rebind(
+        self,
+        *,
+        schema: BusSchema | None = None,
+        elements: Mapping[tuple[str, int | tuple[int, ...]], tuple[str, int | tuple[int, ...]]] | None = None,
+        naming: BusNaming | None = None,
+        strings: Mapping[str, str] | None = None,
+        allow_unported_strings: bool = False,
+    ) -> QProgram:
+        """Return a copy of this program with its bus references re-resolved structurally.
 
-        The ``buses`` property is computed from the AST, so it reflects the remapping automatically.
+        ``rebind`` replaces the legacy flat ``with_bus_mapping`` dict. Instead of rewriting bus *strings*,
+        it re-resolves every schema-backed :class:`~qprogram.BusRef` through a schema factory, so the
+        result stays a typed ``BusRef`` (serializing as a ``q[1].drive`` path, not a quoted string) and
+        can re-index a qubit, move to a different element, swap naming conventions, or move onto another
+        chip's schema — all checked against the schema (an absent bus kind raises ``AttributeError``).
+
+        Auto-allocated measurement names embed the bus (``q0/readout/m0``); ``rebind`` re-derives them for
+        the rebound buses while leaving user-supplied names untouched (see
+        :class:`~qprogram.MeasurementHandle`). Fragment calls are expanded first.
 
         Args:
-            bus_mapping: Mapping of old bus name to new bus name. Unmentioned buses pass through.
+            schema: Target schema. Defaults to the program's current schema (re-index within one chip).
+            elements: Maps ``(element, idx)`` to ``(element, idx)`` — e.g. ``{("q", 0): ("q", 1)}`` to
+                port qubit 0's operations onto qubit 1. Unlisted ``(element, idx)`` pairs pass through.
+            naming: Re-resolve every ref under a new :class:`~qprogram.BusNaming` (cross-platform names).
+            strings: Escape hatch for raw-string buses (which carry no schema metadata): an old→new map.
+                Map a string to itself to mark it intentionally untouched.
+            allow_unported_strings: When ``False`` (default), a raw-string bus not covered by ``strings``
+                raises — a partial port is a loud choice, not a silent accident. Set ``True`` to leave
+                uncovered raw-string buses in place.
 
         Returns:
-            A new :class:`QProgram` with the remapped buses; the original is untouched.
-        """
-        new_program = copy.deepcopy(self)
-        _remap_buses(new_program._body, bus_mapping)
-        return new_program
+            A new :class:`QProgram`; the original is untouched.
 
-    def with_waveforms(self, waveform_mapping: dict[str, Waveform | IQWaveform]) -> QProgram:
-        """Return a deep copy with string waveform aliases replaced by concrete waveforms.
+        Raises:
+            ValidationError: If ``naming`` is given without a schema, or raw-string buses are left
+                unported without ``allow_unported_strings``.
+            AttributeError: If a rebound ``(element, idx, kind)`` does not resolve against the target
+                schema (e.g. the target element lacks that bus kind).
+        """
+        program = self.expand() if self.fragments else copy.deepcopy(self)
+        target_schema = schema if schema is not None else program._schema
+        if naming is not None:
+            if target_schema is None:
+                msg = "rebind(naming=...) requires the program to have a schema to re-resolve against"
+                raise ValidationError(msg)
+            target_schema = naming_substituted_schema(target_schema, naming)
+        element_map = dict(elements or {})
+        string_map = dict(strings or {})
+        unported: set[str] = set()
+
+        program._schema = target_schema  # swap in lockstep; None stays None for raw-string programs
+
+        for op in program._body.walk():
+            if not isinstance(op, Operation):
+                continue
+            for attr_name in op.BUS_ATTRS:
+                value = getattr(op, attr_name, None)
+                if isinstance(value, list):
+                    setattr(
+                        op,
+                        attr_name,
+                        [_rebind_bus(b, target_schema, element_map, string_map, unported) for b in value],
+                    )
+                elif value is not None:
+                    setattr(op, attr_name, _rebind_bus(value, target_schema, element_map, string_map, unported))
+
+        if unported and not allow_unported_strings:
+            names = ", ".join(repr(b) for b in sorted(unported))
+            msg = (
+                f"rebind left raw-string bus(es) unported: {names}. Raw strings carry no schema metadata "
+                f"to re-resolve — map them via strings={{...}} (map a name to itself to keep it), or pass "
+                f"allow_unported_strings=True to leave them in place."
+            )
+            raise ValidationError(msg)
+
+        program._rederive_auto_measurement_names()
+
+        for op in program._body.walk():
+            if not isinstance(op, Operation):
+                continue
+            for attr_name in op.BUS_ATTRS:
+                value = getattr(op, attr_name, None)
+                if isinstance(value, list):
+                    for bus in value:
+                        program._validate_bus(bus)
+                elif value is not None:
+                    program._validate_bus(value)
+
+        return program
+
+    def with_waveforms(
+        self,
+        waveforms: WaveformLibrary | Mapping[str, Waveform | IQWaveform],
+    ) -> QProgram:
+        """Return a copy with string waveform names resolved to concrete waveforms, scoped per bus.
+
+        For each operation whose waveform attribute is still a string, the name is looked up against
+        ``waveforms`` *for that operation's bus* — so a shared name like ``"pi_pulse"`` can resolve to a
+        different concrete pulse on ``q[0].drive`` than on ``q[1].drive``. Concrete waveforms and names
+        with no matching entry pass through unchanged. Each replacement re-runs the channel-type check,
+        so an IQ pulse landing on a single-channel bus is caught here rather than at the hardware compiler.
 
         Args:
-            waveform_mapping: Maps alias names to concrete :class:`Waveform` / :class:`IQWaveform`
-                instances. Unmentioned aliases pass through.
+            waveforms: A :class:`~qprogram.WaveformLibrary` (per-bus), or a plain ``{name: waveform}``
+                mapping (resolved on every bus — the legacy global behavior).
 
         Returns:
-            A new :class:`QProgram` with matching string aliases replaced.
+            A new :class:`QProgram` with matching names replaced; the original is untouched.
         """
+        library = waveforms if isinstance(waveforms, WaveformLibrary) else WaveformLibrary.from_mapping(waveforms)
         new_program = copy.deepcopy(self)
-        _remap_waveforms(new_program._body, waveform_mapping)
+        _resolve_waveforms(new_program._body, library)
         return new_program
 
+    def _rederive_auto_measurement_names(self) -> None:
+        """Recompute auto-allocated measurement names from each op's (possibly rebound) bus.
 
-def _remap_waveforms(block: Block, mapping: dict[str, Waveform | IQWaveform]) -> None:
-    """Replace string waveform aliases with concrete waveforms in place.
+        User-supplied names (``handle._auto_named is False``) are reserved and never rewritten. Auto
+        names are re-derived in declaration order against the reserved set plus already-assigned auto
+        names, reproducing :meth:`_allocate_measurement_name`'s per-prefix counter. Mutating
+        ``handle.name`` in place keeps every :class:`~qprogram.MeasurementRef` pointing at it consistent.
+        """
+        measurement_ops = _walk_measurement_ops(self._body)
+        used: set[str] = {op.handle.name for op in measurement_ops if not op.handle._auto_named}
+        for op in measurement_ops:
+            handle = op.handle
+            if not handle._auto_named:
+                continue
+            prefix = _measurement_name_prefix(getattr(op, "bus", ""))
+            n = 0
+            while f"{prefix}{n}" in used:
+                n += 1
+            handle.name = f"{prefix}{n}"
+            used.add(handle.name)
 
-    Walks via :meth:`Block.walk` and uses each op's :attr:`WAVEFORM_ATTRS` rather than hard-coding
-    ``"waveform"`` / ``"weights"``, so vendor ops with custom attribute names work as long as they
-    declare their ``WAVEFORM_ATTRS``.
+
+def _rebind_bus(
+    bus: str,
+    target_schema: BusSchema | None,
+    element_map: Mapping[tuple[str, int | tuple[int, ...]], tuple[str, int | tuple[int, ...]]],
+    string_map: Mapping[str, str],
+    unported: set[str],
+) -> str:
+    """Re-resolve one bus value during :meth:`QProgram.rebind`.
+
+    Schema-backed :class:`~qprogram.BusRef` buses are re-resolved through ``target_schema`` after applying
+    the ``(element, idx)`` remap. Raw strings (and metadata-less BusRefs) use the ``string_map``; any not
+    covered there are recorded in ``unported`` for the caller to report.
+    """
+    if isinstance(bus, BusRef) and bus.element and bus.kind and target_schema is not None:
+        new_element, new_idx = element_map.get((bus.element, bus.idx), (bus.element, bus.idx))
+        return resolve_ref(target_schema, new_element, new_idx, bus.kind)
+    if bus in string_map:
+        return string_map[bus]
+    unported.add(str(bus))
+    return bus
+
+
+def _resolve_waveforms(block: Block, library: WaveformLibrary) -> None:
+    """Resolve string waveform names to concrete waveforms in place, scoped per bus.
+
+    Walks via :meth:`Block.walk` and uses each op's :attr:`WAVEFORM_ATTRS` so vendor ops with custom
+    waveform attribute names work as long as they declare them. Each replacement is channel-validated
+    against the op's bus.
     """
     for op in block.walk():
         if not isinstance(op, Operation):
             continue
+        bus = getattr(op, "bus", "")
         for attr_name in op.WAVEFORM_ATTRS:
             value = getattr(op, attr_name, None)
-            if isinstance(value, str) and value in mapping:
-                setattr(op, attr_name, mapping[value])
-
-
-def _remap_buses(block: Block, mapping: dict[str, str]) -> None:
-    """Rewrite bus references in place across a block tree.
-
-    Walks via :meth:`Block.walk` and uses each op's :attr:`BUS_ATTRS`. Handles both scalar
-    (``op.bus``) and list-shaped (``Sync.targets``) attributes via type dispatch.
-    """
-    for op in block.walk():
-        if not isinstance(op, Operation):
-            continue
-        for attr_name in op.BUS_ATTRS:
-            value = getattr(op, attr_name, None)
             if isinstance(value, str):
-                setattr(op, attr_name, mapping.get(value, value))
-            elif isinstance(value, list):
-                setattr(op, attr_name, [mapping.get(b, b) for b in value])
+                resolved = library.get(bus, value)
+                if resolved is not None:
+                    _validate_waveform_channel(bus, resolved)
+                    setattr(op, attr_name, resolved)
 
 
 def _validate_waveform_channel(bus: str, waveform: Waveform | IQWaveform | str) -> None:

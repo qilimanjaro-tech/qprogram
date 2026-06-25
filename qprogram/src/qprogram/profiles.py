@@ -2,8 +2,8 @@
 
 Ships :data:`QPROGRAM_BASE_V1` — a domain-agnostic, platform-level base profile listing every
 non-bus capability the DSL exposes: block-structure tokens, expression tokens, measurement
-return-tokens, and the bus-less operations (``set_parameter``, ``get_parameter``,
-``set_crosstalk``). Vendor platforms set their platform-level slot via
+return-tokens, and the bus-less operations (``set_parameter``, ``get_parameter``). Vendor
+platforms set their platform-level slot via
 ``CompilerCapabilities.from_profile("qprogram-base-v1", limit_overrides=...)``, or compose by
 declaring their own profile with ``extends="qprogram-base-v1"`` and adding only what differs.
 
@@ -32,7 +32,6 @@ _BUS_LESS_OPS: frozenset[str] = frozenset(
     {
         "op.set_parameter",
         "op.get_parameter",
-        "op.set_crosstalk",
     },
 )
 

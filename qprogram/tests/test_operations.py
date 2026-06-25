@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from qprogram import (
-    CrosstalkMatrix,
     MeasurementHandle,
     ValidationError,
     Variable,
@@ -16,7 +15,6 @@ from qprogram.operations import (
     Operation,
     Play,
     ResetPhase,
-    SetCrosstalk,
     SetFrequency,
     SetGain,
     SetOffset,
@@ -186,16 +184,6 @@ def test_get_parameter_bus_attrs_empty():
     assert GetParameter.BUS_ATTRS == ()
 
 
-def test_set_crosstalk_construction():
-    m = CrosstalkMatrix()
-    op = SetCrosstalk(crosstalk=m)
-    assert op.crosstalk is m
-
-
-def test_set_crosstalk_bus_attrs_empty():
-    assert SetCrosstalk.BUS_ATTRS == ()
-
-
 # ---------------------------------------------------------------------------
 # Introspection: variables()
 # ---------------------------------------------------------------------------
@@ -265,10 +253,6 @@ def test_sync_no_variables():
 
 def test_reset_phase_no_variables():
     assert ResetPhase("bus").variables() == set()
-
-
-def test_set_crosstalk_no_variables():
-    assert SetCrosstalk(CrosstalkMatrix()).variables() == set()
 
 
 # ---------------------------------------------------------------------------

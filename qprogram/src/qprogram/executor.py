@@ -422,7 +422,7 @@ def _evaluate_op_expressions(value: object) -> None:
 # ---------------------------------------------------------------------------
 
 
-_BUS_LESS_OPS = frozenset({"op.set_parameter", "op.get_parameter", "op.set_crosstalk"})
+_BUS_LESS_OPS = frozenset({"op.set_parameter", "op.get_parameter"})
 
 
 def _swept_parameter_forces_software(
@@ -448,9 +448,8 @@ def reference_capabilities() -> PlatformCapabilities:
     a vendor extension makes its programs executable here). Computed fresh on each call so
     late-registered vendor tokens are picked up. The platform slot supports everything in
     software while its **hw half excludes the orchestration ops** (``set_parameter`` /
-    ``get_parameter`` / ``set_crosstalk``) — mirroring real platforms, so plans,
-    ``forced-software`` warnings, and :func:`~qprogram.explain` are meaningful against the
-    reference platform too.
+    ``get_parameter``) — mirroring real platforms, so plans, ``forced-software`` warnings,
+    and :func:`~qprogram.explain` are meaningful against the reference platform too.
     """
     from qprogram.protocol import CAPABILITY_REGISTRY  # noqa: PLC0415 — live, mutable registry
 
@@ -566,6 +565,9 @@ def run(
     parameters: dict[str, float] | None = None,
 ) -> QProgramResult:
     """Execute ``program`` on a one-off :class:`ReferencePlatform` — the quickest path to results.
+
+    The program should already be concrete; resolve any string waveform names first with
+    ``program.with_waveforms(library)`` (or ``library.apply(program)``).
 
     Args:
         program: Program to run.

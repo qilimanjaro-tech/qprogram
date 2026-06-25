@@ -147,19 +147,9 @@ QProgram auto-generates a unique id for the resulting variable
 (`cluster_lo_frequency`, ...). It keeps the original `alias.parameter` form
 as the variable's label.
 
-### `set_crosstalk(crosstalk)`
-
-Apply a `CrosstalkMatrix` for flux crosstalk correction.
-
-```python
-xtalk = qp.CrosstalkMatrix()
-xtalk["flux_q0"] = {"flux_q0": 1.0, "flux_q1": 0.03}
-xtalk["flux_q1"] = {"flux_q0": 0.02, "flux_q1": 1.0}
-program.set_crosstalk(xtalk)
-```
-
-`CrosstalkMatrix` also has `to_array`, `inverse`, `from_array`, and
-`from_buses` for the common transforms.
+> Crosstalk correction is **not** a core operation. It is hardware-stack
+> specific, so a vendor extension that needs it ships its own correction type
+> and operation under its namespace (`program.<vendor>.set_crosstalk(...)`).
 
 ## Vendor operations
 

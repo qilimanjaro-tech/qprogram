@@ -57,6 +57,12 @@ class MyPlatform(PlatformProtocol):
             :meth:`execute`. Defaults to the seed-deterministic mock model.
         parameters: Optional platform parameter values (e.g. local-oscillator frequencies)
             seeded into the simulator's environment.
+        capabilities: Optional capability grant to enforce. When given, it *overrides* the
+            default per-bus descriptor computed by :attr:`capabilities` — same hardware, a
+            different set of permissions. This is how one platform serves several clients: hand
+            each a different :class:`~qprogram.PlatformCapabilities` (e.g. a full grant vs. a
+            core-only grant that withholds every ``vendor.*`` token). When ``None`` (the default),
+            the platform reports its own full, per-bus grant.
     """
 
     def __init__(
@@ -65,6 +71,7 @@ class MyPlatform(PlatformProtocol):
         n_switches: int = 2,
         model: MeasurementModel | None = None,
         parameters: dict[str, float] | None = None,
+        capabilities: PlatformCapabilities | None = None,
     ) -> None:
         # Build the device topology by *composing* schemas: the core flux-tunable-transmon preset
         # (q.drive / q.readout / q.flux) unioned with this package's RF-switch schema (switch.rf),
@@ -74,6 +81,8 @@ class MyPlatform(PlatformProtocol):
         self._n_switches = n_switches
         self._model = model
         self.parameters = dict(parameters or {})
+        # An injected grant (per-client permissions), or None to report the default full grant.
+        self._capabilities = capabilities
 
     # ------------------------------------------------------------------ topology
 
@@ -113,9 +122,15 @@ class MyPlatform(PlatformProtocol):
     def capabilities(self) -> PlatformCapabilities:
         """The per-bus capability descriptor — the whole point of this example.
 
-        Recomputed on each access (like ``ReferencePlatform``) so that vendor tokens
-        registered after platform construction are still picked up.
+        If a grant was injected at construction (``MyPlatform(capabilities=...)``), it is
+        returned verbatim — that is the seam that lets one platform enforce different
+        per-client permissions. Otherwise the default full grant below is recomputed on each
+        access (like ``ReferencePlatform``) so vendor tokens registered after construction are
+        still picked up.
         """
+        if self._capabilities is not None:
+            return self._capabilities
+
         # Drive: a qblox real-time waveform generator. Use the vendor profile verbatim;
         # it carries the core bus ops (play/measure/wait/sync/set_*), the qblox waveforms
         # and the vendor.qblox.* ops. Wire it into BOTH domains — qblox can run an op in
@@ -160,7 +175,7 @@ class MyPlatform(PlatformProtocol):
 
     # ------------------------------------------------------------------- execute
 
-    def execute(self, qprogram: QProgram, **kwargs: object) -> QProgramResult:  # noqa: ARG002
+    def execute(self, qprogram: QProgram) -> QProgramResult:  # noqa: ARG002
         """Validate against *MyPlatform's* capabilities, then interpret the program.
 
         Follows the standard execution convention: expand fragments, raise

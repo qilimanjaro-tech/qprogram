@@ -114,7 +114,7 @@ class PlatformProtocol(ABC):
         return _explain(qprogram, self.capabilities)
 
     @abstractmethod
-    def execute(self, qprogram: QProgram, **kwargs) -> QProgramResult:
+    def execute(self, qprogram: QProgram) -> QProgramResult:
         """Execute a program and return its results."""
         ...
 

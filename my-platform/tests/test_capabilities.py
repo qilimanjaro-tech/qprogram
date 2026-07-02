@@ -12,6 +12,7 @@ from qprogram.buses import BusSchema
 from qprogram.errors import UnsupportedOperationError
 from qprogram.executor import ExecutionWarning
 from qprogram.protocol import (
+    CAPABILITY_REGISTRY,
     BusCapabilities,
     CompilerCapabilities,
     PlatformCapabilities,
@@ -19,6 +20,7 @@ from qprogram.protocol import (
 from qprogram.validation import validate
 from qprogram.waveforms import IQDrag
 
+from my_platform import MyPlatform
 from my_platform.operations import SetCrosstalk, SetRFSwitch
 
 
@@ -185,3 +187,59 @@ def test_capabilities_has_switch_slot(platform):
 
 def test_get_parameters_for_switch(platform):
     assert platform.get_parameters("switch0/rf") == ["active_channel", "insertion_loss_db"]
+
+
+# -- injected capabilities: one platform, per-client grants ---------------------------------------
+
+
+def _core_only_caps() -> PlatformCapabilities:
+    """A grant that withholds every ``vendor.*`` token — the 'core library only' client."""
+    core_tokens = frozenset(
+        t
+        for t in CAPABILITY_REGISTRY
+        if not t.startswith("vendor.") and t.startswith(("op.", "waveform.", "measure.returns."))
+    ) - {"op.set_parameter", "op.get_parameter"}
+    core = CompilerCapabilities(
+        profile="core-only",
+        version=(1, 0, 0),
+        capabilities=core_tokens,
+        limits={},
+        predicates=(),
+        vendor_versions={},
+    )
+    base = CompilerCapabilities.from_profile("qprogram-base-v1")
+    return PlatformCapabilities(
+        bus={
+            ("q", "drive"): BusCapabilities(hw=core, sw=core),
+            ("q", "readout"): BusCapabilities(hw=core, sw=core),
+            ("q", "flux"): BusCapabilities(hw=None, sw=core),
+            ("switch", "rf"): BusCapabilities(hw=core, sw=core),
+        },
+        platform=BusCapabilities(hw=base, sw=base),
+        default_bus_profile=BusCapabilities(hw=core, sw=core),
+    )
+
+
+def test_injected_capabilities_override_default():
+    """MyPlatform(capabilities=...) reports the injected grant verbatim."""
+    custom = _core_only_caps()
+    assert MyPlatform(capabilities=custom).capabilities is custom
+
+
+def test_default_capabilities_when_not_injected(platform):
+    """With no grant injected, MyPlatform still reports its own full per-bus grant."""
+    assert ("switch", "rf") in platform.capabilities.bus
+    assert platform.capabilities.bus[("switch", "rf")].supported_domains() == frozenset({"hw", "sw"})
+
+
+def test_injected_core_only_grant_gates_vendor_ops(schema):
+    """The same platform rejects a vendor op yet accepts a core program under a core-only grant."""
+    platform = MyPlatform(capabilities=_core_only_caps())
+
+    vendor_prog = QProgram(label="vendor", schema=schema)
+    vendor_prog.myplatform.set_rf_switch(schema.switch[0].rf, 1)
+    assert "missing-capability" in _codes(platform.validate(vendor_prog))
+
+    core_prog = QProgram(label="core", schema=schema)
+    core_prog.play(schema.q[0].drive, IQDrag(amplitude=0.2, duration=40, sigma=10, beta=0.5))
+    assert platform.validate(core_prog) == []

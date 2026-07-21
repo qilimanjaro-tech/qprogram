@@ -1,0 +1,8 @@
+# Intentionally empty lockfile.
+# This repository's content was reverted on 2026-07-02, but GitHub's dependency
+# graph kept serving the pre-revert snapshot, causing phantom Dependabot alerts
+# on manifests that no longer existed. This empty lockfile forces the graph to
+# re-parse the manifest path to zero dependencies, resolving those alerts.
+# Delete or overwrite when this repository is re-initialized with real code.
+version = 1
+requires-python = ">=3.10"

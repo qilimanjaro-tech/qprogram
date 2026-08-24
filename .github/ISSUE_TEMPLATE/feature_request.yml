@@ -1,0 +1,52 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for QProgram
+title: "[Feature]: "
+type: Feature
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep it short. A one-line title like `Add <thing>` plus a code example of the API you want is enough.
+
+        Adding an operation, waveform or sweep source that only one vendor's hardware can run belongs in that vendor's extension package, not here. The developer guide covers the extension hooks.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Feature Summary
+      description: What to add, in a sentence or two.
+      placeholder: One or two sentences describing the feature.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation / Use Case
+      description: What you cannot do today, and why the workaround is not good enough.
+      placeholder: I'm trying to do X, but currently I have to work around it by...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed Solution
+      description: |
+        The API you want, as a code example. Add a note about any design decision the implementer has to settle.
+      placeholder: |
+        ```python
+        # Example of desired usage
+        import qprogram as qp
+        ```
+    validations:
+      required: false
+
+  - type: textarea
+    id: surface
+    attributes:
+      label: Surfaces It Touches
+      description: |
+        Anything you already know this reaches beyond the Python API — the `.qp` wire form, the grammar, a capability token, the reference executor's semantics. Leave blank if unsure.
+    validations:
+      required: false

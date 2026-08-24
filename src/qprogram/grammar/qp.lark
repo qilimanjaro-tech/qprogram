@@ -1,0 +1,191 @@
+// Copyright 2026 Qilimanjaro Quantum Tech
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Canonical machine-readable grammar for the .qp file format (format version 1.x).
+//
+// ROLE — this file is the *normative grammar* and a CI artifact, not the production parser.
+// The shipping parser stays the hand-written recursive-descent one in
+// qprogram/serialization/parser.py (zero runtime dependencies, line-tagged errors, and
+// registry/schema-aware checks no context-free grammar can express). CI keeps the two from
+// drifting (tests/test_grammar.py): every text the writer emits must parse under this grammar,
+// and a corpus of syntactically malformed inputs must be rejected by both.
+//
+// PRECISION — the grammar deliberately *over-approximates* in dimensions that are semantic,
+// not syntactic: any identifier is a valid operation/block keyword (the registries decide),
+// section order is free (the parser enforces fragments-before-body), version shapes, duplicate
+// declarations, and bus-path resolution are all post-parse checks. It is deliberately *exact*
+// about token shapes: quoting, parenthesized expressions, call adjacency (`name(` with no
+// space), list/dict literals, and 2-space indentation (via lark's Indenter).
+//
+// DIALECT — lark (parser="lalr", postlex=Indenter with NL_type="_NL", indent 2). See
+// qprogram.grammar.parser() for the reference loader used in tests.
+
+start: _NL? header require_stmt* section*
+
+header: HEADER _NL
+HEADER: /#!QProgram[ \t]+[0-9]+\.[0-9]+/
+
+require_stmt: REQUIRE name NUMBER _NL
+
+section: metadata_sec
+       | schema_sec
+       | fragment_sec
+       | body_sec
+
+// --- metadata ---------------------------------------------------------------
+
+metadata_sec: METADATA ":" _NL _INDENT meta_line+ _DEDENT
+meta_line: name ":" meta_value _NL
+meta_value: STRING | NUMBER | TRUE | FALSE
+
+// --- schema -----------------------------------------------------------------
+
+schema_sec: SCHEMA ":" _NL _INDENT schema_item+ _DEDENT
+schema_item: NAMING ":" STRING _NL          -> naming_line
+           | ELEMENT name ":" _NL _INDENT bus_line+ _DEDENT -> element_block
+bus_line: name INFO_KW "=" INFO_VALUE _NL
+
+// --- fragments ----------------------------------------------------------------
+
+fragment_sec: FRAGMENT frag_head [params] ")" ":" _NL suite
+frag_head: CALL_START          // writer form: `fragment name(`
+         | name "("            // hand-written form with a space before the paren
+params: name ("," name)*
+
+// --- body ---------------------------------------------------------------------
+
+body_sec: BODY ":" _NL suite?
+
+// A suite is the indented statement block shared by body, fragments, and every
+// control-flow construct.
+suite: _INDENT statement+ _DEDENT
+
+statement: var_stmt
+         | for_stmt
+         | if_stmt
+         | call_stmt
+         | line_stmt
+
+var_stmt: VAR name var_attr* _NL
+var_attr: name "=" STRING
+
+// `for` heads a single loop or a pipe-composed parallel of loops.
+for_stmt: for_header ("|" for_header)* ":" _NL suite
+for_header: FOR name IN sweep_source
+sweep_source: func_call | list_literal
+
+if_stmt: IF condition ":" _NL suite elif_clause* else_clause?
+elif_clause: ELIF condition ":" _NL suite
+else_clause: ELSE ":" _NL suite
+// Top-level conditions are written without the outer parens (`if m0.state == 0:`);
+// the fully parenthesized expression form is also accepted.
+condition: value CMP_OP value | paren_expr
+
+// A whole-line `name(args)` statement is a fragment call (CALL_START requires the
+// opening paren to be adjacent to the name, exactly like the production parser).
+call_stmt: CALL_START [call_args] ")" _NL
+
+// Operations and registry-keyword blocks share one shape: a (possibly vendor-dotted)
+// keyword plus arguments — ending either in `:` + an indented suite (block) or in a
+// newline (operation, optionally with the `-> target` of get_parameter).
+line_stmt: op_name op_arg* line_tail
+line_tail: ":" _NL suite                   -> block_tail
+         | ["->" name] _NL                -> op_tail
+op_name: name | DOTTED_NAME
+op_arg: kwarg | value
+kwarg: name "=" value
+
+// --- values -------------------------------------------------------------------
+
+value: STRING
+     | NUMBER
+     | TRUE | FALSE | NULL
+     | BUS_PATH
+     | DOTTED_NAME                          // measurement field ref: m0.state
+     | name                                 // variable / parameter reference
+     | func_call                            // waveform / math / where / range / file
+     | paren_expr
+     | list_literal
+     | dict_literal
+
+func_call: CALL_START [call_args] ")"
+call_args: call_arg ("," call_arg)*
+call_arg: [name "="] value
+
+paren_expr: "(" inner_expr ")"
+// Unary reuses BIN_OP for its sign — a deliberate over-approximation (`(* x)` is
+// grammatical here but rejected by the production parser's 1-token/3-token shape check).
+inner_expr: value BIN_OP value              -> binary_expr
+          | value CMP_OP value              -> comparison_expr
+          | value (AND | OR) value          -> logical_expr
+          | BIN_OP value                    -> unary_expr
+          | NOT value                       -> not_expr
+
+list_literal: "[" [value ("," value)*] "]"
+dict_literal: "{" [dict_entry ("," dict_entry)*] "}"
+dict_entry: STRING ":" value
+
+// Identifier positions also accept the soft structural keywords — `metadata`, `schema`,
+// `body`, `require`, `element`, `naming`, `info` are NOT reserved identifiers in the
+// format (unlike `var` / `for` / `in` / `and` / `or` / `not`, which are).
+name: NAME | METADATA | SCHEMA | BODY | REQUIRE | ELEMENT | NAMING | INFO_KW
+
+// --- terminals ------------------------------------------------------------------
+
+REQUIRE: "require"
+METADATA: "metadata"
+SCHEMA: "schema"
+NAMING: "naming"
+ELEMENT: "element"
+INFO_KW: "info"
+FRAGMENT: "fragment"
+BODY: "body"
+VAR: "var"
+FOR: "for"
+IN: "in"
+IF: "if"
+ELIF: "elif"
+ELSE: "else"
+AND: "and"
+OR: "or"
+NOT: "not"
+TRUE: "true"
+FALSE: "false"
+NULL: "null"
+
+// `single` / `IQ` / `IQ+acquires` — the channel(+flags) value of a schema bus line.
+// Only ever expected right after `info=`, so it cannot shadow NAME elsewhere.
+INFO_VALUE: /[A-Za-z_][A-Za-z0-9_]*(\+[A-Za-z_][A-Za-z0-9_]*)*/
+// `name(` with the paren adjacent — calls and constructors; `name (` lexes NAME LPAR.
+CALL_START: /[A-Za-z_][A-Za-z0-9_]*\(/
+// `q[0].drive` / `c[0,1].flux` — schema bus paths are single tokens.
+BUS_PATH: /[A-Za-z_][A-Za-z0-9_]*\[[0-9]+(,[0-9]+)*\]\.[A-Za-z_][A-Za-z0-9_]*/
+// `qblox.acquire` (vendor ops) and `m0.state` (measurement refs).
+DOTTED_NAME: /[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*/
+NAME: /[A-Za-z_][A-Za-z0-9_]*/
+
+STRING: /"(\\.|[^"\\\r\n])*"/
+NUMBER: /[+-]?(\d+\.\d*|\.\d+|\d+)([eE][+-]?\d+)?/
+BIN_OP: "+" | "-" | "*" | "/"
+CMP_OP: "==" | "!=" | "<=" | ">=" | "<" | ">"
+
+// Newlines fold trailing indentation AND comment-only lines into one token, so a
+// comment's own indentation can never confuse the Indenter. Inline trailing comments
+// are ignored separately; `#!` (the header) is excluded from the comment shape.
+_NL: /(\r?\n[ \t]*(#(?!\!)[^\n]*)?)+/
+COMMENT: /#(?!\!)[^\n]*/
+%ignore COMMENT
+%ignore /[ \t]+/
+
+%declare _INDENT _DEDENT

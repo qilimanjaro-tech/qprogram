@@ -1,0 +1,707 @@
+# Copyright 2026 Qilimanjaro Quantum Tech
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Tests for the ``.qp`` serializer — the writer side."""
+
+from __future__ import annotations
+
+import re
+
+import numpy as np
+import pytest
+
+from qprogram import (
+    BusNaming,
+    BusSchema,
+    QProgram,
+    SerializationError,
+    cos,
+    dumps,
+    eq,
+    minimum,
+    save,
+    sin,
+    where,
+)
+from qprogram.blocks import Block
+from qprogram.operations import Play
+from qprogram.operations.operation import Operation
+from qprogram.serialization import registry
+from qprogram.serialization.registry import register_vendor_block, register_vendor_version
+from qprogram.serialization.writer import _escape_str, _major_minor, _Writer
+from qprogram.sweeps import Range, Values
+from qprogram.waveforms import Arbitrary, Gaussian, IQDrag, IQPair, Square
+
+
+def _norm(text: str) -> str:
+    """Strip blank lines for easier matching in tests."""
+    return "\n".join(line for line in text.splitlines() if line.strip())
+
+
+# ---------------------------------------------------------------------------
+# Module helpers
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("input_str", "expected"),
+    [
+        ("0.1.0", "0.1"),
+        ("1.2.3", "1.2"),
+        ("0.0", "0.0"),
+        ("1", "1.0"),
+    ],
+)
+def test_major_minor(input_str, expected):
+    assert _major_minor(input_str) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("foo", "foo"),
+        ('he said "hi"', r"he said \"hi\""),
+        ("a\\b", r"a\\b"),
+        ("", ""),
+    ],
+)
+def test_escape_str(raw, expected):
+    assert _escape_str(raw) == expected
+
+
+# ---------------------------------------------------------------------------
+# Header
+# ---------------------------------------------------------------------------
+
+
+def test_dumps_starts_with_format_header():
+    text = dumps(QProgram())
+    assert text.startswith("#!QProgram 1.0\n")
+
+
+def test_dumps_includes_body_section():
+    text = dumps(QProgram())
+    assert "body:" in text
+
+
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+
+
+def test_dumps_label():
+    text = dumps(QProgram(label="rabi"))
+    assert 'label: "rabi"' in text
+
+
+def test_dumps_description():
+    text = dumps(QProgram(label="x", description="Rabi run"))
+    assert 'description: "Rabi run"' in text
+
+
+def test_dumps_no_metadata_when_empty():
+    text = dumps(QProgram())
+    assert "metadata:" not in text
+
+
+def test_dumps_escapes_quotes_in_label():
+    text = dumps(QProgram(label='has "quotes"'))
+    assert r"has \"quotes\"" in text
+
+
+# ---------------------------------------------------------------------------
+# Schema
+# ---------------------------------------------------------------------------
+
+
+def test_dumps_no_schema_section_when_absent():
+    text = dumps(QProgram(label="x"))
+    assert "schema:" not in text
+
+
+def test_dumps_inline_schema_for_preset(transmon_schema):
+    p = QProgram(schema=transmon_schema)
+    text = dumps(p)
+    assert "schema:" in text
+    assert "element q:" in text
+    assert "drive info=IQ" in text
+    assert "readout info=IQ+acquires" in text
+
+
+def test_dumps_schema_with_custom_naming():
+    schema = BusSchema.transmon(naming=BusNaming("{kind}_{element}{index}_bus"))
+    p = QProgram(schema=schema)
+    text = dumps(p)
+    assert 'naming: "{kind}_{element}{index}_bus"' in text
+
+
+def test_dumps_schema_with_default_naming_omits_naming_line(transmon_schema):
+    text = dumps(QProgram(schema=transmon_schema))
+    assert "naming:" not in text
+
+
+def test_dumps_coupled_schema(coupled_schema):
+    text = dumps(QProgram(schema=coupled_schema))
+    assert "element q:" in text
+    assert "element c:" in text
+
+
+# ---------------------------------------------------------------------------
+# Variables
+# ---------------------------------------------------------------------------
+
+
+def test_dumps_variable_declarations():
+    p = QProgram()
+    p.variable("freq")
+    text = dumps(p)
+    assert "var freq" in text
+
+
+def test_dumps_variable_with_label():
+    p = QProgram()
+    p.variable("freq", label="Drive")
+    text = dumps(p)
+    assert 'var freq label="Drive"' in text
+
+
+def test_dumps_variable_with_full_metadata():
+    p = QProgram()
+    p.variable("freq", label="L", units="Hz", description="D")
+    text = dumps(p)
+    assert "var freq" in text
+    assert 'label="L"' in text
+    assert 'units="Hz"' in text
+    assert 'description="D"' in text
+
+
+# ---------------------------------------------------------------------------
+# Operations
+# ---------------------------------------------------------------------------
+
+
+def test_dumps_play_plain_string():
+    p = QProgram()
+    p.play("drive_q0", "pi_pulse")
+    text = dumps(p)
+    assert 'play "drive_q0" "pi_pulse"' in text
+
+
+def test_dumps_play_inline_waveform():
+    p = QProgram()
+    p.play("drive_q0", Square(0.5, 100))
+    text = dumps(p)
+    assert "Square(amplitude=0.5, duration=100)" in text
+
+
+def test_dumps_measure_default():
+    p = QProgram()
+    p.measure("readout", "r", "w")
+    text = dumps(p)
+    # The measurement name travels as a ``name=`` kwarg, not a bare positional.
+    assert 'measure "readout" "r" "w" name="m0"' in text
+
+
+def test_dumps_measure_with_custom_fields():
+    p = QProgram()
+    p.measure("readout", "r", "w", fields=("iq", "raw"))
+    text = dumps(p)
+    assert 'fields=["iq", "raw"]' in text
+
+
+def test_dumps_measure_default_fields_not_emitted():
+    p = QProgram()
+    p.measure("readout", "r", "w")
+    text = dumps(p)
+    assert "fields=" not in text
+
+
+def test_dumps_wait_with_integer():
+    p = QProgram()
+    p.wait("bus", 100)
+    text = dumps(p)
+    assert 'wait "bus" 100' in text
+
+
+def test_dumps_wait_with_expression():
+    p = QProgram()
+    v = p.variable("t")
+    p.wait("bus", v + 5)
+    text = dumps(p)
+    assert "(t + 5)" in text
+
+
+def test_dumps_sync_no_buses():
+    p = QProgram()
+    p.sync()
+    text = dumps(p)
+    assert _norm(text).endswith("\nbody:\n  sync")
+
+
+def test_dumps_sync_with_buses():
+    p = QProgram()
+    p.sync(["bus1", "bus2"])
+    text = dumps(p)
+    assert 'sync "bus1" "bus2"' in text
+
+
+def test_dumps_set_frequency():
+    p = QProgram()
+    p.set_frequency("bus", 5e9)
+    text = dumps(p)
+    assert "set_frequency" in text
+    assert "5000000000" in text
+
+
+def test_dumps_set_phase_int():
+    p = QProgram()
+    p.set_phase("bus", 0)
+    text = dumps(p)
+    assert 'set_phase "bus" 0' in text
+
+
+def test_dumps_reset_phase():
+    p = QProgram()
+    p.reset_phase("bus")
+    assert 'reset_phase "bus"' in dumps(p)
+
+
+def test_dumps_set_gain():
+    p = QProgram()
+    p.set_gain("bus", 0.5)
+    assert 'set_gain "bus" 0.5' in dumps(p)
+
+
+def test_dumps_set_offset_one_path():
+    p = QProgram()
+    p.set_offset("bus", 0.1)
+    text = dumps(p)
+    assert 'set_offset "bus" 0.1' in text
+    assert "offset_path1" not in text
+
+
+def test_dumps_set_offset_two_paths():
+    p = QProgram()
+    p.set_offset("bus", 0.1, 0.2)
+    text = dumps(p)
+    assert "offset_path1=0.2" in text
+
+
+def test_dumps_set_parameter():
+    p = QProgram()
+    p.set_parameter("cluster", "lo", 5e9)
+    text = dumps(p)
+    assert 'set_parameter "cluster" "lo"' in text
+
+
+def test_dumps_get_parameter_arrow_syntax():
+    p = QProgram()
+    p.get_parameter("cluster", "lo_freq")
+    text = dumps(p)
+    assert "->" in text
+    assert "cluster_lo_freq" in text
+
+
+# ---------------------------------------------------------------------------
+# Expressions
+# ---------------------------------------------------------------------------
+
+
+def test_dumps_binary_arithmetic():
+    p = QProgram()
+    v = p.variable("x")
+    p.set_frequency("bus", v + 5)
+    assert "(x + 5)" in dumps(p)
+
+
+def test_dumps_unary_neg():
+    p = QProgram()
+    v = p.variable("x")
+    p.set_phase("bus", -v)
+    assert "(-x)" in dumps(p)
+
+
+def test_dumps_comparison():
+    p = QProgram()
+    v = p.variable("x")
+    # Comparisons go in operation args, which need an expression-typed parameter.
+    p.set_offset("bus", where(v < 5, v, 0.0))
+    assert "<" in dumps(p)
+
+
+def test_dumps_logical_and():
+    p = QProgram()
+    v = p.variable("x")
+    w = p.variable("y")
+    p.set_offset("bus", where(eq(v, 1) & eq(w, 1), 1, 0))
+    text = dumps(p)
+    assert "and" in text
+
+
+def test_dumps_logical_not():
+    p = QProgram()
+    v = p.variable("x")
+    p.set_offset("bus", where(eq(v, 0), 0, 1))
+    text = dumps(p)
+    # eq(v, 0) emits as (x == 0); a ``not`` shows up only when an expression is wrapped in ``~``.
+    assert "(x == 0)" in text
+
+
+def test_dumps_math_func_call_form():
+    p = QProgram()
+    v = p.variable("x")
+    p.set_frequency("bus", sin(v))
+    assert "sin(x)" in dumps(p)
+
+
+def test_dumps_where_call_form():
+    p = QProgram()
+    v = p.variable("x")
+    p.set_offset("bus", where(v > 0, v, 0))
+    assert "where" in dumps(p)
+
+
+def test_dumps_minimum_func():
+    p = QProgram()
+    v = p.variable("x")
+    p.set_gain("bus", minimum(v, 0.5))
+    assert "minimum(x, 0.5)" in dumps(p)
+
+
+def test_dumps_nested_expressions():
+    p = QProgram()
+    v = p.variable("x")
+    p.set_frequency("bus", sin(v) + cos(v) * 2)
+    text = dumps(p)
+    assert "sin(x)" in text
+    assert "cos(x)" in text
+
+
+# ---------------------------------------------------------------------------
+# Control flow
+# ---------------------------------------------------------------------------
+
+
+def test_dumps_average_header():
+    p = QProgram()
+    with p.average(1000):
+        p.wait("bus", 100)
+    text = dumps(p)
+    assert "average 1000:" in text
+
+
+def test_dumps_sweep_with_range():
+    p = QProgram()
+    v = p.variable("freq")
+    with p.sweep(v, Range(0.0, 1.0, 0.1)):
+        pass
+    text = dumps(p)
+    assert "for freq in Range(start=0.0, stop=1.0, step=0.1):" in text
+
+
+def test_dumps_loop_values():
+    p = QProgram()
+    v = p.variable("amp")
+    with p.sweep(v, Values(np.array([0.0, 0.5, 1.0]))):
+        pass
+    text = dumps(p)
+    assert "for amp in [" in text
+
+
+def test_dumps_loop_values_never_truncated():
+    """Every value is emitted — truncation would make the file unparseable."""
+    p = QProgram()
+    v = p.variable("amp")
+    with p.sweep(v, Values(np.arange(100))):
+        pass
+    text = dumps(p)
+    assert "..." not in text
+    assert "99" in text  # The last value survives.
+
+
+def test_dumps_parallel():
+    p = QProgram()
+    v = p.variable("x")
+    w = p.variable("y")
+    with p.sweep(v, Range(0.0, 1.0, 0.1)) | p.sweep(w, Range(0.0, 1.0, 0.1)):
+        pass
+    text = dumps(p)
+    assert "for x in" in text
+    assert "for y in" in text
+    assert "|" in text
+
+
+def test_dumps_block_header():
+    p = QProgram()
+    with p.block():
+        p.wait("bus", 100)
+    text = dumps(p)
+    assert "block:" in text
+
+
+def test_dumps_nested_indentation():
+    p = QProgram()
+    v = p.variable("x")
+    with p.average(100), p.sweep(v, Range(0.0, 1.0, 0.1)):
+        p.wait("bus", v)
+    text = dumps(p)
+    # 6 spaces of indentation for the deepest content (2-space per level).
+    assert re.search(r"^      wait", text, re.MULTILINE)
+
+
+# ---------------------------------------------------------------------------
+# Bus serialization
+# ---------------------------------------------------------------------------
+
+
+def test_dumps_plain_string_bus_quoted(empty_program):
+    empty_program.play("drive_q0", "wf")
+    text = dumps(empty_program)
+    assert '"drive_q0"' in text
+
+
+def test_dumps_schema_backed_bus_path(transmon_schema):
+    p = QProgram(schema=transmon_schema)
+    p.play(transmon_schema.q[0].drive, "wf")
+    text = dumps(p)
+    assert "q[0].drive" in text
+    assert '"q0/drive"' not in text
+
+
+def test_dumps_coupler_index_tuple(coupled_schema):
+    p = QProgram(schema=coupled_schema)
+    p.set_offset(coupled_schema.c[0, 1].flux, 0.5)
+    text = dumps(p)
+    assert "c[0,1].flux" in text
+
+
+# ---------------------------------------------------------------------------
+# Waveform serialization
+# ---------------------------------------------------------------------------
+
+
+def test_dumps_iq_pair_inline():
+    p = QProgram()
+    p.play("bus", IQPair(Square(0.5, 100), Square(0.0, 100)))
+    text = dumps(p)
+    assert "IQPair(" in text
+    assert "Square(" in text
+
+
+def test_dumps_iq_drag_inline():
+    p = QProgram()
+    p.play("bus", IQDrag(0.5, 40, 8, 0.1))
+    text = dumps(p)
+    assert "IQDrag(" in text
+
+
+def test_dumps_gaussian_with_variable_amp():
+    p = QProgram()
+    v = p.variable("amp")
+    p.play("bus", Gaussian(amplitude=v, duration=40, sigma=8))
+    text = dumps(p)
+    assert "amplitude=amp" in text
+
+
+def test_dumps_arbitrary_never_truncates_samples():
+    """All samples are emitted — truncation would destroy the waveform on reload."""
+    p = QProgram()
+    p.play("bus", Arbitrary(np.arange(50)))
+    text = dumps(p)
+    assert "Arbitrary(samples=[" in text
+    assert "..." not in text
+    assert "49" in text  # The last sample survives.
+
+
+def test_dumps_arbitrary_short_samples():
+    p = QProgram()
+    p.play("bus", Arbitrary(np.array([0.1, 0.2])))
+    text = dumps(p)
+    assert "Arbitrary(samples=[0.1, 0.2])" in text
+
+
+# ---------------------------------------------------------------------------
+# serialize_value fallthroughs
+# ---------------------------------------------------------------------------
+
+
+def test_writer_serialize_value_handles_tuple_of_strings():
+    """Tuples of strings take the ordinary bracket-literal sequence form (``Measure.fields``)."""
+    p = QProgram(label="x")
+    w = _Writer(p)
+    assert w.serialize_value(("a", "b", "c")) == '["a", "b", "c"]'
+
+
+def test_writer_serialize_value_handles_numpy_int():
+    p = QProgram()
+    w = _Writer(p)
+    assert w.serialize_value(np.int64(42)) == "42"
+
+
+def test_writer_serialize_value_handles_bool():
+    p = QProgram()
+    w = _Writer(p)
+    assert w.serialize_value(True) == "true"  # ruff: ignore[boolean-positional-value-in-call]
+    assert w.serialize_value(False) == "false"  # ruff: ignore[boolean-positional-value-in-call]
+
+
+def test_writer_serialize_value_unknown_type_raises():
+    p = QProgram()
+    w = _Writer(p)
+    # Unknown type → loud SerializationError; a str() fallback would write a token
+    # the parser silently mis-types on reload.
+    with pytest.raises(SerializationError, match="no representation"):
+        w.serialize_value(object())
+
+
+def test_writer_serialize_value_none_emits_null():
+    w = _Writer(QProgram())
+    assert w.serialize_value(None) == "null"
+
+
+def test_writer_serialize_value_list_of_ints():
+    w = _Writer(QProgram())
+    assert w.serialize_value([1, 2, 3]) == "[1, 2, 3]"
+
+
+def test_writer_serialize_value_numeric_tuple_as_list():
+    w = _Writer(QProgram())
+    assert w.serialize_value((1, 2)) == "[1, 2]"
+
+
+def test_writer_serialize_value_ndarray_full():
+    w = _Writer(QProgram())
+    assert w.serialize_value(np.array([0.5, 1.5])) == "[0.5, 1.5]"
+
+
+def test_writer_serialize_value_2d_ndarray_raises():
+    w = _Writer(QProgram())
+    with pytest.raises(SerializationError, match="1-D"):
+        w.serialize_value(np.zeros((2, 2)))
+
+
+def test_writer_serialize_value_dict():
+    w = _Writer(QProgram())
+    assert w.serialize_value({"a": 1.0, "b": None}) == '{"a": 1.0, "b": null}'
+
+
+def test_writer_serialize_value_dict_non_string_keys_raises():
+    w = _Writer(QProgram())
+    with pytest.raises(SerializationError, match="non-string keys"):
+        w.serialize_value({1: 2.0})
+
+
+# ---------------------------------------------------------------------------
+# save / dumps integration
+# ---------------------------------------------------------------------------
+
+
+def test_save_writes_to_file(tmp_path, rabi_program):
+    out = tmp_path / "rabi.qp"
+    save(rabi_program, str(out))
+    content = out.read_text()
+    assert content == dumps(rabi_program)
+    assert content.startswith("#!QProgram")
+
+
+# ---------------------------------------------------------------------------
+# Vendor handling
+# ---------------------------------------------------------------------------
+
+
+def test_dumps_includes_require_when_vendor_used(dummy_vendor):  # ruff: ignore[unused-function-argument]
+    from _dummy_vendor import DummyQProgram  # ruff: ignore[import-outside-top-level]
+
+    p = DummyQProgram()
+    p.dummy.set_markers("bus", "0001")
+    text = dumps(p)
+    assert "require dummy" in text
+
+
+def test_dumps_no_require_for_core_only_program():
+    p = QProgram()
+    p.play("bus", "wf")
+    text = dumps(p)
+    assert "require" not in text
+
+
+def test_dumps_raises_when_vendor_version_missing():
+    """If a vendor op is used but no version is registered, writer raises."""
+
+    class _OrphanOp(Operation):
+        def __init__(self, bus: str) -> None:
+            self.bus = bus
+
+    # Register without a version.
+    registry.register_operation("op", _OrphanOp, vendor="_orphan")
+    try:
+        p = QProgram()
+        op = _OrphanOp(bus="anything")
+        p._active_block.append(op)
+        with pytest.raises(SerializationError, match="no version is registered"):
+            dumps(p)
+    finally:
+        registry._operation_specs_by_qualified.pop(("_orphan", "op"), None)
+        registry._operation_specs_by_class.pop(_OrphanOp, None)
+
+
+def test_dumps_collects_vendor_inside_conditional_arm(dummy_vendor):  # ruff: ignore[unused-function-argument]
+    """A vendor op used only inside an if_/elif_/else_ arm still emits its require line.
+
+    Conditional keeps arm bodies on ``.arms`` / ``.else_body`` rather than ``_elements``;
+    the vendor collector must walk via ``Block.walk()`` to see them.
+    """
+    from _dummy_vendor import DummyQProgram  # ruff: ignore[import-outside-top-level]
+
+    p = DummyQProgram()
+    h = p.measure("ro", "wf", "wt", fields=("iq", "state"))
+    with p.if_(h.state == 1):
+        p.dummy.set_markers("bus", "0001")
+    with p.else_():
+        p.dummy.set_markers("bus", "0010")
+    text = dumps(p)
+    assert "require dummy" in text
+
+
+# ---------------------------------------------------------------------------
+# require lines for vendor blocks (not just vendor operations)
+# ---------------------------------------------------------------------------
+
+
+def test_vendor_block_alone_emits_its_require_line():
+    """A vendor *block* makes the file depend on the extension just as an op does."""
+
+    class _VLoop(Block):
+        REPEATS = True
+
+    register_vendor_version("_wtestvendor", "2.3.4")
+    register_vendor_block("_wtestvendor", "spin", _VLoop)
+    try:
+        p = QProgram(label="x")
+        loop = _VLoop()
+        p.body.append(loop)
+        loop.append(Play(bus="drive_q0", waveform="pi"))  # A core op only.
+        text = dumps(p)
+        assert "require _wtestvendor 2.3" in text
+        assert "  _wtestvendor.spin:" in text
+    finally:
+        registry._block_specs_by_name.pop("_wtestvendor.spin", None)
+        registry._block_specs_by_class.pop(_VLoop, None)
+        registry._vendor_versions.pop("_wtestvendor", None)
+
+
+def test_core_block_emits_no_require_line():
+    p = QProgram(label="x")
+    with p.block():
+        p.play("drive_q0", "pi")
+    assert "require" not in dumps(p)

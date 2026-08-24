@@ -1,0 +1,211 @@
+[project]
+name = "qprogram"
+version = "0.1.0"
+description = "A hardware-agnostic domain-specific language for pulse-level quantum programming."
+authors = [{name = "Qilimanjaro Quantum Tech", email = "info@qilimanjaro.tech"}]
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+keywords = [
+    "qilimanjaro",
+    "quantum computing",
+    "quantum control",
+    "pulse programming",
+    "dsl",
+]
+urls = { "Homepage" = "https://github.com/qilimanjaro-tech/qprogram", "Documentation" = "https://qilimanjaro-tech.github.io/qprogram/", "Source" = "https://github.com/qilimanjaro-tech/qprogram", "Issues" = "https://github.com/qilimanjaro-tech/qprogram/issues" }
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Quantum Computing",
+    "Typing :: Typed",
+]
+dependencies = [
+    "numpy>=2.1",
+    "xarray>=2026.4.0",
+]
+
+[project.optional-dependencies]
+viz = [
+    "matplotlib>=3.10.9",
+]
+lsp = [
+    "pygls>=2,<3",
+]
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.165.10",
+    "lark>=1.3.1",
+    "matplotlib>=3.10.9",
+    "pygls>=2.1.1",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pytest-mock>=3.15.1",
+    "ruff>=0.16.4",
+    "ty>=0.0.74",
+]
+docs = [
+    "mkdocstrings[python]>=1.0.6",
+    "zensical>=0.0.57",
+]
+
+[build-system]
+requires = ["hatchling>=1.32"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qprogram"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/docs",
+    "/zensical.toml",
+    "/README.md",
+    "/LICENSE",
+]
+
+# ----------------------------------------------------------------------------
+# Linting and formatting
+# ----------------------------------------------------------------------------
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+builtins = ["_"]
+extend-exclude = ["*.ipynb"]
+
+[tool.ruff.lint]
+# Preview is on so the docstring (DOC) and copyright (CPY) rule families run:
+# they are what keep the public API documented and every file attributed.
+preview = true
+select = ["ALL"]
+ignore = [
+    # --- Deliberate design choices -----------------------------------------
+    "class-as-data-structure",      # BusRef and friends need behaviour, not a plain data holder
+    "subclass-builtin",   # BusRef subclasses str on purpose, so it is a str everywhere
+    "import-private-name",   # sibling modules import each other's private helpers freely
+    "bad-dunder-method-name",   # `_repr_html_` is the IPython display protocol, not a dunder
+    "non-empty-init-module",    # package __init__ modules also host lazy-import machinery
+    "incorrectly-parenthesized-tuple-in-subscript",  # explicit parentheses mark a tuple key as one
+    # --- Documentation -----------------------------------------------------
+    "undocumented-magic-method",      # magic methods are documented by their class
+    "undocumented-public-init",      # constructor arguments are documented on the class docstring
+    "docstring-extraneous-exception",    # docstrings may document exceptions raised by helpers
+    # --- Noise -------------------------------------------------------------
+    "missing-type-kwargs",    # **kwargs annotations add nothing over the docstring
+    "missing-trailing-comma",    # conflicts with the formatter
+    "line-too-long",      # the formatter owns line length
+    "ambiguous-variable-name",      # `l`/`I` are fine as local mathematical names
+    "boolean-type-hint-positional-argument",    # boolean positional arguments are part of the public API
+    "boolean-default-value-positional-argument",
+    "math-constant",   # a literal float in a test is test data, not a constant
+    "invalid-function-name",      # protocol methods keep the names their callers expect
+    "invalid-argument-name",
+    "compare-to-empty-string",   # `x == ""` states exactly what is being asserted
+    "no-self-use",   # methods that ignore `self` are still part of the interface
+    # --- Complexity metrics ------------------------------------------------
+    "complex-structure",
+    "too-many-public-methods",
+    "too-many-return-statements",
+    "too-many-branches",
+    "too-many-locals",
+    "too-many-positional-arguments",
+    "too-many-nested-blocks",
+    "magic-value-comparison",
+    "too-many-statements-in-try-clause",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The public re-export surface is assembled lazily through module __getattr__,
+# so the names in __all__ are resolvable at runtime but invisible to ruff.
+"src/qprogram/__init__.py" = ["undefined-export"]
+"src/qprogram/serialization/__init__.py" = ["undefined-export"]
+"tests/**" = [
+    "ANN",
+    "assert-false",
+    "blind-except",
+    "D",
+    "DOC",
+    "commented-out-code",
+    "float-equality-comparison",
+    "line-contains-todo",
+    "implicit-namespace-package",
+    "unnecessary-dunder-call",
+    "too-many-statements",
+    "pytest-raises-too-broad",
+    "os-path-join",
+    "S",
+    "private-member-access",
+    "print",
+    # The lambdas in the expression tables spell out the operator syntax under
+    # test; `eq`/`ne` in the same tables are qprogram's own symbolic helpers,
+    # so pulling the rest from `operator` would read as if they were too.
+    "reimplemented-operator",
+]
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = true
+suppress-dummy-args = true
+
+[tool.ruff.lint.flake8-copyright]
+author = "Qilimanjaro Quantum Tech"
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+
+# ----------------------------------------------------------------------------
+# Type checking
+# ----------------------------------------------------------------------------
+[tool.ty.src]
+include = ["src"]
+
+[tool.ty.rules]
+# `Values(...)` needs an `invalid-argument-type` suppression on Python 3.12+, where numpy's
+# `ArrayLike` does not admit the narrowed operand type, but not on 3.11. A suppression that is
+# necessary on one supported version is reported as unused on another, so the check is off.
+unused-ignore-comment = "ignore"
+
+# ----------------------------------------------------------------------------
+# Testing
+# ----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "9.0"
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+testpaths = ["tests"]
+filterwarnings = ["error"]
+xfail_strict = true
+
+[tool.coverage.run]
+source = ["qprogram"]
+branch = true
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "@(abc\\.)?abstractmethod",
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
+show_missing = true
+skip_covered = false
+precision = 1

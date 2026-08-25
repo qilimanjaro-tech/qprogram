@@ -42,7 +42,7 @@ m1 = program.measure(q[0].readout, "readout", "weights", name="custom_name")
 m2 = program.measure(q[0].readout, "readout", "weights", fields=(MF.IQ, MF.RAW))
 ```
 
-`fields` names which data the platform should produce — an iterable of
+`fields` names which data the platform should produce: an iterable of
 `MeasurementField` members (`STATE`, `IQ`, `RAW`), defaulting to `(IQ,)`.
 Order and duplicates don't matter (the stored tuple is canonical), a bare
 string is rejected, and an unknown field name raises `ValidationError` right
@@ -132,7 +132,7 @@ sequencer, so they run host-side.
 ### `set_parameter(bus, parameter, value)`
 
 Set a bus-level platform parameter. `parameter` is a string; each platform
-defines its own vocabulary. This is a **host-side** operation — it talks to
+defines its own vocabulary. This is a **host-side** operation: it talks to
 the platform's configuration layer for that bus, not the real-time sequencer.
 
 ```python
@@ -214,6 +214,6 @@ that append a leaf. `sweep`, `average`, `block`, the `if_` / `elif_` /
   platform-specific, so it belongs in a vendor extension.
 - **Timing and scheduling primitives** past `wait` and `sync`: QProgram
   records intent, and the platform's compiler owns the schedule.
-- A handful of identifiers — `while`, `repeat`, `match`, `gate`, ... — are
+- A handful of identifiers (`while`, `repeat`, `match`, `gate`, ...) are
   held back for future syntax and rejected as variable ids. See
   [Reserved keywords](../reference/reserved.md).

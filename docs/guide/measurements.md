@@ -33,19 +33,19 @@ If you do not pass `name=`, QProgram picks the name for you.
 
 The prefix for schema-backed buses is the bus's full string form: what the
 `BusSchema.naming` pattern renders, and what the result store reports as
-`MeasurementResult.bus`. The `.qp` line is the exception — there a
+`MeasurementResult.bus`. The `.qp` line is the exception: there a
 schema-backed bus is written as a bus *path*, so the measurement above
 serializes as `measure q[0].readout "readout" "weights" name="q0/readout/m0"`,
 with the path on the left and the string form inside the name.
 
 Each unique bus carries its own counter that always starts at 0, so a
 program that measures `q[0].readout` and then `q[1].readout` produces
-`q0/readout/m0` and `q1/readout/m0` — different counters because they live on
-different buses.
+`q0/readout/m0` and `q1/readout/m0`, with different counters because they live
+on different buses.
 
 The counter is recomputed by walking the AST. There is no hidden counter
-state on the program, so building further on a derived program —
-`copy.deepcopy`, `with_waveforms`, `qp.loads(qp.dumps(...))` — picks the next
+state on the program, so building further on a derived program
+(`copy.deepcopy`, `with_waveforms`, `qp.loads(qp.dumps(...))`) picks the next
 name up exactly where the original left off. A derived program does carry its
 own `BusSchema` instance, and a program accepts bus references only from the
 schema attached to it: reach for `derived.schema.q[0].readout` rather than a
@@ -74,13 +74,14 @@ data = result.get(handles[0])
 ```
 
 The handles returned are the **same Python instances** the AST holds
-inside its measurement ops and any `MeasurementRef`s — writing to one
+inside its measurement ops and any `MeasurementRef`s. Writing to one
 via `handle._set_value(field, value)` is immediately visible everywhere
 the measurement is referenced.
 
 Handles also use structural equality, so a freshly-constructed
-`MeasurementHandle("q0/readout/m0")` compares equal to the canonical one —
-handy for result lookups by name without holding the original variable:
+`MeasurementHandle("q0/readout/m0")` compares equal to the canonical one,
+which is handy for result lookups by name without holding the original
+variable:
 
 ```python
 from qprogram import MeasurementHandle
@@ -107,14 +108,14 @@ program.measure(q[0].readout, "readout", "weights", fields=(MF.IQ, MF.RAW))
 program.measure(q[0].readout, "readout", "weights", fields=["iq", "raw"])  # equivalent
 ```
 
-`MeasurementField` is a `StrEnum`, so `MeasurementField.IQ == "iq"` — the
+`MeasurementField` is a `StrEnum`, so `MeasurementField.IQ == "iq"`: the
 members *are* strings. The enum is there so your editor can complete the
 options and a type checker can catch a bad one; plain strings work too.
 
 Three rules worth knowing:
 
 **It must be an iterable, never a bare string.** `fields="iq"` would iterate
-to `("i", "q")`, so it raises `ValidationError` — and there is no
+to `("i", "q")`, so it raises `ValidationError`, and there is no
 comma-separated spelling:
 
 ```python
@@ -146,7 +147,7 @@ That registry is also the extension point. A vendor package that calls
 `register_capability_tokens("measure.fields.counts")` makes
 `fields=("counts",)` legal with no change to core qprogram; vendor field names
 sort after the core members. Platforms still declare which fields they
-*support* through the same tokens in their bus profiles — see
+*support* through the same tokens in their bus profiles. See
 [Capabilities](capabilities.md).
 
 ## The result object
@@ -180,7 +181,7 @@ works here.
 ### Picking a field
 
 A measurement that requested several fields produces one array per field, and
-they have different shapes. `field=` says which one you want — a
+they have different shapes. `field=` says which one you want: a
 `MeasurementField` member or a registered field name, since the members *are*
 strings:
 
@@ -194,7 +195,7 @@ result.get(m, field=MF.RAW)  # dims (*sweeps, "time", "IQ")
 result.get(m, field="state")  # identical to field=MF.STATE
 ```
 
-`field` defaults to `MeasurementField.IQ`, the same default `measure` uses — so
+`field` defaults to `MeasurementField.IQ`, the same default `measure` uses, so
 a measurement you never passed `fields=` to reads back with a bare
 `result.get(m)`. The default is a real field name rather than "whatever this
 measurement produced", so asking for a field the measurement didn't request
@@ -252,7 +253,7 @@ Three cases:
 1. After `qp.load(...)` to get handles back without re-running the program.
 2. In test code that wants to assert against named measurements.
 3. When you serialize a program, hand it to another process, and need to
-   match results to operations later — or to inject classified state
+   match results to operations later, or to inject classified state
    values into the AST so any `Conditional` referencing them evaluates
    correctly in Python.
 

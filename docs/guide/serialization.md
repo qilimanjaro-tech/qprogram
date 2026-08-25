@@ -60,7 +60,7 @@ assert reloaded.body == program.body
 
 The structural equality covers the entire AST: blocks, operations,
 expressions, waveforms, bus references, and the point arrays inside sweep
-sources such as `Values` (stored as numpy arrays and written out in full — the
+sources such as `Values` (stored as numpy arrays and written out in full; the
 writer never truncates).
 
 ## Version contract
@@ -97,13 +97,13 @@ versions are incompatible, or the extension is found but fails to import) does
 it raise a clear `ParseError` before touching the body. That is what makes a
 `.qp` file close to a self-contained contract: an environment where every
 required extension is installed *and declares its `qprogram.vendors` entry
-point* loads the file — imported or not — and recognizes every operation it
+point* loads the file, imported or not, and recognizes every operation it
 references. An extension installed without that entry point still has to be
 imported by hand first.
 
 Pass `qp.loads(text, auto_activate=False)` (or `qp.load(path, auto_activate=False)`)
-to disable on-demand imports — then an unimported vendor is a hard error and the
-message tells you to import the extension first.
+to disable on-demand imports. An unimported vendor is then a hard error, and
+the message tells you to import the extension first.
 
 ## Schemas serialize inline
 

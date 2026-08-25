@@ -10,7 +10,7 @@ Module-level dicts in `src/qprogram/serialization/registry.py`:
 
 - `_operation_specs_by_qualified: dict[tuple[str | None, str], OperationSpec]`
   keyed by `(vendor, name)`. Core operations use `vendor=None`.
-- `_operation_specs_by_class: dict[type, OperationSpec]` — the reverse
+- `_operation_specs_by_class: dict[type, OperationSpec]`: the reverse
   direction the writer uses to find the wire name from an instance.
 - `_block_specs_by_name: dict[str, BlockSpec]` keyed by the **qualified**
   header keyword (`"average"`, `"fake_inst.forever"`), plus
@@ -42,7 +42,7 @@ class OperationSpec:
 ```
 
 `spec.qualified_name` is `name` for a core op and `"<vendor>.<name>"` for a
-vendor one — the exact keyword that appears on the wire.
+vendor one, the exact keyword that appears on the wire.
 
 `serialize` and `parse` are optional callbacks. When `None`, the writer
 falls back to `default_serialize_operation` and the parser to
@@ -75,7 +75,7 @@ extension step.
 
 The writer's entry point is `dumps(program)`. It builds a `_Writer`, which
 walks the AST and emits lines. The same instance doubles as the *write
-context* handed to every spec callback — `serialize_value`, `serialize_bus`,
+context* handed to every spec callback. `serialize_value`, `serialize_bus`,
 `serialize_waveform`, `serialize_sweep_source`, and `var_ident` are the whole
 surface a callback may rely on.
 
@@ -135,7 +135,7 @@ helpers), with no external dependency: no `lark`, no `pyparsing`, no YAML
 library. External parser tools add weight and tend to outgrow their welcome;
 a custom parser for a small grammar stays small.
 
-The format does have a normative machine-readable grammar —
+The format does have a normative machine-readable grammar in
 `src/qprogram/grammar/qp.lark`, a Lark dialect using LALR and a two-space
 `Indenter`. It is a specification artifact, not the production parser:
 `tests/test_grammar.py` runs the writer's output corpus and the hypothesis
@@ -146,7 +146,7 @@ so the two can never drift. `lark` is a dev-only dependency.
 
 A bus reference is one of two things: a quoted string, or a path. Paths
 look like `q[0].drive`, `c[0,1].flux`. Quoting is the type distinction, and
-it is tracked through parsing by the `_QuotedStr` marker — so a raw-string
+it is tracked through parsing by the `_QuotedStr` marker, so a raw-string
 bus that happens to *look* like a path is never promoted. Promotion happens
 post-parse, and only for the attributes an operation lists in `BUS_ATTRS`.
 
@@ -177,7 +177,7 @@ works because the constraint is enforced upstream: `Variable` validates its
 id against `[A-Za-z_][A-Za-z0-9_]*` and rejects
 [reserved keywords](../reference/reserved.md) at construction, and
 `QProgram.variable` rejects a duplicate id within one program. So the writer
-never sanitizes and never invents a disambiguation suffix — and `.qp` files
+never sanitizes and never invents a disambiguation suffix, and `.qp` files
 stay stable across re-serializations.
 
 ## Arrays in sweeps and waveforms
@@ -196,7 +196,7 @@ for amp in File(path="sweep_values.npy"):
   ...
 ```
 
-The path — not the data — is what the `.qp` file carries. Both `File.length()`
+The path, not the data, is what the `.qp` file carries. Both `File.length()`
 and `File.values()` call `np.load`, and neither caches (a cached array would
 join the source's structural equality, so a loaded instance would stop
 comparing equal to a fresh one). So the `.npy` file has to be readable
@@ -221,7 +221,7 @@ sweeps and a third sweep nested inside it, math-function and comparison
 expressions, an `IQDrag` whose amplitude is a variable, `set_gain`,
 `set_frequency`, `set_phase`, `set_offset`, `play`, `sync`, `wait`, and a
 `measure` carrying `fields=("iq", "raw")`. It is not exhaustive: it holds no
-vendor operation, no conditional, and no fragment — those have their own tests
+vendor operation, no conditional, and no fragment; those have their own tests
 (`test_round_trip_with_vendor`, `test_round_trip_vendor_op_inside_conditional`,
 `test_round_trip_conditional_full_chain`, and
 `tests/test_fragments_serialization.py`). On top of that,
@@ -255,10 +255,11 @@ the first and second `dumps`. Diff them and the answer is usually obvious.
   **`register_vendor_block(vendor, name, cls)`** for vendor control-flow
   blocks.
 - **`register_vendor_version(vendor, version)`** once per vendor package.
-- **`register_operation(name, cls, *, vendor=None, serialize=None, parse=None)`**
-  and **`register_block(name, cls, *, vendor=None, serialize_header=None, parse_header=None)`**
-  are the underlying calls, used by core registration and available when the
-  default reflection cannot express the syntax.
+- **`register_operation(name, cls, *, vendor=None, serialize=None,
+  parse=None)`** and **`register_block(name, cls, *, vendor=None,
+  serialize_header=None, parse_header=None)`** are the underlying calls, used by
+  core registration and available when the default reflection cannot express the
+  syntax.
 
 Registration is conservative: claiming a key already held by a *different*
 class raises, because silently taking over another package's keyword would

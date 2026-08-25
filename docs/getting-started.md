@@ -109,8 +109,8 @@ against many calibration sets without rewriting.
 QProgram itself never talks to instruments. A platform implementation does
 that, via the
 [`PlatformProtocol`](reference/api-qprogram.md#qprogram.PlatformProtocol). The
-package ships one such platform — `ReferencePlatform`, a pure-Python
-interpreter — so a program is runnable before any hardware is involved:
+package ships one such platform: `ReferencePlatform`, a pure-Python
+interpreter. A program is therefore runnable before any hardware is involved:
 
 ```python
 result = qp.simulate(resolved)

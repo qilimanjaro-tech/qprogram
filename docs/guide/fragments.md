@@ -1,14 +1,14 @@
-# Fragments — reusable sub-programs
+# Fragments
 
 A `Fragment` is a named, parameterized program template: define an X gate, an
 echo sequence, or a readout block once, instantiate it anywhere. Fragments are
-first-class — definitions and call sites live in the AST and round-trip
-through `.qp` — and `program.expand()` lowers everything to a plain,
-fragment-free program when a compiler needs one.
+first-class: definitions and call sites live in the AST and round-trip
+through `.qp`. `program.expand()` lowers everything to a plain, fragment-free
+program when a compiler needs one.
 
 ## Defining a fragment
 
-Two equivalent styles. The **decorator** reads like the `.qp` syntax — the
+Two equivalent styles. The **decorator** reads like the `.qp` syntax, where the
 function signature *is* the parameter list (first argument is the builder,
 the rest become parameters, the name comes from the function):
 
@@ -23,7 +23,7 @@ def x_pulse(f, drive, amp):
     f.play(drive, Gaussian(amplitude=amp, duration=40, sigma=8))
 ```
 
-The body runs **once**, at decoration time, to record the AST — Python `if`s
+The body runs **once**, at decoration time, to record the AST, so Python `if`s
 inside it are evaluated at definition, not per call. `*args` / `**kwargs` /
 defaults / keyword-only parameters are rejected.
 
@@ -40,7 +40,7 @@ xp.play(drive, Gaussian(amplitude=amp, duration=40, sigma=8))
 ```
 
 A `Fragment` *is* a `QProgram`: the whole builder surface works inside a
-body — control flow, vendor namespaces (`f.<vendor>.<operation>(...)`), local
+body, including control flow, vendor namespaces (`f.<vendor>.<operation>(...)`), local
 variables (`f.variable("n")`), and calls to other fragments (`f.call(...)`,
 cycles are rejected).
 
@@ -66,8 +66,8 @@ with p.average(1000), p.sweep(g, qp.Range(0, 1, 0.01)):
 
 `call()` binds with the Python calling convention (missing / extra /
 duplicate arguments are errors), appends a first-class `Call` node, and
-registers the fragment — plus any fragments *it* calls, dependencies first —
-on `program.fragments`. Accepted argument kinds: numbers,
+registers the fragment on `program.fragments`, together with any fragments
+*it* calls, dependencies first. Accepted argument kinds: numbers,
 expressions/variables, buses (strings or `BusRef`s), waveforms. A fragment
 built against a `BusSchema` shares it with the host program; two *different*
 schemas are an error.
@@ -108,7 +108,7 @@ host, prefixed with the fragment name (`x_pulse_n`, `x_pulse_n_2`, …);
 colliding measurement names gain a suffix (`m0`, `m0_2`, …) by renaming the
 shared handle, so `handle.state` conditionals inside the fragment stay
 consistent. Nested calls expand
-recursively, and expansion is deterministic — expanding twice yields
+recursively, and expansion is deterministic: expanding twice yields
 structurally equal programs.
 
 ```python
@@ -119,7 +119,7 @@ assert not flat.fragments
 ## Validation and execution
 
 `qp.validate()` auto-expands programs containing calls, so capabilities are
-checked against the substituted bodies — no platform needs a "call"
+checked against the substituted bodies and no platform needs a "call"
 capability token. If you need the identity-keyed `ExecutionPlan` for nodes
 you hold, expand explicitly and validate the expanded program. Platforms
 follow the same convention: `execute()` lowers via `expand()` before

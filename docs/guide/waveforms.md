@@ -5,7 +5,7 @@ involves hardware. The same `Gaussian(0.5, 40, 8)` shape can be a flux pulse
 on one platform and a charge-line pulse on another, depending on the bus it
 ends up on. The one thing a bus cares about is the channel count: a
 single-channel bus takes a `Waveform`, an IQ bus takes an `IQWaveform`. That
-is why `Gaussian` on an IQ drive bus raises `ValidationError` — `IQDrag` is
+is why `Gaussian` on an IQ drive bus raises `ValidationError`: `IQDrag` is
 the shape that belongs there.
 
 ## Two base classes
@@ -27,14 +27,14 @@ abstract, so every subclass supplies them:
 | `get_duration()`                    | duration in nanoseconds                |
 
 Both bases then derive the same set of read-only measures from those, so any
-shape — built-in or your own — answers them for free:
+shape, built-in or your own, answers them for free:
 
 | Method                              | What it returns                                    |
 |-------------------------------------|----------------------------------------------------|
 | `area(resolution=1)`                | the integrated envelope, in nanosecond-amplitude   |
 | `peak_amplitude(resolution=1)`      | `max(abs(envelope))`                               |
 | `rms_amplitude(resolution=1)`       | the root-mean-square amplitude                     |
-| `spectrum(resolution=1)`            | a `(frequencies_hz, complex_spectrum)` pair — one-sided for a real envelope, two-sided for an IQ one |
+| `spectrum(resolution=1)`            | a `(frequencies_hz, complex_spectrum)` pair: one-sided for a real envelope, two-sided for an IQ one |
 | `plot(resolution=1, ...)`           | a matplotlib `Axes` (a pair of them for IQ shapes) |
 
 `plot()` needs matplotlib, which ships in the `qprogram[viz]` extra; the rest
@@ -82,7 +82,7 @@ take an optional `phase=` in radians. `SuddenNetZero` plays a positive square
 segment, a zero hold of width `t_phi`, then a negative segment scaled by `b`;
 the two segments are meant to cancel the net integrated flux. The
 cancellation is exact only when `b` is 1 and the samples left over after the
-hold split evenly between the segments — `b` is detuned from 1 to null
+hold split evenly between the segments. `b` is detuned from 1 to null
 whatever residual the flux line adds, so the `b=0.4` above integrates to a
 deliberate non-zero area. `Arbitrary` and `Chained` are escape hatches:
 provide samples directly, or concatenate other waveforms (`a + b` builds a
@@ -91,19 +91,19 @@ provide samples directly, or concatenate other waveforms (`a + b` builds a
 ### What the shape parameters mean
 
 Every duration and width is in **nanoseconds**, and every width is the real
-width of the shape — not a ratio against `duration`.
+width of the shape, not a ratio against `duration`.
 
 | Parameter                                                     | Meaning                                                                                     |
 |---------------------------------------------------------------|---------------------------------------------------------------------------------------------|
 | `Gaussian.sigma`, `GaussianDragCorrection.sigma`, `IQDrag.sigma` | The Gaussian standard deviation σ, in nanoseconds.                                        |
-| `Sech.tau`                                                     | The sech width τ, in nanoseconds — the `sigma` analogue for `amplitude · sech((t - center) / tau)`. |
+| `Sech.tau`                                                     | The sech width τ, in nanoseconds: the `sigma` analogue for `amplitude · sech((t - center) / tau)`. |
 | `IQDrag.beta`, `GaussianDragCorrection.beta`                   | The DRAG coefficient β: the weight on the derivative term. Typically small (below 0.5) and tuned per qubit. |
 | `Tukey.alpha`                                                  | The taper fraction, in `[0, 1]`: the share of `duration` taken by the rise and fall combined. `0` is a rectangle, `1` is a Hann window. |
 
 `duration` is independent of the width: it is the window the shape is rendered
 into, so it controls truncation and nothing else. Widening the window from
 `Gaussian(amp, duration=40, sigma=8)` to `Gaussian(amp, duration=60, sigma=8)`
-adds 20 ns of tail without changing the pulse shape — which is what makes
+adds 20 ns of tail without changing the pulse shape, which is what makes
 `sigma` the knob a calibration sweep reaches for, since a Gaussian's rotation
 angle goes with its area, roughly `amplitude · sigma · sqrt(2π)`.
 

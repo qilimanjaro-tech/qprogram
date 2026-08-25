@@ -10,7 +10,7 @@ the exception hierarchy, and the generated API documentation.
 | [Errors](errors.md)                                    | The exception hierarchy and what raises which.                   |
 | [API reference](api-qprogram.md)                       | Auto-generated reference for the `qprogram` package.             |
 
-These pages describe the observable surface. For the reasoning behind it —
-how the AST, the capability protocol, and the serializer are put together —
-read the [developer guide](../developer/index.md), starting with
+These pages describe the observable surface. For the reasoning behind it (how
+the AST, the capability protocol, and the serializer are put together), read
+the [developer guide](../developer/index.md), starting with
 [Architecture](../developer/architecture.md).

@@ -35,7 +35,7 @@ source layout.
 - `test_round_trip_property.py`: hypothesis-generated programs, asserting
   both structural equality and byte stability after a round trip.
 - `test_grammar.py`: the cross-check that keeps `grammar/qp.lark` and the
-  production parser from drifting — the writer corpus and the hypothesis
+  production parser from drifting. The writer corpus and the hypothesis
   strategies must parse under the grammar, and syntactic negatives must
   fail under both.
 - `test_protocol.py`, `test_required_capabilities.py`, `test_validation.py`,
@@ -64,7 +64,7 @@ Common fixtures live in `tests/conftest.py`. The most useful ones:
 | `coupled_schema`         | `BusSchema.transmon_coupled()`                                        |
 | `custom_naming_schema`   | A transmon schema with a custom `BusNaming` pattern.                   |
 | `dynamic_schema`         | A `BusSchema()` built with `add_element` (no presets).                 |
-| `empty_program`          | `QProgram(label="empty")` — no schema, empty body.                     |
+| `empty_program`          | `QProgram(label="empty")`, no schema and an empty body.                |
 | `schema_program`         | `QProgram(schema=transmon_schema)`.                                    |
 | `freq_var`, `gain_var`   | Single `Variable` instances.                                           |
 | `square_pulse`, `gaussian_pulse`, `iq_pulse`, `iq_pair_pulse` | Stock waveforms. |
@@ -75,8 +75,8 @@ Common fixtures live in `tests/conftest.py`. The most useful ones:
 `tests/_dummy_vendor.py` is a complete vendor extension: namespace, mixin,
 pre-combined `QProgram`, operations, and a profile bundle. Its
 `activate()` / `deactivate()` pair is what keeps the global registries clean
-between tests, so no test should rely on import side effects to install it —
-use the `dummy_vendor` fixture.
+between tests, so no test should rely on import side effects to install it.
+Use the `dummy_vendor` fixture.
 
 ## Coverage configuration
 
@@ -101,7 +101,7 @@ not purely abstract, though: `get_bus_schema`, `get_buses`, `get_parameters`,
 `qprogram.validation.validate` and `qprogram.explain`, and `stream` raises
 `NotImplementedError`. `ReferencePlatform` inherits all four, and
 `tests/test_executor.py` calls the inherited `explain`. So the omission hides
-real, partly exercised code — read that file's absence from the report as a
+real, partly exercised code. Read that file's absence from the report as a
 gap, not as proof there is nothing to cover.
 
 What is left uncovered is mostly unreachable from a normal call: guards the
@@ -155,7 +155,7 @@ Three workflows under `.github/workflows/` gate a pull request.
 - **`code_quality.yml`** has two independent jobs and an aggregating gate.
   `lint` runs `ruff check` and `ruff format --diff` once, on Python 3.13.
   `types` loops `ty check --python-version <v>` over 3.11, 3.12, 3.13, and
-  3.14 — the type checker resolves the standard library for the version it is
+  3.14. The type checker resolves the standard library for the version it is
   told to assume, so one environment covers all four. The third job fails the
   workflow if either of the other two does.
 - **`docs.yml`** builds this site with `zensical build`, and deploys it to

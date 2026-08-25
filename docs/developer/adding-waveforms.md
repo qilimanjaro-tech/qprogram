@@ -101,7 +101,7 @@ numpy failure further down.
 
 Built-in waveforms are listed in
 `src/qprogram/serialization/registry.py`, inside
-`_register_builtin_waveforms()` — the registry is keyed by class name:
+`_register_builtin_waveforms()`. The registry is keyed by class name:
 
 ```python
 def _register_builtin_waveforms() -> None:
@@ -174,8 +174,8 @@ class MyPulse(Waveform):
 After import, the parser knows the class. `MyPulse(0.5, 100, 3.14)` in a
 `.qp` file rebuilds an instance using the constructor signature.
 Registering a *different* class under a name already taken raises
-`ValueError` — it would silently change how every existing file parses that
-constructor.
+`ValueError`, because it would silently change how every existing file parses
+that constructor.
 
 To let profiles advertise the shape, pair the registration with
 `qp.register_waveform_token(MyPulse, "waveform.my_pulse")`, which adds the
@@ -192,7 +192,7 @@ Gaussian(amplitude=0.5, duration=40, sigma=8)
 
 Algorithm (`_Writer.serialize_waveform`):
 
-1. Take the class name verbatim — it is the registry key.
+1. Take the class name verbatim; it is the registry key.
 2. Walk `vars(wf)` in assignment order.
 3. Skip anything whose name begins with `_`.
 4. Emit every remaining attribute as a `key=value` pair, recursing through
@@ -222,7 +222,7 @@ parser._parse_waveform_expr("Gaussian(amplitude=0.5, duration=40, sigma=8)")
    references (when the identifier is declared), `Expression` subtrees, or
    nested waveforms.
 4. Call `cls(**kwargs)` when any argument was named, `cls(*args)`
-   otherwise — the writer emits every waveform argument as a keyword, so the
+   otherwise. The writer emits every waveform argument as a keyword, so the
    keyword path is the one round-trips take. The two are never combined, so a
    hand-written call that mixes them drops its positional arguments.
 

@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Sweep sources — the pluggable value descriptions a :class:`~qprogram.blocks.Sweep` binds.
+"""Sweep sources — the pluggable value descriptions a [`Sweep`][qprogram.blocks.Sweep] binds.
 
 One block, many sources. ``Sweep(variable, source)`` is the DSL's only sweep construct; *how* the
 values come to be is the source's job::
@@ -30,7 +30,7 @@ values come to be is the source's job::
         ...  # composed
 
 Every one of those has a fluent equivalent that needs none of these names in scope — omit the source
-and :meth:`~qprogram.QProgram.sweep` returns a builder whose ``from_*`` methods construct exactly the
+and [`sweep`][qprogram.QProgram.sweep] returns a builder whose ``from_*`` methods construct exactly the
 sources above (``from_range``, ``from_linspace``, ``from_logspace``, ``from_values``, ``from_file``,
 plus one per registered source, vendor sources included). Same AST, same ``.qp``::
 
@@ -42,10 +42,10 @@ plus one per registered source, vendor sources included). Same AST, same ``.qp``
 The object form stays the right one for a *computed* source: one held in a variable, built in a
 comprehension, or nested more deeply than the ``rotate`` / ``repeat`` shortcuts reach.
 
-Adding a source is the extension point: subclass :class:`SweepSource`, declare ``KIND`` and ``TOKEN``,
+Adding a source is the extension point: subclass [`SweepSource`][qprogram.SweepSource], declare ``KIND`` and ``TOKEN``,
 implement ``length()`` and ``values()``, register with
-:func:`~qprogram.serialization.register_sweep_source`. Serialization, capability reporting and
-round-tripping then come for free — the same deal :class:`~qprogram.waveforms.Waveform` subclasses get.
+`register_sweep_source`. Serialization, capability reporting and
+round-tripping then come for free — the same deal [`Waveform`][qprogram.waveforms.Waveform] subclasses get.
 """
 
 from qprogram.sweeps.builtin import File, Linspace, Logspace, Range, Values

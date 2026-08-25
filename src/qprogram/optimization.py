@@ -11,16 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Program rewrites that improve how a :class:`~qprogram.QProgram` executes on a platform.
+"""Program rewrites that improve how a [`QProgram`][qprogram.QProgram] executes on a platform.
 
-Where :func:`qprogram.validation.validate` only *reports* how a program would run (and emits the
-``"reorderable-averaging"`` hint), :func:`optimize` *applies* the rewrites the validator suggests.
+Where [`qprogram.validation.validate`][qprogram.validate] only *reports* how a program would run (and emits the
+``"reorderable-averaging"`` hint), [`optimize`][qprogram.optimize] *applies* the rewrites the validator suggests.
 It is a free function — ``optimize(qprogram, capabilities) -> QProgram`` — mirroring ``validate``:
 capability-aware, never mutating its input, returning a new program.
 
 The one rewrite it applies lifts a host-side sweep out of an averaging block so the averaging
-itself runs in real-time hardware (see :func:`optimize`). The match/partition decision is shared
-with the validator's hint via :func:`qprogram.validation.reorderable_average_split`, so the hint and
+itself runs in real-time hardware (see [`optimize`][qprogram.optimize]). The match/partition decision is shared
+with the validator's hint via `qprogram.validation.reorderable_average_split`, so the hint and
 the rewrite can never disagree.
 """
 
@@ -80,10 +80,10 @@ def optimize(qprogram: QProgram, capabilities: PlatformCapabilities) -> QProgram
             host-side-only.
 
     Returns:
-        A new :class:`~qprogram.QProgram` with the rewrite applied; the original is untouched. The
+        A new [`QProgram`][qprogram.QProgram] with the rewrite applied; the original is untouched. The
         search for an ``average`` scans the program's own body and does not look inside the
         fragments it calls, so a program whose body holds no ``average`` block comes back a plain
-        deep copy with its :class:`~qprogram.operations.Call` nodes intact — including a program
+        deep copy with its [`Call`][qprogram.operations.Call] nodes intact — including a program
         whose only ``average`` sits in a fragment body. A program whose body *does* hold an average
         is validated against ``capabilities`` to classify its ops, which expands any ``Call`` nodes
         first, so such a program is returned in expanded form even if no average ends up rewritten.
@@ -103,7 +103,7 @@ def optimize(qprogram: QProgram, capabilities: PlatformCapabilities) -> QProgram
 
 
 def _reorder_rt_averages(block: Block, plan: ExecutionPlan) -> None:
-    """Rewrite optimizable ``Average`` blocks under ``block`` in place (see :func:`optimize`).
+    """Rewrite optimizable ``Average`` blocks under ``block`` in place (see [`optimize`][qprogram.optimize]).
 
     Args:
         block (Block): The block to scan, rewritten in place along with every block beneath it —
@@ -133,7 +133,7 @@ def _reorder_rt_averages(block: Block, plan: ExecutionPlan) -> None:
 def _try_reorder_average(average: Average, plan: ExecutionPlan) -> Sweep | None:
     """Return a sweep-outer / average-inner rewrite of ``average``, or ``None`` if it doesn't apply.
 
-    The match/partition decision is the shared :func:`qprogram.validation.reorderable_average_split`
+    The match/partition decision is the shared `qprogram.validation.reorderable_average_split`
     predicate — the same one the validator's ``reorderable-averaging`` hint uses, so hint and rewrite
     never disagree. All that happens here is building the rewritten AST from the ``(hoist, keep)``
     split.
@@ -144,7 +144,7 @@ def _try_reorder_average(average: Average, plan: ExecutionPlan) -> Sweep | None:
             real-time-capable ones.
 
     Returns:
-        A :class:`~qprogram.blocks.Sweep` carrying the hoisted setup ops followed by an inner
+        A [`Sweep`][qprogram.blocks.Sweep] carrying the hoisted setup ops followed by an inner
         ``average`` over the kept ops, or ``None`` when ``average`` does not match the pattern.
     """
     split = reorderable_average_split(average, plan)

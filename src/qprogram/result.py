@@ -13,9 +13,10 @@
 # limitations under the License.
 """Result types for executed QPrograms.
 
-:class:`MeasurementHandle` is returned by :meth:`QProgram.measure` and identifies a measurement across
-construction, ``.qp`` serialization, execution, and retrieval. :class:`MeasurementResult` is the runtime's
-per-measurement record. :class:`QProgramResult` is the in-memory container of all measurements.
+[`MeasurementHandle`][qprogram.MeasurementHandle] is returned by [`QProgram.measure`][qprogram.QProgram.measure] and
+identifies a measurement across construction, ``.qp`` serialization, execution, and retrieval.
+[`MeasurementResult`][qprogram.MeasurementResult] is the runtime's per-measurement record.
+[`QProgramResult`][qprogram.QProgramResult] is the in-memory container of all measurements.
 """
 
 from __future__ import annotations
@@ -33,28 +34,28 @@ if TYPE_CHECKING:
 
 
 class MeasurementHandle:
-    """A reference to a measurement performed by a :class:`QProgram`.
+    """A reference to a measurement performed by a [`QProgram`][qprogram.QProgram].
 
     Equality is **structural**: two handles with the same name refer to the same measurement. Why this
     matters: after a ``.qp`` round-trip the original Python objects are gone but names survive in the
     AST, so a freshly-constructed ``MeasurementHandle("q0_m0")`` compares equal to the original.
 
     Runtime-supplied values (e.g. the classified qubit state when the measurement's ``fields``
-    includes :attr:`~qprogram.MeasurementField.STATE`) live in a private ``_values`` dict keyed by
-    field name. They participate in :class:`MeasurementRef`
+    includes `STATE`) live in a private ``_values`` dict keyed by
+    field name. They participate in [`MeasurementRef`][qprogram.MeasurementRef]
     evaluation but do not contribute to handle identity.
 
     Args:
-        name (str): Stable identifier for the measurement. Auto-assigned by :meth:`QProgram.measure`
+        name (str): Stable identifier for the measurement. Auto-assigned by [`QProgram.measure`][qprogram.QProgram.measure]
             (``q0/readout/m0``, ``m0``, ...) or user-supplied. Emitted verbatim into ``.qp``.
 
     Raises:
         ValidationError: If ``name`` is not a non-empty string.
 
     Note:
-        ``_auto_named`` records whether :meth:`QProgram.measure` allocated the name (``True``) or the
+        ``_auto_named`` records whether [`QProgram.measure`][qprogram.QProgram.measure] allocated the name (``True``) or the
         user supplied it (``False``). It distinguishes a bus-derived auto-name (``q0/readout/m0``) that
-        :meth:`QProgram.rebind` must re-derive when the bus changes from a deliberate user label that
+        [`QProgram.rebind`][qprogram.QProgram.rebind] must re-derive when the bus changes from a deliberate user label that
         must be preserved — the two are byte-identical once serialized, so the flag is the only sound
         signal. It is in-memory state (like the platform parameter store): it is not serialized, so it
         defaults to ``False`` on a handle reconstructed from ``.qp`` (rebind before dumping).
@@ -75,13 +76,13 @@ class MeasurementHandle:
         """A proxy for referencing this measurement's classified state in a conditional.
 
         The returned proxy is a throwaway whose ``==`` and ``!=`` operators build
-        :class:`~qprogram.Comparison` AST nodes::
+        [`Comparison`][qprogram.Comparison] AST nodes::
 
             with program.if_(handle.state == 0):
                 ...
 
         The producing measurement op must request state classification (its ``fields`` must include
-        :attr:`~qprogram.MeasurementField.STATE`); the validator emits ``missing-classification``
+        `STATE`); the validator emits ``missing-classification``
         otherwise.
         """
         from qprogram.variable import _HandleFieldAccess  # ruff: ignore[import-outside-top-level]
@@ -91,7 +92,7 @@ class MeasurementHandle:
     def _value_for(self, field: str) -> int | float | _UnassignedType:
         """Return the runtime value recorded for ``field``, or ``UNASSIGNED``.
 
-        Read by :class:`~qprogram.MeasurementRef` evaluation, so an expression over a measurement
+        Read by [`MeasurementRef`][qprogram.MeasurementRef] evaluation, so an expression over a measurement
         that has not produced this field yet propagates ``UNASSIGNED`` rather than guessing.
 
         Args:
@@ -135,12 +136,12 @@ class MeasurementResult:
         name (str): The measurement handle's name, as assigned at program construction.
         data (xarray.DataArray): The **primary** result array — the ``"iq"`` field when the
             measurement requested it, else the first requested field in canonical order (see
-            :class:`~qprogram.MeasurementField`). Use it when you want *whatever* the measurement
-            produced; :meth:`QProgramResult.get` names a field explicitly instead.
+            `MeasurementField`). Use it when you want *whatever* the measurement
+            produced; [`QProgramResult.get`][qprogram.QProgramResult.get] names a field explicitly instead.
         fields (dict[str, xarray.DataArray]): One array per requested measurement field, keyed by
             field name. Shapes per spec §8: ``iq`` → ``(*sweeps, "IQ")``; ``state`` → ``(*sweeps)``
             (excited-state population under averaging); ``raw`` → ``(*sweeps, "time", "IQ")``.
-            This is what :meth:`QProgramResult.get` reads.
+            This is what [`QProgramResult.get`][qprogram.QProgramResult.get] reads.
     """
 
     bus: str
@@ -150,14 +151,14 @@ class MeasurementResult:
 
 
 class QProgramResult:
-    """In-memory result of executing a :class:`QProgram`.
+    """In-memory result of executing a [`QProgram`][qprogram.QProgram].
 
-    Each measurement contributes one :class:`MeasurementResult` holding an :class:`xarray.DataArray`
+    Each measurement contributes one [`MeasurementResult`][qprogram.MeasurementResult] holding an `xarray.DataArray`
     per requested field. Dimensions are named after the enclosing loops, outermost first; the ``iq``
     field carries a trailing ``"IQ"`` dimension with coordinates ``["I", "Q"]``.
 
     Results are stored in construction order and addressable by handle, by name string, or by integer
-    position via :meth:`get`, which returns the :attr:`~qprogram.MeasurementField.IQ` field unless a
+    position via `get`, which returns the `IQ` field unless a
     different one is named.
     """
 
@@ -178,10 +179,10 @@ class QProgramResult:
             name (str): The measurement handle name as it appears in the AST.
             data (xarray.DataArray): The primary result data (the ``"iq"`` field when requested).
             fields (dict[str, xarray.DataArray] | None): Per-measurement-field arrays, keyed by field
-                name. Omitting it records ``data`` as the :attr:`~qprogram.MeasurementField.IQ`
+                name. Omitting it records ``data`` as the `IQ`
                 field — the field a measurement requests when ``fields=`` is omitted, and the one
-                :meth:`get` returns by default. A record whose primary array is *not* ``iq`` must
-                pass the mapping explicitly, so that :meth:`get` never hands back an array under the
+                `get` returns by default. A record whose primary array is *not* ``iq`` must
+                pass the mapping explicitly, so that `get` never hands back an array under the
                 wrong field name.
         """
         if not fields:
@@ -204,10 +205,10 @@ class QProgramResult:
         Args:
             measurement (MeasurementHandle | str | int): Which measurement to retrieve.
 
-                - :class:`MeasurementHandle`: looked up by name.
+                - [`MeasurementHandle`][qprogram.MeasurementHandle]: looked up by name.
                 - ``str``: looked up by name. Useful after a ``loads()`` round-trip when the original
                   handle objects are gone but handles can be reconstructed via
-                  :meth:`QProgram.measurement_handles`.
+                  [`QProgram.measurement_handles`][qprogram.QProgram.measurement_handles].
                 - ``int``: positional sugar; returns the N-th measurement in declaration order, or N-th
                   on ``bus`` when the filter is given. A handle or a name says what it means and
                   survives reordering, so prefer either to a position.
@@ -215,23 +216,23 @@ class QProgramResult:
             bus (str | None): Bus name filter — narrows the search before the handle / name /
                 position lookup.
             field (MeasurementField | str): Which measurement field to return — a
-                :class:`~qprogram.MeasurementField` member or a registered vendor field name (the
+                `MeasurementField` member or a registered vendor field name (the
                 members *are* strings, so both spell the same thing). Defaults to
-                :attr:`~qprogram.MeasurementField.IQ`, matching the default of
+                `IQ`, matching the default of
                 ``measure(..., fields=)``; a measurement that did not request the field raises
                 ``KeyError`` rather than silently substituting another one. Reach for
-                :attr:`MeasurementResult.data` when you want the record's primary array whatever the
+                `MeasurementResult.data` when you want the record's primary array whatever the
                 requested fields were.
 
         Returns:
-            The field's :class:`xarray.DataArray`.
+            The field's `xarray.DataArray`.
 
         Raises:
             KeyError: When ``measurement`` is a handle or name with no match in scope, or ``field``
                 names a measurement field the measurement did not request.
             IndexError: When ``measurement`` is an integer position outside the range in scope.
             ValidationError: When ``field`` is ``None``. There is no spelling of "give me the primary
-                array" here — read :attr:`MeasurementResult.data` for that.
+                array" here — read `MeasurementResult.data` for that.
         """
         if field is None:
             msg = (

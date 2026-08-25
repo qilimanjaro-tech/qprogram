@@ -13,28 +13,28 @@
 # limitations under the License.
 """Capability validation + execution-domain classification for QProgram.
 
-A single :func:`validate` entry point walks the program AST, checking each operation's required
-capability tokens against its routed :class:`~qprogram.BusCapabilities` slot and classifying each
+A single [`validate`][qprogram.validate] entry point walks the program AST, checking each operation's required
+capability tokens against its routed [`BusCapabilities`][qprogram.BusCapabilities] slot and classifying each
 block's execution domain from its op-children's consensus plus any
-:class:`~qprogram.DomainConstraint` predicates emitted while walking. Returns
+[`DomainConstraint`][qprogram.DomainConstraint] predicates emitted while walking. Returns
 ``(diagnostics, plan)``: diagnostics is a flat list (errors + advisory info events), and the plan
 maps every AST node to the domain set it may execute in.
 
 The classification rules implemented here match the spec:
 
 * Operations have a domain derived from which slots (``rt``, ``host``) of their routed
-  :class:`BusCapabilities` carry the required tokens. Vendor-specific operations have a fixed
+  [`BusCapabilities`][qprogram.BusCapabilities] carry the required tokens. Vendor-specific operations have a fixed
   domain by design (e.g. qdac ops are ``host`` only); core ops depend on the platform's wiring.
 * Block classification is determined by **op-children consensus only** — child blocks do not enter
   the consensus. A block whose op-children are all real-time has natural domain ``{rt}``; all-host
   gives ``{host}``; mixed op-children at the same level → ``mixed-domain`` error (spec (d)). An
   all-real-time block still reaches host-side execution, but through the (e2) fallback below (a
   constraint or a contained host-side block strips ``"rt"``), not by widening the consensus. An
-  :class:`~qprogram.blocks.Average` is the one exception: it accumulates
+  [`Average`][qprogram.blocks.Average] is the one exception: it accumulates
   **measurement results**, so only its averaging-relevant op-children
-  (:attr:`Operation.AFFECTS_AVERAGING`) enter the consensus — the rest still validate and run but
-  don't pull the average into host-side execution (see :func:`_domain_relevant_ops`).
-* :class:`~qprogram.DomainConstraint` predicate outputs target **block** nodes (typically the
+  (`Operation.AFFECTS_AVERAGING`) enter the consensus — the rest still validate and run but
+  don't pull the average into host-side execution (see `_domain_relevant_ops`).
+* [`DomainConstraint`][qprogram.DomainConstraint] predicate outputs target **block** nodes (typically the
   binding loop of a swept variable) and subtract from the targeted block's domain. The
   operation's classification is unaffected (spec (e2)).
 * Nesting: a real-time-only block (``support == {rt}``) can only contain real-time-capable
@@ -45,18 +45,18 @@ The classification rules implemented here match the spec:
   highest such block in its chain. The reason is attributed to the block's *immediate* cause — its
   own constraints, or (for a block forced merely by containing a host-side sub-block) the named
   sub-block.
-* An :class:`~qprogram.blocks.Average` that is host-side-only solely because it encloses a host-side
+* An [`Average`][qprogram.blocks.Average] that is host-side-only solely because it encloses a host-side
   sweep — while its measurements all support real-time hardware — gets a ``severity="info"``
-  ``"reorderable-averaging"`` hint pointing at :func:`qprogram.optimize`, which rewrites it to run
+  ``"reorderable-averaging"`` hint pointing at [`qprogram.optimize`][], which rewrites it to run
   the averaging in real-time hardware.
 
-Every node-bearing diagnostic is stamped with a structural :attr:`Diagnostic.path` (see
-:mod:`qprogram.paths`) so tooling can locate it in a serialized ``.qp`` file via
-:attr:`QProgram.source_map`.
+Every node-bearing diagnostic is stamped with a structural `Diagnostic.path` (see
+`qprogram.paths`) so tooling can locate it in a serialized ``.qp`` file via
+[`QProgram.source_map`][qprogram.QProgram.source_map].
 
 The validator never raises — callers decide how to react. A typical
-:meth:`PlatformProtocol.execute` calls :func:`validate`, raises
-:class:`~qprogram.UnsupportedOperationError` on any ``severity="error"`` diagnostic, and surfaces
+[`PlatformProtocol.execute`][qprogram.PlatformProtocol.execute] calls [`validate`][qprogram.validate], raises
+[`UnsupportedOperationError`][qprogram.UnsupportedOperationError] on any ``severity="error"`` diagnostic, and surfaces
 ``"warning"`` / ``"info"`` diagnostics without raising.
 """
 
@@ -115,7 +115,7 @@ class _IdentityNodeMap(MutableMapping["Operation | Block", _V]):
     AST nodes use structural ``__eq__`` / ``__hash__`` (two identical ``play`` ops compare equal),
     which is right for round-trip comparison but wrong for the classifier's bookkeeping: a plain
     ``dict`` would collapse repeated identical operations into a single entry, so a three-op
-    program could come back with a two-entry :data:`~qprogram.ExecutionPlan`. Keying by ``id()``
+    program could come back with a two-entry [`ExecutionPlan`][qprogram.ExecutionPlan]. Keying by ``id()``
     keeps one entry per node *instance* while still satisfying the public ``Mapping`` contract
     (iteration yields the node objects; ``plan[node]`` looks up by identity).
 
@@ -164,12 +164,12 @@ def validate(
 
     Algorithm:
 
-    1. Pre-walk to build a :class:`ValidationContext` (variable bindings, sweep kinds, …).
+    1. Pre-walk to build a [`ValidationContext`][qprogram.ValidationContext] (variable bindings, sweep kinds, …).
     2. Single recursive post-order walk that, per node, computes:
 
        - For operations: the *available* domain set is the slots where the op's required tokens
-         are present (and any predicate-emitted :class:`Diagnostic` is absent). The op's
-         ``support`` equals its ``available`` — :class:`DomainConstraint` outputs are *not*
+         are present (and any predicate-emitted [`Diagnostic`][qprogram.Diagnostic] is absent). The op's
+         ``support`` equals its ``available`` — [`DomainConstraint`][qprogram.DomainConstraint] outputs are *not*
          applied to the op; they are routed to the **block** they target (typically the binding
          loop of a swept variable).
        - For blocks: ``support = own_available & natural_from_ops - exclude_from_constraints``,
@@ -183,7 +183,7 @@ def validate(
     4. Universal Conditional checks (unknown measurement, missing state classification).
     5. Emit one ``"forced-host"`` warning per highest-block whose ``support`` was reduced
        from ``{rt, host}`` to ``{host}``, with the subtree's constraint reasons in the message.
-    6. Stamp each node-bearing diagnostic with its structural :attr:`Diagnostic.path`.
+    6. Stamp each node-bearing diagnostic with its structural `Diagnostic.path`.
 
     Args:
         qprogram (QProgram): Program to validate.
@@ -196,8 +196,8 @@ def validate(
         plan yields every instance).
 
     Note:
-        Programs containing fragment :class:`~qprogram.operations.Call` nodes are **expanded
-        first** (:meth:`QProgram.expand`) — capabilities are checked against the substituted
+        Programs containing fragment [`Call`][qprogram.operations.Call] nodes are **expanded
+        first** ([`QProgram.expand`][qprogram.QProgram.expand]) — capabilities are checked against the substituted
         fragment bodies, and diagnostics reference nodes of that internal expansion. Callers
         that need the identity-keyed plan for nodes they hold should expand explicitly and
         validate the expanded program.
@@ -253,7 +253,7 @@ def _classify_node(  # ruff: ignore[too-many-arguments]
     """Recursively classify ``node`` and its descendants in post-order.
 
     Side-effects: populates ``diagnostics``, ``available``, ``support``, ``parent``, and
-    ``constraints_by_block`` (keyed by the target block's :func:`id`).
+    ``constraints_by_block`` (keyed by the target block's `id`).
 
     Args:
         node (Operation | Block): The node to classify.
@@ -268,7 +268,7 @@ def _classify_node(  # ruff: ignore[too-many-arguments]
             plan under construction.
         parent (_IdentityNodeMap[Block | None]): Per-node parent block.
         constraints_by_block (dict[int, list[DomainConstraint]]): Constraints bucketed by the
-            :func:`id` of the block they target.
+            `id` of the block they target.
     """
     parent[node] = parent_block
 
@@ -306,7 +306,7 @@ def _classify_operation(  # ruff: ignore[too-many-arguments]
 ) -> None:
     """Classify a leaf operation.
 
-    An op's ``support`` equals its ``available`` — :class:`DomainConstraint` outputs target
+    An op's ``support`` equals its ``available`` — [`DomainConstraint`][qprogram.DomainConstraint] outputs target
     block nodes and never directly subtract from the op's support (the op's classification is
     by spec fixed by its vendor / bus slot, not by surrounding variables).
 
@@ -318,7 +318,7 @@ def _classify_operation(  # ruff: ignore[too-many-arguments]
         available (_IdentityNodeMap[frozenset[Domain]]): Per-node domains the routed slot allows.
         support (_IdentityNodeMap[frozenset[Domain]]): Per-node executable domains.
         constraints_by_block (dict[int, list[DomainConstraint]]): Constraints bucketed by the
-            :func:`id` of the block they target.
+            `id` of the block they target.
     """
     avail, op_diags, dcs = _check_node_self(op, caps, ctx)
     diagnostics.extend(op_diags)
@@ -354,7 +354,7 @@ def _classify_block(  # ruff: ignore[too-many-arguments]
         support (_IdentityNodeMap[frozenset[Domain]]): Per-node executable domains.
         parent (_IdentityNodeMap[Block | None]): Per-node parent block.
         constraints_by_block (dict[int, list[DomainConstraint]]): Constraints bucketed by the
-            :func:`id` of the block they target.
+            `id` of the block they target.
     """
     # 1. Identify immediate op-children vs block-children (without recursing yet).
     op_children, block_children = _immediate_children(block)
@@ -529,7 +529,7 @@ def _route_constraints(
 ) -> None:
     """Accumulate each constraint into the per-target-block bucket.
 
-    A constraint must target a :class:`Block`. A ``DomainConstraint`` whose ``node`` is anything
+    A constraint must target a [`Block`][qprogram.blocks.Block]. A ``DomainConstraint`` whose ``node`` is anything
     else is a mistake in the predicate, so it is dropped and reported as a
     ``bad-domain-constraint`` error that states the rule. Equivalent constraints already in the
     bucket are skipped (a profile filling both halves of a slot runs its predicates once per
@@ -540,7 +540,7 @@ def _route_constraints(
         source_node (Operation | Block): The node whose predicates produced ``dcs``; named in the
             ``bad-domain-constraint`` message.
         diagnostics (list[Diagnostic]): Accumulator every diagnostic is appended to.
-        constraints_by_block (dict[int, list[DomainConstraint]]): Buckets keyed by the :func:`id`
+        constraints_by_block (dict[int, list[DomainConstraint]]): Buckets keyed by the `id`
             of the target block.
     """
     for dc in dcs:
@@ -568,9 +568,9 @@ def _domain_relevant_ops(block: Block, op_children: list[Operation]) -> list[Ope
     """Return the op-children that gate ``block``'s natural execution domain (spec (c)).
 
     For most blocks this is *every* op-child — a parameter sweep is real-time only if its whole
-    body is. An :class:`~qprogram.blocks.Average` is special: it repeats its body and accumulates
+    body is. An [`Average`][qprogram.blocks.Average] is special: it repeats its body and accumulates
     **measurement results**, so only the averaging-relevant op-children
-    (:attr:`Operation.AFFECTS_AVERAGING` — measurements/acquisitions) decide whether the averaging
+    (`Operation.AFFECTS_AVERAGING` — measurements/acquisitions) decide whether the averaging
     can be a real-time hardware feature. The other ops still validate and execute inside the body;
     they do not pull the Average into host-side execution.
 
@@ -601,13 +601,13 @@ def reorderable_average_split(
     op that sits *after* a kept op can't be hoisted without reordering it past that op, which could
     change results — such an Average is not reorderable.
 
-    Shared by the validator's ``reorderable-averaging`` hint (:func:`_emit_averaging_hints`) and the
-    rewrite (:func:`qprogram.optimize`) so the two never disagree.
+    Shared by the validator's ``reorderable-averaging`` hint (`_emit_averaging_hints`) and the
+    rewrite ([`qprogram.optimize`][]) so the two never disagree.
 
     Args:
         average (Average): The block to test.
         support (Mapping[Operation | Block, frozenset[Domain]]): Per-node executable domains, as
-            returned by :func:`validate`.
+            returned by [`validate`][qprogram.validate].
 
     Returns:
         A ``(hoist, keep)`` pair — the leading host-side-only ops to lift out ahead of the loop, and
@@ -639,7 +639,7 @@ def reorderable_average_split(
 def _immediate_children(block: Block) -> tuple[list[Operation], list[Block]]:
     """Partition ``block``'s immediate children into (op-children, block-children).
 
-    Conditional has arm bodies plus an else body (each a :class:`Block`) — those bodies are
+    Conditional has arm bodies plus an else body (each a [`Block`][qprogram.blocks.Block]) — those bodies are
     block-children of the Conditional, not op-children. Parallel has loop headers (Blocks) plus
     a body (``._elements``); the loop headers are block-children, and the body's elements are
     immediate children of the Parallel.
@@ -701,12 +701,12 @@ def _check_node_self(
         An ``(available, diagnostics, domain_constraints)`` triple:
 
         - ``available``: domains where the node's required tokens fit the routed slot and no
-          predicate emitted a :class:`Diagnostic`.
+          predicate emitted a [`Diagnostic`][qprogram.Diagnostic].
         - ``diagnostics``: the per-domain failure reasons, **only** if ``available`` came out
           empty (so per-domain noise is suppressed when at least one domain works). Deduplicated:
           a token missing in both domains produces one diagnostic naming both, and a predicate
           registered on both halves of a slot contributes its (equal) diagnostic once.
-        - ``domain_constraints``: the :class:`DomainConstraint` outputs the predicates emitted,
+        - ``domain_constraints``: the [`DomainConstraint`][qprogram.DomainConstraint] outputs the predicates emitted,
           deduplicated by equality — the same profile filling both the rt and host halves runs its
           predicates twice and would otherwise double every constraint (and double the reason text
           in downstream ``empty-domain`` messages).
@@ -792,7 +792,7 @@ def _route(
     caps: PlatformCapabilities,
     ctx: ValidationContext,
 ) -> list[BusCapabilities]:
-    """Return the :class:`BusCapabilities` slots that ``node`` routes to.
+    """Return the [`BusCapabilities`][qprogram.BusCapabilities] slots that ``node`` routes to.
 
     - Blocks always route to ``caps.platform``.
     - Bus-less ops (``BUS_ATTRS = ()``) route to ``caps.platform``.
@@ -837,10 +837,10 @@ def _route(
 
 
 def _stamp_paths(diagnostics: list[Diagnostic], qprogram: QProgram) -> list[Diagnostic]:
-    """Return ``diagnostics`` with each node-bearing entry's :attr:`Diagnostic.path` filled in.
+    """Return ``diagnostics`` with each node-bearing entry's `Diagnostic.path` filled in.
 
-    One walk builds an identity-keyed node→path table; :class:`Diagnostic` is frozen, so entries
-    are rebuilt via :func:`dataclasses.replace`. A node unreachable from the body (defensive —
+    One walk builds an identity-keyed node→path table; [`Diagnostic`][qprogram.Diagnostic] is frozen, so entries
+    are rebuilt via `dataclasses.replace`. A node unreachable from the body (defensive —
     shouldn't happen) keeps ``path=None``.
 
     Args:
@@ -848,7 +848,7 @@ def _stamp_paths(diagnostics: list[Diagnostic], qprogram: QProgram) -> list[Diag
         qprogram (QProgram): The validated program whose body the paths are resolved against.
 
     Returns:
-        A list in the same order, with :attr:`Diagnostic.path` filled in on every entry whose node
+        A list in the same order, with `Diagnostic.path` filled in on every entry whose node
         the walk reached. The input list is handed back unchanged when no entry has a node.
     """
     if not any(d.node is not None for d in diagnostics):
@@ -906,7 +906,7 @@ def _emit_forced_host(
         parent (Mapping[Operation | Block, Block | None]): Per-node parent block, read to find the
             highest block of each forced-host chain.
         constraints_by_block (Mapping[int, list[DomainConstraint]]): Constraints bucketed by the
-            :func:`id` of the block they target, read for the reason text.
+            `id` of the block they target, read for the reason text.
     """
     for node, sup in support.items():
         if not isinstance(node, Block):
@@ -962,8 +962,8 @@ def _emit_averaging_hints(
 ) -> None:
     """Emit one ``severity="info"`` ``"reorderable-averaging"`` hint per optimizable Average.
 
-    Fires only for Averages that :func:`qprogram.optimize` could *actually* rewrite —
-    the precondition is the shared :func:`reorderable_average_split` predicate, so the hint never
+    Fires only for Averages that [`qprogram.optimize`][] could *actually* rewrite —
+    the precondition is the shared `reorderable_average_split` predicate, so the hint never
     advertises a no-op. Such an Average is host-side-only only because it encloses a host-side sweep
     whose real-time-capable measurement sequence could run in a real-time inner ``average`` if the
     sweep were lifted out (and the host-side-only setup hoisted alongside). The validator can't prove
@@ -1005,16 +1005,16 @@ def _build_context(qprogram: QProgram) -> ValidationContext:
 
     ``max_loop_nesting`` counts how many *repetition levels* wrap a leaf operation — every
     construct that consumes a hardware loop register contributes one level. A block declares whether
-    it is such a construct through :attr:`Block.REPEATS`, which this walk reads rather than testing
+    it is such a construct through `Block.REPEATS`, which this walk reads rather than testing
     concrete classes, so a vendor- or platform-contributed repeating block counts correctly without a
     core change:
 
-    - :class:`~qprogram.blocks.Sweep` — one level, whatever its source.
-    - :class:`Parallel` — one level total: it composes its loops in lockstep, not nested (its loop
+    - [`Sweep`][qprogram.blocks.Sweep] — one level, whatever its source.
+    - [`Parallel`][qprogram.blocks.Parallel] — one level total: it composes its loops in lockstep, not nested (its loop
       headers live on ``.loops``, not among its children).
-    - :class:`Average` — one level: it compiles to a repetition loop exactly as a sweep does.
-    - :class:`Conditional` arms and plain :class:`Block` groupings — zero levels: branching and
-      grouping don't iterate.
+    - [`Average`][qprogram.blocks.Average] — one level: it compiles to a repetition loop exactly as a sweep does.
+    - [`Conditional`][qprogram.blocks.Conditional] arms and plain [`Block`][qprogram.blocks.Block] groupings — zero
+      levels: branching and grouping don't iterate.
 
     Args:
         qprogram (QProgram): The program to walk.
@@ -1091,11 +1091,11 @@ def _check_limits(
 ) -> list[Diagnostic]:
     """Check whole-program limits.
 
-    ``max_loop_nesting``, ``max_parallel_loops``, ``max_measurements`` live at the platform slot
-    (whichever of rt/host is present; rt wins when both are set since rt is typically the more
-    constrained engine). ``min_wait_duration_ns`` lives at the bus slot — a :class:`Wait` is checked
-    against its routed bus's limits only when its ``duration`` is a plain integer; a duration given
-    as an :class:`~qprogram.Expression` has no static value to compare and is left unchecked.
+    ``max_loop_nesting``, ``max_parallel_loops``, ``max_measurements`` live at the platform slot (whichever of rt/host
+    is present; rt wins when both are set since rt is typically the more constrained engine). ``min_wait_duration_ns``
+    lives at the bus slot — a [`Wait`][qprogram.operations.Wait] is checked against its routed bus's limits only when
+    its ``duration`` is a plain integer; a duration given as an [`Expression`][qprogram.Expression] has no static value
+    to compare and is left unchecked.
 
     Args:
         qprogram (QProgram): The program whose ``wait`` operations are checked per bus.
@@ -1191,13 +1191,13 @@ def _pick_limits(slot: BusCapabilities) -> Mapping[str, float]:
 
 
 def _iter_measurement_refs(expr: Expression) -> Iterator[MeasurementRef]:
-    """Yield every :class:`MeasurementRef` reachable from ``expr`` via recursive descent.
+    """Yield every [`MeasurementRef`][qprogram.MeasurementRef] reachable from ``expr`` via recursive descent.
 
     Args:
         expr (Expression): The expression tree to search.
 
     Yields:
-        Each :class:`~qprogram.variable.MeasurementRef` leaf, in left-to-right order.
+        Each [`MeasurementRef`][qprogram.MeasurementRef] leaf, in left-to-right order.
     """
     if isinstance(expr, MeasurementRef):
         yield expr
@@ -1223,14 +1223,14 @@ def _check_conditional_classification(
     qprogram: QProgram,
     ctx: ValidationContext,
 ) -> list[Diagnostic]:
-    """Validate :class:`Conditional` arm conditions — profile-independent.
+    """Validate [`Conditional`][qprogram.blocks.Conditional] arm conditions — profile-independent.
 
     Emits two diagnostic codes:
 
     - ``unknown-measurement`` — the condition references a handle whose name doesn't match any
       measurement in the program (usually a raw ``MeasurementRef`` built outside ``measure(...)``).
     - ``missing-classification`` — the condition references ``handle.state`` but the source
-      measurement's ``fields`` doesn't include :attr:`~qprogram.MeasurementField.STATE`.
+      measurement's ``fields`` doesn't include `STATE`.
 
     Args:
         qprogram (QProgram): The program whose conditionals are checked.

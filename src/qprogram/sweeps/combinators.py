@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Sweep sources built from other sweep sources: :class:`Repeat`, :class:`Rotate`, :class:`Concat`.
+"""Sweep sources built from other sweep sources: [`Repeat`][qprogram.Repeat], [`Rotate`][qprogram.Rotate], [`Concat`][qprogram.Concat].
 
 Combinators are where the one-block, many-sources design pays off: composition lives in the source,
 not in the block, so each one is a dozen lines, composes with every registered source, and needs no
@@ -20,15 +20,15 @@ not in the block, so each one is a dozen lines, composes with every registered s
 Two rules they all follow:
 
 - **Kind degrades, conservatively.** Wrapping never makes a sweep *more* compilable, and all three
-  report :attr:`~qprogram.sweeps.SweepSource.KIND` ``"arbitrary"``. That includes :class:`Repeat` of a
+  report `KIND` ``"arbitrary"``. That includes [`Repeat`][qprogram.Repeat] of a
   linear source: a tiled ramp is re-runnable as a *nested* loop, but it is not itself
   ``start + step * i``, and ``sweep.linear`` means exactly that. Under-claiming costs a platform one
   optimization; over-claiming would have it emit a single ramp for a sweep that isn't one.
-- **Tokens accumulate.** :meth:`~qprogram.sweeps.SweepSource.tokens` unions the wrapped sources', so a
-  platform that cannot generate a :class:`~qprogram.sweeps.Logspace` also refuses a rotation of one.
+- **Tokens accumulate.** [`tokens`][qprogram.SweepSource.tokens] unions the wrapped sources', so a
+  platform that cannot generate a [`Logspace`][qprogram.Logspace] also refuses a rotation of one.
 
 Nesting more than two deep is a signal to stop composing and write a named
-:class:`~qprogram.sweeps.SweepSource` subclass instead — it serializes just as well and reads far
+[`SweepSource`][qprogram.SweepSource] subclass instead — it serializes just as well and reads far
 better at the call site.
 """
 # Every source declares a ``TOKEN`` class attribute, which ruff reads as a hardcoded credential.
@@ -50,9 +50,9 @@ if TYPE_CHECKING:
 
 
 def _require_source(value: object, *, cls_name: str, name: str = "source") -> SweepSource:
-    """Coerce a combinator argument to a :class:`SweepSource`.
+    """Coerce a combinator argument to a [`SweepSource`][qprogram.SweepSource].
 
-    A bare sequence is wrapped in :class:`~qprogram.sweeps.Values` as a convenience, so
+    A bare sequence is wrapped in [`Values`][qprogram.Values] as a convenience, so
     ``Rotate([0.0, 1.57, 3.14], by=1)`` works without the extra constructor. Anything else that isn't
     a source is an error — notably a callable, which the AST deliberately cannot hold.
 
@@ -64,7 +64,7 @@ def _require_source(value: object, *, cls_name: str, name: str = "source") -> Sw
 
     Returns:
         ``value`` unchanged when it is already a sweep source, otherwise a
-        :class:`~qprogram.sweeps.Values` wrapping it.
+        [`Values`][qprogram.Values] wrapping it.
 
     Raises:
         ValidationError: If ``value`` is a callable, or is neither a sweep source nor a 1-D sequence
@@ -95,14 +95,14 @@ class Repeat(SweepSource):
 
     ``Repeat(Values([0, 1]), times=3)`` sweeps ``0, 1, 0, 1, 0, 1``. Note this is *not* averaging:
     each repetition is a distinct sweep point with its own result entry. Use
-    :meth:`~qprogram.QProgram.average` when you want the repetitions collapsed.
+    [`average`][qprogram.QProgram.average] when you want the repetitions collapsed.
 
     Reports ``KIND = "arbitrary"`` even around a linear source — see the module docstring for why the
     conservative direction is the correct one.
 
     Args:
         source (SweepSource): The source to repeat. A bare sequence is accepted and wrapped in
-            :class:`~qprogram.sweeps.Values`.
+            [`Values`][qprogram.Values].
         times (int): How many times to run it. Must be an int >= 1.
 
     Raises:
@@ -150,16 +150,16 @@ class Rotate(SweepSource):
     """An inner source's points cyclically shifted left by ``by`` positions.
 
     ``Rotate(Values([0, 1, 2, 3]), by=1)`` sweeps ``1, 2, 3, 0``. The point count is unchanged. Use it
-    with :class:`Concat` to build the phase-cycling pattern where a sequence is swept once per starting
+    with [`Concat`][qprogram.Concat] to build the phase-cycling pattern where a sequence is swept once per starting
     offset::
 
         Concat(Rotate(base, by=i) for i in range(base.length()))
 
     Args:
         source (SweepSource): The source to rotate. A bare sequence is accepted and wrapped in
-            :class:`~qprogram.sweeps.Values`.
+            [`Values`][qprogram.Values].
         by (int, optional): Number of positions to shift left. May be negative (shifts right) or
-            exceed the length (wraps, as :func:`numpy.roll` does). Defaults to ``1``.
+            exceed the length (wraps, as `numpy.roll` does). Defaults to ``1``.
 
     Raises:
         ValidationError: If ``source`` isn't a source or sequence, or if ``by`` is not an ``int``
@@ -189,7 +189,7 @@ class Rotate(SweepSource):
         """Return the rotated points.
 
         Returns:
-            The wrapped source's values under :func:`numpy.roll` by ``-by`` — a *left* shift, so
+            The wrapped source's values under `numpy.roll` by ``-by`` — a *left* shift, so
             ``by=1`` starts at the second point.
         """
         return np.roll(self.source.values(), -self.by)
@@ -211,7 +211,7 @@ class Concat(SweepSource):
 
     Args:
         sources (Iterable[SweepSource]): The sources to concatenate, in order. At least one. Bare
-            sequences among them are wrapped in :class:`~qprogram.sweeps.Values`.
+            sequences among them are wrapped in [`Values`][qprogram.Values].
 
     Raises:
         ValidationError: If ``sources`` is a single source rather than an iterable of them, is empty,

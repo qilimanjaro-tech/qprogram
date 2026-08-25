@@ -156,7 +156,7 @@ def _construct_operation(cls: type[Operation], final: dict[str, Any], ctx: Any) 
     """Instantiate ``cls(**final)``, converting constructor failures into a line-tagged error.
 
     Two failure shapes are folded in. A ``TypeError`` means the bound arguments don't fit the
-    signature (unknown kwarg, missing required parameter). A :class:`ValidationError` means an
+    signature (unknown kwarg, missing required parameter). A [`ValidationError`][qprogram.ValidationError] means an
     argument reached a constructor-side validator and was rejected on its merits (e.g. an unknown
     measurement field name in ``fields=[...]``); its message is already specific, so it is passed
     through verbatim under the line tag. Either way, letting the raw exception escape would lose
@@ -164,14 +164,14 @@ def _construct_operation(cls: type[Operation], final: dict[str, Any], ctx: Any) 
 
     Args:
         cls (type[Operation]): Class to instantiate.
-        final (dict[str, Any]): Keyword arguments from :func:`_bind_signature_tokens`.
+        final (dict[str, Any]): Keyword arguments from `_bind_signature_tokens`.
         ctx (Any): Parser instance — supplies ``parse_error``.
 
     Returns:
         The constructed operation.
 
     Raises:
-        ParseError: On any constructor ``TypeError`` or :class:`ValidationError`.
+        ParseError: On any constructor ``TypeError`` or [`ValidationError`][qprogram.ValidationError].
     """
     try:
         return cls(**final)
@@ -191,7 +191,7 @@ def default_parse_operation(spec: OperationSpec, tokens: list[str], ctx: Any) ->
         ctx (Any): Parser instance — exposes ``parse_value``, ``get_or_create_handle``, etc.
 
     Returns:
-        A freshly-constructed :class:`Operation` instance.
+        A freshly-constructed [`Operation`][qprogram.operations.Operation] instance.
 
     Raises:
         ParseError: On excess positional tokens or arguments the constructor rejects.
@@ -201,12 +201,12 @@ def default_parse_operation(spec: OperationSpec, tokens: list[str], ctx: Any) ->
 
 
 def measurement_op_serialize(op: MeasurementOperation, ctx: Any) -> str:
-    """Signature-driven serializer for :class:`MeasurementOperation` subclasses.
+    """Signature-driven serializer for `MeasurementOperation` subclasses.
 
-    Mirrors :func:`default_serialize_operation` but skips the ``handle`` constructor parameter and
+    Mirrors `default_serialize_operation` but skips the ``handle`` constructor parameter and
     emits the measurement name as a ``name="..."`` kwarg instead — the wire format reads as intent
     (``measure "ro" "r" "w" name="q0/readout/m0"``) rather than as a bare positional string. The
-    parse side (:func:`make_measurement_op_parse`) resolves ``name=`` back to the canonical
+    parse side (`make_measurement_op_parse`) resolves ``name=`` back to the canonical
     handle instance.
 
     Args:
@@ -236,11 +236,11 @@ def measurement_op_serialize(op: MeasurementOperation, ctx: Any) -> str:
 
 
 def make_measurement_op_parse(cls: type[Operation]) -> Callable[[list[str], Any], Operation]:
-    """Build a parse callback for a :class:`MeasurementOperation` subclass.
+    """Build a parse callback for a `MeasurementOperation` subclass.
 
-    The returned callback mirrors :func:`default_parse_operation` but resolves the measurement
-    name to the canonical :class:`~qprogram.MeasurementHandle` via ``ctx.get_or_create_handle``.
-    This is what lets every measurement op and every :class:`MeasurementRef` referring to the
+    The returned callback mirrors `default_parse_operation` but resolves the measurement
+    name to the canonical [`MeasurementHandle`][qprogram.MeasurementHandle] via ``ctx.get_or_create_handle``.
+    This is what lets every measurement op and every [`MeasurementRef`][qprogram.MeasurementRef] referring to the
     same name share one Python instance after a ``.qp`` load. Three accepted spellings:
 
     - ``name="..."`` kwarg — the canonical form the writer emits.
@@ -261,7 +261,7 @@ def make_measurement_op_parse(cls: type[Operation]) -> Callable[[list[str], Any]
         cls (type[Operation]): The measurement-operation subclass to build the parser for.
 
     Returns:
-        A signature-driven parse callback ready for :func:`register_vendor_operation`.
+        A signature-driven parse callback ready for `register_vendor_operation`.
     """
 
     def parse(tokens: list[str], ctx: Any) -> Operation:
@@ -355,7 +355,7 @@ def get_parameter_serialize(op: GetParameter, ctx: Any) -> str:
 
     The result variable appears after the ``->`` arrow rather than as a positional or kwarg —
     matches the visual convention that ``get_parameter`` *produces* a value. ``ctx.serialize_value``
-    emits ``bus`` as a bus path when it is a schema-backed :class:`~qprogram.BusRef` and as a quoted
+    emits ``bus`` as a bus path when it is a schema-backed [`BusRef`][qprogram.BusRef] and as a quoted
     string otherwise.
 
     Args:
@@ -372,10 +372,10 @@ def get_parameter_serialize(op: GetParameter, ctx: Any) -> str:
 
 
 def get_parameter_parse(tokens: list[str], ctx: Any) -> GetParameter:
-    """Inverse of :func:`get_parameter_serialize`.
+    """Inverse of `get_parameter_serialize`.
 
     Splits on the ``->`` token; right side is the target variable identifier (auto-declared if new),
-    left side is the ``bus parameter`` layout. The bus token is promoted to a :class:`~qprogram.BusRef`
+    left side is the ``bus parameter`` layout. The bus token is promoted to a [`BusRef`][qprogram.BusRef]
     by the parser's ``_upgrade_busrefs`` pass after construction (``GetParameter.BUS_ATTRS == ("bus",)``).
 
     Args:
@@ -493,7 +493,7 @@ def _parse_number(s: str) -> int | float:
 def _register_core_specs() -> None:
     """Register all core operations, blocks, and sweep sources.
 
-    Invoked once from :mod:`qprogram.serialization` at import time. Idempotent — re-registering the
+    Invoked once from `qprogram.serialization` at import time. Idempotent — re-registering the
     same classes refreshes their callbacks and leaves everything else untouched.
     """
     # Default callbacks handle the regular shapes; explicit callbacks for the special-form ops.

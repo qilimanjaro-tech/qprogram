@@ -23,14 +23,14 @@ from qprogram.operations.operation import Operation
 class Sync(Operation):
     """An alignment of buses to a common time reference.
 
-    The user-facing :meth:`QProgram.sync` exposes a ``buses=`` keyword; the AST attribute is named
-    ``targets`` to avoid shadowing :meth:`Operation.buses` (a list attribute named ``buses`` would
+    The user-facing [`QProgram.sync`][qprogram.QProgram.sync] exposes a ``buses=`` keyword; the AST attribute is named
+    ``targets`` to avoid shadowing `Operation.buses` (a list attribute named ``buses`` would
     silently hide the introspection method).
 
     Args:
         targets (list[str] | None): Bus names to sync, or ``None`` to sync every bus currently
             active in the program. With no explicit targets the op broadcasts
-            (:attr:`Operation.BROADCASTS_WHEN_NO_BUS`), so the validator intersects the
+            (`Operation.BROADCASTS_WHEN_NO_BUS`), so the validator intersects the
             capabilities of every bus the program touches.
     """
 

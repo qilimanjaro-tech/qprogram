@@ -26,8 +26,8 @@ if TYPE_CHECKING:
 class SetParameter(Operation):
     """A write to a bus-scoped parameter named by string.
 
-    Targets a **bus** (like :class:`~qprogram.operations.SetFrequency` and the other ``set_*`` ops),
-    so :attr:`BUS_ATTRS` is ``("bus",)`` and the op routes to that bus's capability slot. Unlike the
+    Targets a **bus** (like [`SetFrequency`][qprogram.operations.SetFrequency] and the other ``set_*`` ops),
+    so `BUS_ATTRS` is ``("bus",)`` and the op routes to that bus's capability slot. Unlike the
     real-time ``set_*`` ops, a parameter write is a platform-configuration action — not real-time — so
     platforms expose ``op.set_parameter`` only in a bus slot's host half, making it host-side-only (a
     swept value additionally forces its binding loop to host via a predicate).
@@ -35,7 +35,7 @@ class SetParameter(Operation):
     Args:
         bus (str): The bus whose parameter is written.
         parameter (str): Name of the parameter to set.
-        value (float | Expression): New value. Accepts an :class:`~qprogram.Expression` for sweeps.
+        value (float | Expression): New value. Accepts an [`Expression`][qprogram.Expression] for sweeps.
     """
 
     BUS_ATTRS: ClassVar[tuple[str, ...]] = ("bus",)

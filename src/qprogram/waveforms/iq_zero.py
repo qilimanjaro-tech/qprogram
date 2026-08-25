@@ -24,16 +24,16 @@ from qprogram.waveforms.waveform import IQWaveform, Waveform
 
 
 class IQZero(IQWaveform):
-    """A real-valued :class:`Waveform` presented on an IQ bus with a silent Q channel.
+    """A real-valued [`Waveform`][qprogram.waveforms.Waveform] presented on an IQ bus with a silent Q channel.
 
     Convenience wrapper for ``IQPair(I=envelope, Q=Square(0.0, duration))``. Useful when a calibrated
     single-channel pulse has to drive an IQ-typed bus without rewriting the rest of the program.
 
     Args:
-        envelope (Waveform): Single-channel :class:`Waveform` placed on the I channel.
+        envelope (Waveform): Single-channel [`Waveform`][qprogram.waveforms.Waveform] placed on the I channel.
 
     Raises:
-        TypeError: If ``envelope`` is not a :class:`Waveform` instance.
+        TypeError: If ``envelope`` is not a [`Waveform`][qprogram.waveforms.Waveform] instance.
     """
 
     WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ("envelope",)
@@ -56,7 +56,7 @@ class IQZero(IQWaveform):
         """Return the silent quadrature channel.
 
         Returns:
-            An :class:`Arbitrary` waveform of zeros, one sample per nanosecond of the envelope's duration.
+            An [`Arbitrary`][qprogram.waveforms.Arbitrary] waveform of zeros, one sample per nanosecond of the envelope's duration.
 
         Raises:
             UnassignedVariableError: If the envelope's duration is a symbolic expression whose variables

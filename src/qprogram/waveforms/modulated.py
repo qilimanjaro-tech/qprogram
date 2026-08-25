@@ -30,18 +30,18 @@ class Modulated(IQWaveform):
     Produces ``I = envelope · cos(2π·frequency·t + phase)`` and
     ``Q = envelope · sin(2π·frequency·t + phase)``, evaluated at 1-ns resolution. Use this to lift any
     single-channel envelope onto an IQ bus for sideband-modulated drive without writing an
-    :class:`IQPair` by hand.
+    [`IQPair`][qprogram.waveforms.IQPair] by hand.
 
-    The materialized I and Q channels are :class:`Arbitrary` waveforms — modulation collapses the
-    enclosing envelope's parametric structure to concrete samples.
+    The materialized I and Q channels are [`Arbitrary`][qprogram.waveforms.Arbitrary] waveforms — modulation collapses
+    the enclosing envelope's parametric structure to concrete samples.
 
     Args:
-        envelope (Waveform): Underlying single-channel :class:`Waveform` shaping the pulse.
+        envelope (Waveform): Underlying single-channel [`Waveform`][qprogram.waveforms.Waveform] shaping the pulse.
         frequency (float | Expression): Modulation frequency in Hz.
         phase (float | Expression, optional): Phase offset in radians. Defaults to zero.
 
     Raises:
-        TypeError: If ``envelope`` is not a :class:`Waveform` instance.
+        TypeError: If ``envelope`` is not a [`Waveform`][qprogram.waveforms.Waveform] instance.
     """
 
     WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ("envelope",)
@@ -64,7 +64,7 @@ class Modulated(IQWaveform):
 
         Returns:
             A ``(frequency, phase)`` pair, with either member evaluated when it is an
-            :class:`~qprogram.Expression`.
+            [`Expression`][qprogram.Expression].
 
         Raises:
             UnassignedVariableError: If ``frequency`` or ``phase`` is an expression whose variables are
@@ -78,7 +78,7 @@ class Modulated(IQWaveform):
         """Return the in-phase channel.
 
         Returns:
-            An :class:`Arbitrary` waveform holding ``envelope · cos(2π·frequency·t + phase)``, with ``t``
+            An [`Arbitrary`][qprogram.waveforms.Arbitrary] waveform holding ``envelope · cos(2π·frequency·t + phase)``, with ``t``
             running over the envelope's samples in seconds at 1-ns steps.
 
         Raises:
@@ -94,7 +94,7 @@ class Modulated(IQWaveform):
         """Return the quadrature channel.
 
         Returns:
-            An :class:`Arbitrary` waveform holding ``envelope · sin(2π·frequency·t + phase)``, with ``t``
+            An [`Arbitrary`][qprogram.waveforms.Arbitrary] waveform holding ``envelope · sin(2π·frequency·t + phase)``, with ``t``
             running over the envelope's samples in seconds at 1-ns steps.
 
         Raises:

@@ -13,13 +13,14 @@
 # limitations under the License.
 """Shared helpers for structural equality and hashing of AST nodes.
 
-:class:`Operation`, :class:`Block`, and :class:`Waveform` all walk ``vars(self)`` and ask these helpers
-for the per-value verdict, so the three contracts stay consistent without per-class boilerplate.
+[`Operation`][qprogram.operations.Operation], [`Block`][qprogram.blocks.Block], and
+[`Waveform`][qprogram.waveforms.Waveform] all walk ``vars(self)`` and ask these helpers for the per-value verdict, so
+the three contracts stay consistent without per-class boilerplate.
 
-The helpers handle the container shapes that show up inside AST attributes (``ndarray``, ``list``,
-``dict``) explicitly and defer to the value's own ``==`` / ``hash`` for everything else — which means
-:class:`Variable` keeps its equality by string id, :class:`Constant` / :class:`BusRef` keep their
-structural equality, and nested AST nodes recurse correctly.
+The helpers handle the container shapes that show up inside AST attributes (``ndarray``, ``list``, ``dict``) explicitly
+and defer to the value's own ``==`` / ``hash`` for everything else — which means [`Variable`][qprogram.Variable] keeps
+its equality by string id, [`Constant`][qprogram.Constant] / [`BusRef`][qprogram.BusRef] keep their structural equality,
+and nested AST nodes recurse correctly.
 """
 
 from __future__ import annotations
@@ -63,7 +64,7 @@ def ast_hash(value: Any) -> int:  # ruff: ignore[any-type]
     Arrays hash by ``(shape, .tobytes())``; lists hash as tuples of recursively-hashed elements; dicts
     hash as a sorted tuple of ``(key, hashed_value)``. Anything else defers to ``hash(value)``.
 
-    The array rule is dtype-sensitive where :func:`ast_eq` compares contents only, so two nodes that
+    The array rule is dtype-sensitive where `ast_eq` compares contents only, so two nodes that
     differ only in a sample array's dtype compare equal yet hash apart, and land in different buckets
     of a ``dict`` or ``set``.
 
@@ -71,7 +72,7 @@ def ast_hash(value: Any) -> int:  # ruff: ignore[any-type]
         value (Any): A value, as read from an AST node's ``vars()``.
 
     Returns:
-        A hash of the value's structure, recursing through the container shapes :func:`ast_eq`
+        A hash of the value's structure, recursing through the container shapes `ast_eq`
         recurses through.
 
     Raises:

@@ -15,12 +15,12 @@
 
 The file ships with the package as the **normative grammar** of the format. It is *not* the
 production parser — that remains the hand-written, zero-dependency recursive-descent parser in
-:mod:`qprogram.serialization.parser` — but CI executes it (``tests/test_grammar.py``, dev-only
+`qprogram.serialization.parser` — but CI executes it (``tests/test_grammar.py``, dev-only
 ``lark`` dependency) to guarantee the two never drift: everything the writer emits parses under
 the grammar, and syntactically malformed inputs are rejected by both.
 
-:func:`grammar_text` returns the grammar source; :func:`parser` builds the reference Lark parser
-(LALR + a 2-space :class:`~lark.indenter.Indenter`) when ``lark`` is installed.
+`grammar_text` returns the grammar source; `parser` builds the reference Lark parser
+(LALR + a 2-space `Indenter`) when ``lark`` is installed.
 """
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ def parse_text(text: str) -> object:
         text (str): The ``.qp`` document to parse.
 
     Returns:
-        The Lark parse tree. Typed as :class:`object` so callers need no ``lark`` import.
+        The Lark parse tree. Typed as `object` so callers need no ``lark`` import.
 
     Raises:
         ModuleNotFoundError: When ``lark`` is not installed.

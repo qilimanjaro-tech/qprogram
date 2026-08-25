@@ -25,23 +25,23 @@ from qprogram.waveforms.waveform import IQWaveform, Waveform
 
 
 class IQRotation(IQWaveform):
-    """An existing :class:`IQWaveform` rotated in the I/Q plane by ``phase`` radians.
+    """An existing [`IQWaveform`][qprogram.waveforms.IQWaveform] rotated in the I/Q plane by ``phase`` radians.
 
     Applies the 2x2 rotation::
 
         I_out = I * cos(phase) - Q * sin(phase)
         Q_out = I * sin(phase) + Q * cos(phase)
 
-    Useful for virtual-Z gates and for applying a software-side phase offset to a calibrated pulse
-    without resampling the envelope. Materializes both channels as :class:`Arbitrary` waveforms; for
+    Useful for virtual-Z gates and for applying a software-side phase offset to a calibrated pulse without resampling
+    the envelope. Materializes both channels as [`Arbitrary`][qprogram.waveforms.Arbitrary] waveforms; for
     purely-symbolic rotation, prefer carrying the phase through the underlying envelope's parameters.
 
     Args:
-        base (IQWaveform): The :class:`IQWaveform` to rotate.
+        base (IQWaveform): The [`IQWaveform`][qprogram.waveforms.IQWaveform] to rotate.
         phase (float | Expression): Rotation angle in radians.
 
     Raises:
-        TypeError: If ``base`` is not an :class:`IQWaveform` instance.
+        TypeError: If ``base`` is not an [`IQWaveform`][qprogram.waveforms.IQWaveform] instance.
     """
 
     WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ("base",)
@@ -57,7 +57,7 @@ class IQRotation(IQWaveform):
         """Return the rotation angle as a concrete float.
 
         Returns:
-            The value of ``phase``, evaluated when it is an :class:`~qprogram.Expression`.
+            The value of ``phase``, evaluated when it is an [`Expression`][qprogram.Expression].
 
         Raises:
             UnassignedVariableError: If ``phase`` is an expression whose variables are still unassigned.
@@ -69,7 +69,7 @@ class IQRotation(IQWaveform):
         """Return the rotated in-phase channel.
 
         Returns:
-            An :class:`Arbitrary` waveform holding ``I·cos(phase) - Q·sin(phase)``, sampled from the base
+            An [`Arbitrary`][qprogram.waveforms.Arbitrary] waveform holding ``I·cos(phase) - Q·sin(phase)``, sampled from the base
             channels at 1-ns steps.
 
         Raises:
@@ -85,7 +85,7 @@ class IQRotation(IQWaveform):
         """Return the rotated quadrature channel.
 
         Returns:
-            An :class:`Arbitrary` waveform holding ``I·sin(phase) + Q·cos(phase)``, sampled from the base
+            An [`Arbitrary`][qprogram.waveforms.Arbitrary] waveform holding ``I·sin(phase) + Q·cos(phase)``, sampled from the base
             channels at 1-ns steps.
 
         Raises:

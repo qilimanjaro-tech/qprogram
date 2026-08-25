@@ -17,8 +17,8 @@ Why this list exists: a ``Variable("if")`` becomes syntactically ambiguous the m
 grows an ``if`` block, so rejecting the id up front keeps every ``.qp`` file that parses today
 parsing tomorrow. Same reasoning for vendor namespace names.
 
-Reservations are case-sensitive (``If`` is fine) and apply to :class:`~qprogram.Variable` ids,
-:class:`~qprogram.Fragment` names, and vendor namespace names. Operation, block, and sweep-source
+Reservations are case-sensitive (``If`` is fine) and apply to [`Variable`][qprogram.Variable] ids,
+[`Fragment`][qprogram.Fragment] names, and vendor namespace names. Operation, block, and sweep-source
 names are the syntax these keywords are held back for, so they are not checked against this list.
 """
 
@@ -70,14 +70,14 @@ RESERVED_KEYWORDS: Final[frozenset[str]] = frozenset(
         "null",
     },
 )
-"""Identifiers reserved for future QProgram syntax — rejected as :class:`~qprogram.Variable` ids,
-:class:`~qprogram.Fragment` names, and vendor namespace names."""
+"""Identifiers reserved for future QProgram syntax — rejected as [`Variable`][qprogram.Variable] ids,
+[`Fragment`][qprogram.Fragment] names, and vendor namespace names."""
 
 
 RESERVED_VENDOR_NAMES: Final[frozenset[str]] = frozenset({"core"}) | RESERVED_KEYWORDS
-"""Strings rejected wherever a vendor namespace is named — :meth:`~qprogram.QProgram.register_vendor`,
-:func:`~qprogram.register_vendor_operation`, :func:`~qprogram.register_vendor_block`, and
-:func:`~qprogram.register_vendor_version`. Equals :data:`RESERVED_KEYWORDS` plus the ``"core"``
+"""Strings rejected wherever a vendor namespace is named — [`register_vendor`][qprogram.QProgram.register_vendor],
+`register_vendor_operation`, `register_vendor_block`, and
+`register_vendor_version`. Equals [`RESERVED_KEYWORDS`][qprogram.RESERVED_KEYWORDS] plus the ``"core"``
 sentinel for "no-vendor" core operations."""
 
 
@@ -85,11 +85,11 @@ def is_reserved_keyword(name: str) -> bool:
     """Return whether ``name`` is a reserved identifier keyword.
 
     Args:
-        name (str): Candidate :class:`~qprogram.Variable` id. Matched case-sensitively, so ``"If"``
+        name (str): Candidate [`Variable`][qprogram.Variable] id. Matched case-sensitively, so ``"If"``
             is not reserved.
 
     Returns:
-        ``True`` when ``name`` is in :data:`RESERVED_KEYWORDS`.
+        ``True`` when ``name`` is in [`RESERVED_KEYWORDS`][qprogram.RESERVED_KEYWORDS].
     """
     return name in RESERVED_KEYWORDS
 
@@ -101,6 +101,6 @@ def is_reserved_vendor(name: str) -> bool:
         name (str): Candidate vendor namespace name. Matched case-sensitively.
 
     Returns:
-        ``True`` when ``name`` is in :data:`RESERVED_VENDOR_NAMES`.
+        ``True`` when ``name`` is in `RESERVED_VENDOR_NAMES`.
     """
     return name in RESERVED_VENDOR_NAMES

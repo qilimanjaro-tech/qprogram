@@ -13,12 +13,12 @@
 # limitations under the License.
 """Built-in waveform shapes for pulse-level programs.
 
-Single-channel waveforms subclass :class:`Waveform`; complex (I/Q) waveforms subclass :class:`IQWaveform`.
-Both bases expose ``envelope(resolution)`` / ``get_I()`` / ``get_Q()`` and ``get_duration()`` for
-platforms that need to render samples.
+Single-channel waveforms subclass [`Waveform`][qprogram.waveforms.Waveform]; complex (I/Q) waveforms subclass
+[`IQWaveform`][qprogram.waveforms.IQWaveform]. Both bases expose ``envelope(resolution)`` / ``get_I()`` / ``get_Q()``
+and ``get_duration()`` for platforms that need to render samples.
 
 A shape parameter annotated ``float | Expression`` or ``int | Expression`` accepts an
-:class:`~qprogram.Expression` in place of a number, so a swept variable can parameterize the shape;
+[`Expression`][qprogram.Expression] in place of a number, so a swept variable can parameterize the shape;
 rendering samples then requires every referenced variable to hold a value. Parameters annotated with a
 plain numeric type take a number only.
 """

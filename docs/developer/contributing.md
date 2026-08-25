@@ -103,6 +103,17 @@ All of them are configured in `pyproject.toml`.
   `Raises:` entry. Constructor arguments are documented on the **class**
   docstring, not on `__init__`. mkdocstrings renders all of it into the
   [API reference](../reference/api-qprogram.md).
+- **Cross-references are Markdown, not Sphinx roles.** Write
+  `` [`Variable`][qprogram.Variable] `` for a target the
+  [API reference](../reference/api-qprogram.md) documents, and plain
+  `` `Variable` `` for anything it does not: a builtin, a stdlib name, a
+  private helper no page renders. `` [`qprogram.Range`][] `` is shorthand
+  when the text is already the full path. A Sphinx role such as
+  `` :class:`~qprogram.Variable` `` would reach the page as literal text,
+  since mkdocstrings reads a docstring as Markdown and has no
+  reStructuredText reader; `tests/test_docstring_style.py` fails the suite on
+  one. The docs build runs with `--strict`, so a cross-reference whose target
+  no page renders fails CI as well.
 - **Every file carries the Apache header** — the standard 13-line notice
   with `Copyright 2026 Qilimanjaro Quantum Tech`. Ruff's
   `missing-copyright-notice` rule fails the lint on a file without it.

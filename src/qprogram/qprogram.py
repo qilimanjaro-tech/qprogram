@@ -11,18 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""The :class:`QProgram` builder and the context managers its control-flow methods return.
+"""The [`QProgram`][qprogram.QProgram] builder and the context managers its control-flow methods return.
 
-Every builder call (:meth:`QProgram.play`, :meth:`QProgram.measure`, :meth:`QProgram.set_frequency`)
-appends a typed :class:`~qprogram.operations.Operation` to the block that is currently active, and
-the control-flow methods (:meth:`QProgram.sweep`, :meth:`QProgram.average`, :meth:`QProgram.block`,
-:meth:`QProgram.if_`) return context managers that push a fresh :class:`~qprogram.blocks.Block` onto
-the program's block stack, so nested ``with`` statements build a nested tree.
+Every builder call ([`QProgram.play`][qprogram.QProgram.play], [`QProgram.measure`][qprogram.QProgram.measure],
+[`QProgram.set_frequency`][qprogram.QProgram.set_frequency]) appends a typed
+[`Operation`][qprogram.operations.Operation] to the block that is currently active, and the control-flow methods
+([`QProgram.sweep`][qprogram.QProgram.sweep], [`QProgram.average`][qprogram.QProgram.average],
+[`QProgram.block`][qprogram.QProgram.block], [`QProgram.if_`][qprogram.QProgram.if_]) return context managers that push
+a fresh [`Block`][qprogram.blocks.Block] onto the program's block stack, so nested ``with`` statements build a nested
+tree.
 
-The context-manager classes are private: each is the return type of a builder method and is never
-constructed directly. Alongside them, this module holds the vendor-namespace registry that makes
-``program.<vendor>.<op>(...)`` resolve on any instance, and the whole-program transforms
-(:meth:`QProgram.expand`, :meth:`QProgram.rebind`, :meth:`QProgram.with_waveforms`).
+The context-manager classes are private: each is the return type of a builder method and is never constructed directly.
+Alongside them, this module holds the vendor-namespace registry that makes ``program.<vendor>.<op>(...)`` resolve on any
+instance, and the whole-program transforms ([`QProgram.expand`][qprogram.QProgram.expand],
+[`QProgram.rebind`][qprogram.QProgram.rebind], [`QProgram.with_waveforms`][qprogram.QProgram.with_waveforms]).
 """
 # The context managers drive the builder through its private state (``_block_stack``,
 # ``_append_to_active``), and every ``__exit__`` takes its three exception arguments unannotated.
@@ -75,17 +77,17 @@ if TYPE_CHECKING:
 
 
 class _LoopContext:
-    """Context manager returned by :meth:`QProgram.sweep`.
+    """Context manager returned by [`QProgram.sweep`][qprogram.QProgram.sweep].
 
-    Supports ``|`` to compose multiple sweeps into a :class:`Parallel` block. ``__or__`` is pure —
+    Supports ``|`` to compose multiple sweeps into a [`Parallel`][qprogram.blocks.Parallel] block. ``__or__`` is pure —
     it returns a fresh context with the concatenated list and touches the program only on
     ``__enter__`` — so a list of sweeps can be folded programmatically::
 
         functools.reduce(operator.or_, [program.sweep(v, src) for v, src in specs])
 
-    :meth:`repeat` and :meth:`rotate` are pure in the same way. They wrap the bound source in the
+    `repeat` and `rotate` are pure in the same way. They wrap the bound source in the
     matching combinator and hand back a fresh context, which is what lets a sweep be *shaped* inline
-    without naming :class:`~qprogram.sweeps.Repeat` / :class:`~qprogram.sweeps.Rotate`::
+    without naming [`Repeat`][qprogram.Repeat] / [`Rotate`][qprogram.Rotate]::
 
         with program.sweep(phi).from_values(base).rotate(by=1).repeat(3):
             ...
@@ -97,7 +99,7 @@ class _LoopContext:
         self._parallel_blocks: list[Sweep] = [block]
 
     def __or__(self, other: _LoopContext) -> _LoopContext:
-        """Compose this sweep with ``other`` into a :class:`~qprogram.blocks.Parallel` block.
+        """Compose this sweep with ``other`` into a [`Parallel`][qprogram.blocks.Parallel] block.
 
         Args:
             other (_LoopContext): The sweep context to advance in lockstep with this one.
@@ -110,10 +112,10 @@ class _LoopContext:
         return ctx
 
     def repeat(self, times: int) -> _LoopContext:
-        """Run the bound source's points ``times`` times back to back — :class:`~qprogram.sweeps.Repeat`.
+        """Run the bound source's points ``times`` times back to back — [`Repeat`][qprogram.Repeat].
 
         Each repetition is a distinct sweep point with its own result entry; reach for
-        :meth:`QProgram.average` when you want the repetitions collapsed instead.
+        [`QProgram.average`][qprogram.QProgram.average] when you want the repetitions collapsed instead.
 
         Args:
             times (int): How many times to run the source. Must be at least 1.
@@ -128,11 +130,11 @@ class _LoopContext:
         return self._wrapped(lambda source: Repeat(source, times), method="repeat")
 
     def rotate(self, by: int = 1) -> _LoopContext:
-        """Cyclically shift the bound source's points left by ``by`` — :class:`~qprogram.sweeps.Rotate`.
+        """Cyclically shift the bound source's points left by ``by`` — [`Rotate`][qprogram.Rotate].
 
         Args:
             by (int, optional): Positions to shift left. May be negative (shifts right) or exceed
-                the point count (wraps, as :func:`numpy.roll` does).
+                the point count (wraps, as `numpy.roll` does).
 
         Returns:
             A fresh context bound to the wrapped source; this one is left untouched.
@@ -177,25 +179,25 @@ class _LoopContext:
 
 
 class _Unset:
-    """Type of the :data:`_UNSET` sentinel. Singleton; do not instantiate directly."""
+    """Type of the `_UNSET` sentinel. Singleton; do not instantiate directly."""
 
     def __repr__(self) -> str:
         return "<unset>"
 
 
 _UNSET = _Unset()
-"""Marks :meth:`QProgram.sweep`'s ``source`` as *not passed*, which is what selects the fluent
-:class:`_SweepBuilder` return. A sentinel rather than ``None`` so that an explicit
+"""Marks [`QProgram.sweep`][qprogram.QProgram.sweep]'s ``source`` as *not passed*, which is what selects the fluent
+`_SweepBuilder` return. A sentinel rather than ``None`` so that an explicit
 ``sweep(var, None)`` — a source that failed to be computed, say — still reaches
-:class:`~qprogram.blocks.Sweep` and is rejected there, instead of silently returning a builder."""
+[`Sweep`][qprogram.blocks.Sweep] and is rejected there, instead of silently returning a builder."""
 
 
 _FROM_PREFIX = "from_"
-"""Attribute prefix that makes :class:`_SweepBuilder` look up a sweep source by name."""
+"""Attribute prefix that makes `_SweepBuilder` look up a sweep source by name."""
 
 _SHAPING_METHODS = frozenset({"repeat", "rotate"})
-"""Combinator shortcuts that live on :class:`_LoopContext`. Named here only so that reaching for one
-on a :class:`_SweepBuilder` — before any values are picked — says so instead of raising a bare
+"""Combinator shortcuts that live on `_LoopContext`. Named here only so that reaching for one
+on a `_SweepBuilder` — before any values are picked — says so instead of raising a bare
 missing-attribute error."""
 
 
@@ -218,7 +220,7 @@ def _builder_key(name: str) -> str:
 def _builder_method_name(source_name: str) -> str:
     """Spell the ``from_*`` attribute that builds the source class named ``source_name``.
 
-    The inverse of :func:`_builder_key` for the common case — used for did-you-mean lists, never for
+    The inverse of `_builder_key` for the common case — used for did-you-mean lists, never for
     matching (matching is normalized in both directions instead).
 
     Args:
@@ -281,8 +283,8 @@ def _unknown_source_message(attribute: str) -> str:
 class _SweepBuilder:
     """Source picker returned by ``program.sweep(variable)`` when no source is passed.
 
-    Each ``from_*`` builds one :class:`~qprogram.sweeps.SweepSource` and returns exactly what the
-    two-argument ``sweep(variable, source)`` form returns — the same :class:`Sweep` node, the same
+    Each ``from_*`` builds one [`SweepSource`][qprogram.SweepSource] and returns exactly what the
+    two-argument ``sweep(variable, source)`` form returns — the same [`Sweep`][qprogram.blocks.Sweep] node, the same
     ``.qp`` line, the same ``|`` composition. The only thing it changes is the call site, which does
     not have to name a source class::
 
@@ -293,11 +295,11 @@ class _SweepBuilder:
 
     Both spellings are supported on purpose. Reach for ``from_*`` when writing a sweep by hand; pass
     the source object when *computing* one — holding it in a variable, building it in a
-    comprehension, or composing combinators more deeply than :meth:`_LoopContext.rotate` and
-    :meth:`_LoopContext.repeat` reach.
+    comprehension, or composing combinators more deeply than `_LoopContext.rotate` and
+    `_LoopContext.repeat` reach.
 
     Every registered source is reachable here, not just the built-ins: an unknown ``from_<name>``
-    attribute is resolved against the live sweep-source registry (see :meth:`__getattr__`), so a
+    attribute is resolved against the live sweep-source registry (see `__getattr__`), so a
     vendor source gets its builder with no core change. The five built-ins are additionally written
     out as real methods, so editors complete and type-check them.
 
@@ -314,7 +316,7 @@ class _SweepBuilder:
     def from_range(self, start: float, stop: float, step: float = 1) -> _LoopContext:
         """Sweep a ramp from ``start`` to ``stop`` in increments of ``step``, both ends inclusive.
 
-        Builds :class:`~qprogram.sweeps.Range`, which is where the validation rules live.
+        Builds [`Range`][qprogram.Range], which is where the validation rules live.
 
         Args:
             start (float): First value (inclusive).
@@ -329,7 +331,7 @@ class _SweepBuilder:
     def from_linspace(self, start: float, stop: float, num: int) -> _LoopContext:
         """Sweep ``num`` evenly spaced points from ``start`` to ``stop``, both ends inclusive.
 
-        Builds :class:`~qprogram.sweeps.Linspace` — the ramp to prefer when you know the point count
+        Builds [`Linspace`][qprogram.Linspace] — the ramp to prefer when you know the point count
         rather than the spacing.
 
         Args:
@@ -345,7 +347,7 @@ class _SweepBuilder:
     def from_logspace(self, start: float, stop: float, num: int) -> _LoopContext:
         """Sweep ``num`` points spaced evenly on a log scale between ``start`` and ``stop``.
 
-        Builds :class:`~qprogram.sweeps.Logspace`. Both bounds are actual values, not exponents.
+        Builds [`Logspace`][qprogram.Logspace]. Both bounds are actual values, not exponents.
 
         Args:
             start (float): First value (inclusive). Must be strictly positive.
@@ -360,13 +362,13 @@ class _SweepBuilder:
     def from_values(self, points: npt.ArrayLike) -> _LoopContext:
         """Sweep an explicit list of points.
 
-        Builds :class:`~qprogram.sweeps.Values`, which is ``KIND = "arbitrary"`` even when the points
-        happen to be evenly spaced — use :meth:`from_range` or :meth:`from_linspace` when the sweep
+        Builds [`Values`][qprogram.Values], which is ``KIND = "arbitrary"`` even when the points
+        happen to be evenly spaced — use `from_range` or `from_linspace` when the sweep
         really is a ramp and you want a platform to be able to compile it as one.
 
         Args:
             points (ArrayLike): Sequence of values to iterate through. Anything
-                :func:`numpy.asarray` accepts.
+                `numpy.asarray` accepts.
 
         Returns:
             The context manager that opens the sweep block.
@@ -376,7 +378,7 @@ class _SweepBuilder:
     def from_file(self, path: str) -> _LoopContext:
         """Sweep the points held in the ``.npy`` file at ``path``.
 
-        Builds :class:`~qprogram.sweeps.File`, which stores the path rather than the values — the
+        Builds [`File`][qprogram.File], which stores the path rather than the values — the
         file must be readable wherever the program is validated or run.
 
         Args:
@@ -390,7 +392,7 @@ class _SweepBuilder:
     # --- Plumbing ---
 
     def _bind(self, source: SweepSource) -> _LoopContext:
-        """Put ``source`` in a :class:`Sweep` and hand back the standard loop context.
+        """Put ``source`` in a [`Sweep`][qprogram.blocks.Sweep] and hand back the standard loop context.
 
         Args:
             source (SweepSource): The source whose values the sweep iterates.
@@ -404,7 +406,7 @@ class _SweepBuilder:
         """Resolve an unknown ``from_<source>`` attribute against the live sweep-source registry.
 
         This is what keeps the fluent form open: whatever
-        :func:`~qprogram.register_sweep_source` knows about is spellable here — vendor sources and
+        `register_sweep_source` knows about is spellable here — vendor sources and
         the combinators included — matched on the class name with underscores and case ignored, so
         ``from_iq_table`` finds ``IQTable``. The returned callable forwards its arguments to the
         source's constructor, so the source itself still does the validating.
@@ -460,16 +462,16 @@ class _SweepBuilder:
         raise ValidationError(msg)
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Unreachable — :meth:`__enter__` always raises. Defined so that ``with`` gets that far.
+        """Unreachable — `__enter__` always raises. Defined so that ``with`` gets that far.
 
         CPython looks ``__exit__`` up *before* it calls ``__enter__``; without this method the
         statement would fail with a generic "does not support the context manager protocol"
-        TypeError instead of the message :meth:`__enter__` raises.
+        TypeError instead of the message `__enter__` raises.
         """
 
 
 class _AverageContext:
-    """Context manager returned by :meth:`QProgram.average`."""
+    """Context manager returned by [`QProgram.average`][qprogram.QProgram.average]."""
 
     def __init__(self, program: QProgram, shots: int) -> None:
         self._program = program
@@ -485,7 +487,7 @@ class _AverageContext:
 
 
 class _BlockContext:
-    """Context manager returned by :meth:`QProgram.block` — a generic grouping with no extra semantics."""
+    """Context manager returned by [`QProgram.block`][qprogram.QProgram.block] — a generic grouping with no extra semantics."""
 
     def __init__(self, program: QProgram) -> None:
         self._program = program
@@ -503,9 +505,9 @@ class _BlockContext:
 class _IfContext:
     """Context manager for the opening arm of an ``if_`` / ``elif_`` / ``else_`` chain.
 
-    On entry: creates the :class:`Conditional`, appends it to the currently active block at the
+    On entry: creates the [`Conditional`][qprogram.blocks.Conditional], appends it to the currently active block at the
     *parent* level (before any arm body is pushed), records the parent on
-    :attr:`QProgram._pending_conditional` so a later ``elif_`` / ``else_`` can find it, and pushes
+    `QProgram._pending_conditional` so a later ``elif_`` / ``else_`` can find it, and pushes
     the first arm body onto the block stack.
     """
 
@@ -609,8 +611,8 @@ _PUBLIC_INSTANCE_ATTRS: frozenset[str] = frozenset({"label", "description"})
 class QProgram:
     """Top-level container for a pulse-level quantum program.
 
-    The fluent builder for the QProgram AST. Methods like :meth:`play`, :meth:`measure`, and the
-    control-flow context managers (:meth:`sweep`, :meth:`average`, :meth:`if_`) append typed
+    The fluent builder for the QProgram AST. Methods like `play`, `measure`, and the
+    control-flow context managers (`sweep`, `average`, `if_`) append typed
     operation and block nodes to the current active block.
 
     Args:
@@ -635,29 +637,29 @@ class QProgram:
         self._block_stack: deque[Block] = deque([self._body])
         self._variables: list[Variable] = []
         self._schema = schema
-        # Fragments used by this program, keyed by name. Populated by :meth:`call` (transitively,
+        # Fragments used by this program, keyed by name. Populated by `call` (transitively,
         # dependencies first — so iteration order is topological) and by the ``.qp`` parser (file
         # order, which is topological too since fragments must be defined before use).
         self._fragments: dict[str, Fragment] = {}
         # Structural-path → 1-based ``.qp`` line for every body node, filled by ``loads()``/
-        # ``load()``. Empty for programs built in Python; cleared by :meth:`expand` (the
+        # ``load()``. Empty for programs built in Python; cleared by `expand` (the
         # expansion restructures the tree, invalidating the recorded paths).
         self._qp_source_map: dict[tuple[int | str, ...], int] = {}
         # Holds the open if_/elif_/else_ chain so a following elif_/else_ can find the right
         # Conditional. The tuple is (open Conditional, parent block); it's cleared whenever something
-        # else is appended at that parent level by :meth:`_append_to_active`.
+        # else is appended at that parent level by `_append_to_active`.
         self._pending_conditional: tuple[Conditional, Block] | None = None
 
     # --- Properties ---
 
     @property
     def body(self) -> Block:
-        """The root :class:`Block` containing every operation appended to this program."""
+        """The root [`Block`][qprogram.blocks.Block] containing every operation appended to this program."""
         return self._body
 
     @property
     def schema(self) -> BusSchema | None:
-        """The attached :class:`BusSchema`, or ``None`` for a program built from raw-string buses.
+        """The attached [`BusSchema`][qprogram.BusSchema], or ``None`` for a program built from raw-string buses.
 
         At most one schema per program — it defines the chip's elements and bus kinds. The ``.qp``
         writer uses it to emit bus paths (``q[0].drive``) rather than quoted strings; plain-string
@@ -672,7 +674,7 @@ class QProgram:
 
     @property
     def variables(self) -> list[Variable]:
-        """The :class:`Variable` s declared on this program, in declaration order."""
+        """The [`Variable`][qprogram.Variable] s declared on this program, in declaration order."""
         return list(self._variables)
 
     @property
@@ -680,10 +682,10 @@ class QProgram:
         """The ``.qp`` source map: structural path → 1-based line in the parsed file.
 
         Filled by ``loads()`` / ``load()`` for every node in the ``body:`` section (paths follow
-        :mod:`qprogram.paths` — ``()`` is the body, ints index ``elements``, ``arm:<i>`` /
+        `qprogram.paths` — ``()`` is the body, ints index ``elements``, ``arm:<i>`` /
         ``else`` / ``loop:<i>`` address conditional arms and parallel loop headers). Empty for
-        programs built in Python and after :meth:`expand`. Because the ``.qp`` round-trip
-        preserves structure, a :attr:`~qprogram.Diagnostic.path` computed against a built program
+        programs built in Python and after `expand`. Because the ``.qp`` round-trip
+        preserves structure, a `path` computed against a built program
         looks up directly in ``loads(dumps(p)).source_map``. Fragment-internal statements are not
         mapped (diagnostics always target the expanded body).
         """
@@ -691,9 +693,9 @@ class QProgram:
 
     @property
     def fragments(self) -> dict[str, Fragment]:
-        """The :class:`~qprogram.Fragment` s used by this program, keyed by name.
+        """The [`Fragment`][qprogram.Fragment] s used by this program, keyed by name.
 
-        Populated by :meth:`call` (including each fragment's own dependencies, registered first) and
+        Populated by `call` (including each fragment's own dependencies, registered first) and
         by ``loads()`` for every ``fragment`` section in a ``.qp`` file. Iteration order is
         topological: a fragment always appears before any fragment that calls it.
         """
@@ -711,7 +713,7 @@ class QProgram:
         other than ``elif_`` / ``else_`` at that level makes the chain ambiguous. The chain stays open
         while appends happen inside an arm body (a deeper level of the block stack).
         ``_ElifContext`` / ``_ElseContext`` bypass this method: they mutate the existing
-        :class:`Conditional` in place and push a new arm body themselves.
+        [`Conditional`][qprogram.blocks.Conditional] in place and push a new arm body themselves.
 
         Args:
             element (Block | Operation): The node to append to the active block.
@@ -723,12 +725,12 @@ class QProgram:
     # --- Measurement handles ---
 
     def measurement_handles(self) -> list[MeasurementHandle]:
-        """Return the canonical :class:`MeasurementHandle` for every measurement in the AST.
+        """Return the canonical [`MeasurementHandle`][qprogram.MeasurementHandle] for every measurement in the AST.
 
         Walks the body in declaration order and returns ``op.handle`` for each
-        :class:`MeasurementOperation`. The returned handles are the *same Python instances* the AST
+        `MeasurementOperation`. The returned handles are the *same Python instances* the AST
         stores — writing per-measurement values via ``handle._set_value(...)`` is immediately visible
-        to every :class:`MeasurementRef`, whether the program was built in Python or loaded from a
+        to every [`MeasurementRef`][qprogram.MeasurementRef], whether the program was built in Python or loaded from a
         ``.qp`` file.
 
         Returns:
@@ -740,12 +742,12 @@ class QProgram:
         """Choose a unique name for a new measurement.
 
         If ``requested`` is given, it is validated for uniqueness and used as-is. Otherwise an
-        auto-name is generated: for a :class:`~qprogram.BusRef`, the prefix is the bus path followed by
+        auto-name is generated: for a [`BusRef`][qprogram.BusRef], the prefix is the bus path followed by
         ``/m`` and a per-bus counter (``q0/readout/m0``, ``q0/readout/m1``, ...); for raw-string buses,
         a global ``m0``, ``m1``, ... counter shared across all raw-string measurements.
 
         Counters are derived from the AST on each call rather than stored on the program — this keeps
-        :func:`copy.deepcopy`, ``with_waveforms``, and ``loads``/``dumps`` round-trips free of hidden
+        `copy.deepcopy`, ``with_waveforms``, and ``loads``/``dumps`` round-trips free of hidden
         state, at the cost of one AST walk per measurement construction.
 
         Args:
@@ -787,7 +789,7 @@ class QProgram:
         units: str | None = None,
         description: str | None = None,
     ) -> Variable:
-        """Declare a new :class:`Variable` on this program.
+        """Declare a new [`Variable`][qprogram.Variable] on this program.
 
         Args:
             id (str): Short identifier matching ``[A-Za-z_][A-Za-z0-9_]*``. Doubles as the ``.qp``
@@ -797,7 +799,7 @@ class QProgram:
             description (str | None): Longer free-form description.
 
         Returns:
-            The new :class:`Variable`.
+            The new [`Variable`][qprogram.Variable].
 
         Raises:
             ValidationError: If ``id`` already exists on this program.
@@ -813,9 +815,9 @@ class QProgram:
 
     @classmethod
     def register_vendor(cls, name: str, namespace_cls: type[VendorNamespace]) -> None:
-        """Register a :class:`~qprogram.VendorNamespace` subclass under ``name``.
+        """Register a [`VendorNamespace`][qprogram.VendorNamespace] subclass under ``name``.
 
-        After registration, ``program.<name>`` returns the namespace on any :class:`QProgram` instance.
+        After registration, ``program.<name>`` returns the namespace on any [`QProgram`][qprogram.QProgram] instance.
 
         Re-registering the *same* namespace class under the same name is a no-op (import-time
         side-effect modules may run twice); registering a different class under a taken name is
@@ -824,9 +826,9 @@ class QProgram:
         Args:
             name (str): Vendor identifier (also used as the dot-prefix in ``.qp`` operation names).
                 Must not be a reserved keyword, the ``"core"`` sentinel, or the name of any
-                :class:`QProgram` attribute (which would make the namespace unreachable — vendor
+                [`QProgram`][qprogram.QProgram] attribute (which would make the namespace unreachable — vendor
                 lookup happens in ``__getattr__``, after normal attribute resolution).
-            namespace_cls (type[VendorNamespace]): The :class:`~qprogram.VendorNamespace` subclass
+            namespace_cls (type[VendorNamespace]): The [`VendorNamespace`][qprogram.VendorNamespace] subclass
                 to instantiate lazily.
 
         Raises:
@@ -863,7 +865,7 @@ class QProgram:
         """Resolve ``program.<vendor>`` to its registered namespace, caching it on the instance.
 
         Only reached when normal attribute lookup fails, which is why a vendor may not be named
-        after a :class:`QProgram` attribute. Underscore-prefixed names are refused immediately, so
+        after a [`QProgram`][qprogram.QProgram] attribute. Underscore-prefixed names are refused immediately, so
         protocol probes (``__deepcopy__``, ``__getstate__``) fail fast instead of reaching the
         registry.
 
@@ -890,7 +892,7 @@ class QProgram:
     def _validate_bus(self, bus: str) -> None:
         """Reject a bus reference that belongs to a different schema than this program's.
 
-        Plain strings and :class:`~qprogram.BusRef` s carrying no schema metadata pass through
+        Plain strings and [`BusRef`][qprogram.BusRef] s carrying no schema metadata pass through
         unchecked. A schema-backed ref is compared against the program's schema: a program with no
         schema yet adopts the ref's, and a ref from any other schema is refused.
 
@@ -903,7 +905,7 @@ class QProgram:
 
         Raises:
             ValidationError: If ``bus`` is a schema-backed reference produced by a different
-                :class:`~qprogram.BusSchema` than the one attached to this program.
+                [`BusSchema`][qprogram.BusSchema] than the one attached to this program.
         """
         if not isinstance(bus, BusRef):
             return
@@ -927,12 +929,12 @@ class QProgram:
     # --- Core operations ---
 
     def play(self, bus: str, waveform: Waveform | IQWaveform | str) -> None:
-        """Append a :class:`~qprogram.operations.Play` op — play a waveform on a bus.
+        """Append a [`Play`][qprogram.operations.Play] op — play a waveform on a bus.
 
         Args:
             bus (str): Bus to play on.
             waveform (Waveform | IQWaveform | str): Concrete waveform, or a string alias resolved
-                later by :meth:`with_waveforms`.
+                later by `with_waveforms`.
 
         Raises:
             ValidationError: If ``bus`` comes from another schema, or a concrete waveform's channel
@@ -956,20 +958,20 @@ class QProgram:
         Args:
             bus (str): Readout bus (must have ``acquires=True``).
             waveform (IQWaveform | str): Readout pulse — concrete
-                :class:`~qprogram.waveforms.IQWaveform` or a string alias.
+                [`IQWaveform`][qprogram.waveforms.IQWaveform] or a string alias.
             weights (IQWaveform | str): Integration weights — same shape options as ``waveform``.
             name (str | None): Explicit handle name. When omitted, an auto-name is allocated using
-                the convention described on :meth:`_allocate_measurement_name`.
+                the convention described on `_allocate_measurement_name`.
             fields (Iterable[MeasurementField], optional): Which measurement fields to produce — an
-                iterable of :class:`~qprogram.MeasurementField` members (registered field-name
+                iterable of `MeasurementField` members (registered field-name
                 strings are also accepted, which is how vendors extend the set). Default
-                ``(MeasurementField.IQ,)``; :attr:`~qprogram.MeasurementField.STATE` requests
-                classification, :attr:`~qprogram.MeasurementField.RAW` the raw ADC trace. Order and
+                ``(MeasurementField.IQ,)``; `STATE` requests
+                classification, `RAW` the raw ADC trace. Order and
                 duplicates don't matter — the stored tuple is canonical. An unknown field name
-                raises :class:`~qprogram.ValidationError` here, at the call site.
+                raises [`ValidationError`][qprogram.ValidationError] here, at the call site.
 
         Returns:
-            The :class:`MeasurementHandle` identifying this measurement; pass it to
+            The [`MeasurementHandle`][qprogram.MeasurementHandle] identifying this measurement; pass it to
             ``result.get(...)``.
 
         Raises:
@@ -991,12 +993,12 @@ class QProgram:
         return handle
 
     def wait(self, bus: str, duration: int | Expression) -> None:
-        """Append a :class:`~qprogram.operations.Wait` — idle on ``bus`` for ``duration`` ns.
+        """Append a [`Wait`][qprogram.operations.Wait] — idle on ``bus`` for ``duration`` ns.
 
         Args:
             bus (str): Bus to idle on.
             duration (int | Expression): Wait duration in nanoseconds. Accepts an
-                :class:`~qprogram.Expression` for sweeps.
+                [`Expression`][qprogram.Expression] for sweeps.
 
         Raises:
             ValidationError: If ``bus`` comes from another schema.
@@ -1005,7 +1007,7 @@ class QProgram:
         self._append_to_active(Wait(bus=bus, duration=duration))
 
     def sync(self, buses: list[str] | None = None) -> None:
-        """Append a :class:`~qprogram.operations.Sync` — synchronize buses to a common time reference.
+        """Append a [`Sync`][qprogram.operations.Sync] — synchronize buses to a common time reference.
 
         Args:
             buses (list[str] | None): Buses to sync, or ``None`` to sync every bus currently active
@@ -1017,7 +1019,7 @@ class QProgram:
                 comes from another schema.
         """
         # The user-facing keyword is ``buses`` for readability; the AST attribute is ``targets``
-        # (see :class:`Sync`).
+        # (see `Sync`).
         if buses is not None and len(buses) == 0:
             msg = "sync([]) is ambiguous; pass None (or no argument) to sync all buses"
             raise ValidationError(msg)
@@ -1027,12 +1029,12 @@ class QProgram:
         self._append_to_active(Sync(targets=buses))
 
     def set_frequency(self, bus: str, frequency: float | Expression) -> None:
-        """Append a :class:`~qprogram.operations.SetFrequency` — retune the NCO on ``bus``.
+        """Append a [`SetFrequency`][qprogram.operations.SetFrequency] — retune the NCO on ``bus``.
 
         Args:
             bus (str): Bus whose oscillator to retune.
             frequency (float | Expression): New frequency in Hz. Accepts an
-                :class:`~qprogram.Expression` for sweeps.
+                [`Expression`][qprogram.Expression] for sweeps.
 
         Raises:
             ValidationError: If ``bus`` comes from another schema.
@@ -1041,12 +1043,12 @@ class QProgram:
         self._append_to_active(SetFrequency(bus=bus, frequency=frequency))
 
     def set_phase(self, bus: str, phase: float | Expression) -> None:
-        """Append a :class:`~qprogram.operations.SetPhase` — set the NCO phase on ``bus``.
+        """Append a [`SetPhase`][qprogram.operations.SetPhase] — set the NCO phase on ``bus``.
 
         Args:
             bus (str): Bus whose oscillator phase to set.
             phase (float | Expression): Phase in radians. Accepts an
-                :class:`~qprogram.Expression` for sweeps.
+                [`Expression`][qprogram.Expression] for sweeps.
 
         Raises:
             ValidationError: If ``bus`` comes from another schema.
@@ -1055,7 +1057,7 @@ class QProgram:
         self._append_to_active(SetPhase(bus=bus, phase=phase))
 
     def reset_phase(self, bus: str) -> None:
-        """Append a :class:`~qprogram.operations.ResetPhase` — reset the NCO phase on ``bus`` to zero.
+        """Append a [`ResetPhase`][qprogram.operations.ResetPhase] — reset the NCO phase on ``bus`` to zero.
 
         Args:
             bus (str): Bus whose oscillator phase to reset.
@@ -1067,11 +1069,11 @@ class QProgram:
         self._append_to_active(ResetPhase(bus=bus))
 
     def set_gain(self, bus: str, gain: float | Expression) -> None:
-        """Append a :class:`~qprogram.operations.SetGain` — set the output gain on ``bus``.
+        """Append a [`SetGain`][qprogram.operations.SetGain] — set the output gain on ``bus``.
 
         Args:
             bus (str): Bus whose output gain to set.
-            gain (float | Expression): New gain. Accepts an :class:`~qprogram.Expression` for
+            gain (float | Expression): New gain. Accepts an [`Expression`][qprogram.Expression] for
                 sweeps.
 
         Raises:
@@ -1086,7 +1088,7 @@ class QProgram:
         offset_path0: float | Expression,
         offset_path1: float | Expression | None = None,
     ) -> None:
-        """Append a :class:`~qprogram.operations.SetOffset` — set DC offset on one or both paths of ``bus``.
+        """Append a [`SetOffset`][qprogram.operations.SetOffset] — set DC offset on one or both paths of ``bus``.
 
         Args:
             bus (str): Bus whose DC offset to set.
@@ -1107,7 +1109,7 @@ class QProgram:
         parameter: str,
         value: float | Expression,
     ) -> None:
-        """Append a :class:`~qprogram.operations.SetParameter` — write a bus-scoped parameter.
+        """Append a [`SetParameter`][qprogram.operations.SetParameter] — write a bus-scoped parameter.
 
         A parameter write is platform configuration rather than a real-time instruction, so
         platforms expose it host-side only.
@@ -1115,7 +1117,7 @@ class QProgram:
         Args:
             bus (str): The bus whose parameter is written.
             parameter (str): Name of the parameter to write.
-            value (float | Expression): New value. Accepts an :class:`~qprogram.Expression` for
+            value (float | Expression): New value. Accepts an [`Expression`][qprogram.Expression] for
                 sweeps.
 
         Raises:
@@ -1125,22 +1127,22 @@ class QProgram:
         self._append_to_active(SetParameter(bus=bus, parameter=parameter, value=value))
 
     def get_parameter(self, bus: str, parameter: str) -> Variable:
-        """Append a :class:`~qprogram.operations.GetParameter` and return the freshly-declared variable.
+        """Append a [`GetParameter`][qprogram.operations.GetParameter] and return the freshly-declared variable.
 
         Derives a unique variable id from ``f"{bus}_{parameter}"``, replacing non-word characters
         with underscores and appending a numeric suffix on collision; the original
-        ``bus.parameter`` form is kept on the variable's :attr:`label` for traceability.
+        ``bus.parameter`` form is kept on the variable's `label` for traceability.
 
         Args:
             bus (str): The bus whose parameter is read.
             parameter (str): Name of the parameter to read.
 
         Returns:
-            The :class:`Variable` the runtime populates with the read value.
+            The [`Variable`][qprogram.Variable] the runtime populates with the read value.
 
         Raises:
             ValidationError: If ``bus`` comes from another schema, or the derived id is not a valid
-                :class:`Variable` id — which is what a bus or parameter name carrying letters or
+                [`Variable`][qprogram.Variable] id — which is what a bus or parameter name carrying letters or
                 digits outside ASCII produces.
         """
         self._validate_bus(bus)
@@ -1158,15 +1160,15 @@ class QProgram:
     # --- Fragments ---
 
     def call(self, fragment: Fragment, *args: object, **kwargs: object) -> None:
-        """Instantiate a :class:`~qprogram.Fragment` at the current position.
+        """Instantiate a [`Fragment`][qprogram.Fragment] at the current position.
 
-        Appends a first-class :class:`~qprogram.operations.Call` node — the fragment definition and
+        Appends a first-class [`Call`][qprogram.operations.Call] node — the fragment definition and
         the call site both survive serialization and round-trip through ``.qp``. Use
-        :meth:`expand` to lower every call into the substituted fragment body.
+        `expand` to lower every call into the substituted fragment body.
 
         Arguments bind to the fragment's parameters with the Python calling convention (positional
         in declaration order, then keywords). Accepted values: numbers, expressions/variables,
-        buses (strings or :class:`~qprogram.BusRef`), and waveforms.
+        buses (strings or [`BusRef`][qprogram.BusRef]), and waveforms.
 
         The fragment (and, transitively, any fragment it calls) is registered on this program so
         the ``.qp`` writer can emit its definition.
@@ -1201,7 +1203,7 @@ class QProgram:
     def _reconcile_fragment_schema(self, fragment: Fragment) -> None:
         """Adopt the fragment's schema (or vice versa); reject two different schemas.
 
-        A program and the fragments it calls must agree on a single :class:`~qprogram.BusSchema`
+        A program and the fragments it calls must agree on a single [`BusSchema`][qprogram.BusSchema]
         so the ``.qp`` writer's one ``schema:`` section can resolve every bus path.
 
         Args:
@@ -1224,7 +1226,7 @@ class QProgram:
             raise ValidationError(msg)
 
     def _register_fragment(self, fragment: Fragment, _stack: tuple[str, ...]) -> None:
-        """Record ``fragment`` (dependencies first) in :attr:`_fragments`; detect cycles and clashes.
+        """Record ``fragment`` (dependencies first) in `_fragments`; detect cycles and clashes.
 
         Args:
             fragment (Fragment): The fragment to register.
@@ -1265,7 +1267,7 @@ class QProgram:
     def sweep(self, variable: Variable, source: SweepSource) -> _LoopContext: ...
 
     def sweep(self, variable: Variable, source: SweepSource | _Unset = _UNSET) -> _SweepBuilder | _LoopContext:
-        """Open a :class:`~qprogram.blocks.Sweep` binding ``variable`` to a source's values.
+        """Open a [`Sweep`][qprogram.blocks.Sweep] binding ``variable`` to a source's values.
 
         The DSL's only loop. What varies between a linear ramp, an explicit table, a log-spaced set
         and a composed pattern is the *source*, not the block — and there are two equal-billing ways
@@ -1288,7 +1290,7 @@ class QProgram:
 
         Or pass the source object, which is what you want when you are *computing* the source rather
         than writing it out — and the form that reaches combinator nestings the fluent
-        :meth:`~_LoopContext.rotate` / :meth:`~_LoopContext.repeat` shortcuts don't::
+        `rotate` / `repeat` shortcuts don't::
 
             with program.sweep(freq, qp.Range(4e9, 6e9, 1e6)):
                 ...
@@ -1297,22 +1299,22 @@ class QProgram:
             with program.sweep(freq, source):  # held in a variable, from a scan spec, ...
                 ...
 
-        Both build the identical :class:`~qprogram.blocks.Sweep` node and serialize to the identical
+        Both build the identical [`Sweep`][qprogram.blocks.Sweep] node and serialize to the identical
         ``.qp`` line. Every registered source has a fluent builder, vendor sources included — see
-        :class:`_SweepBuilder`.
+        `_SweepBuilder`.
 
         Use ``|`` on the returned context manager to compose several sweeps into a
-        :class:`~qprogram.blocks.Parallel` block that advances them in lockstep.
+        [`Parallel`][qprogram.blocks.Parallel] block that advances them in lockstep.
 
         Args:
-            variable (Variable): The :class:`Variable` rebound each iteration.
-            source (SweepSource, optional): A :class:`~qprogram.sweeps.SweepSource`. A bare 1-D
-                sequence is accepted as shorthand for :class:`~qprogram.sweeps.Values`. Omit it to
-                get a :class:`_SweepBuilder` and pick the values with a ``from_*`` method instead.
+            variable (Variable): The [`Variable`][qprogram.Variable] rebound each iteration.
+            source (SweepSource, optional): A [`SweepSource`][qprogram.SweepSource]. A bare 1-D
+                sequence is accepted as shorthand for [`Values`][qprogram.Values]. Omit it to
+                get a `_SweepBuilder` and pick the values with a ``from_*`` method instead.
 
         Returns:
             A context manager opening the sweep block, or — when ``source`` is omitted — the
-            :class:`_SweepBuilder` that produces one.
+            `_SweepBuilder` that produces one.
 
         Raises:
             ValidationError: If ``source`` is given but is neither a sweep source nor a 1-D sequence
@@ -1329,7 +1331,7 @@ class QProgram:
             shots (int): How many times to repeat the body.
 
         Returns:
-            The context manager that opens the :class:`~qprogram.blocks.Average` block.
+            The context manager that opens the [`Average`][qprogram.blocks.Average] block.
         """
         return _AverageContext(self, shots)
 
@@ -1337,7 +1339,7 @@ class QProgram:
         """Open a generic grouping block — a container that carries no semantics of its own.
 
         Returns:
-            The context manager that opens the :class:`~qprogram.blocks.Block`.
+            The context manager that opens the [`Block`][qprogram.blocks.Block].
         """
         return _BlockContext(self)
 
@@ -1354,12 +1356,12 @@ class QProgram:
                 pass
 
         The producing measurement **must** request state classification (``fields`` must include
-        :attr:`~qprogram.MeasurementField.STATE`); the validator emits ``missing-classification``
+        `STATE`); the validator emits ``missing-classification``
         otherwise.
 
         Args:
-            condition (Expression): A :class:`~qprogram.Comparison` between a
-                :class:`~qprogram.MeasurementRef` (from ``handle.state``) and an ``int`` literal.
+            condition (Expression): A [`Comparison`][qprogram.Comparison] between a
+                [`MeasurementRef`][qprogram.MeasurementRef] (from ``handle.state``) and an ``int`` literal.
                 That is the only accepted shape.
 
         Returns:
@@ -1376,10 +1378,10 @@ class QProgram:
         """Extend the open ``if_`` chain with another arm.
 
         Must appear immediately after the matching ``if_()`` / ``elif_()`` at the same nesting level;
-        any other append in between closes the chain. Condition shape is the same as :meth:`if_`.
+        any other append in between closes the chain. Condition shape is the same as `if_`.
 
         Args:
-            condition (Expression): The arm's condition, in the shape :meth:`if_` documents.
+            condition (Expression): The arm's condition, in the shape `if_` documents.
 
         Returns:
             The context manager that opens the new arm.
@@ -1410,10 +1412,10 @@ class QProgram:
     def _validate_conditional_condition(condition: Expression, *, where: str) -> None:
         """Reject a conditional condition outside the supported shape.
 
-        The supported shape is a single :class:`Comparison` whose operands are
-        :class:`MeasurementRef` (from ``handle.state``) or :class:`Constant` (an ``int`` literal),
-        with at least one :class:`MeasurementRef`. Every arm of every chain goes through this one
-        gate, so it is the single place the accepted shape is defined.
+        The supported shape is a single [`Comparison`][qprogram.Comparison] whose operands are
+        [`MeasurementRef`][qprogram.MeasurementRef] (from ``handle.state``) or [`Constant`][qprogram.Constant] (an
+        ``int`` literal), with at least one [`MeasurementRef`][qprogram.MeasurementRef]. Every arm of every chain goes
+        through this one gate, so it is the single place the accepted shape is defined.
 
         Args:
             condition (Expression): The condition expression.
@@ -1454,10 +1456,10 @@ class QProgram:
     # --- Transformations ---
 
     def expand(self) -> QProgram:
-        """Return a deep copy with every fragment :class:`~qprogram.operations.Call` inlined.
+        """Return a deep copy with every fragment [`Call`][qprogram.operations.Call] inlined.
 
         The canonical lowering from the composed form to a fragment-free program: each call site is
-        replaced by a plain :class:`Block` containing the fragment body with parameters substituted
+        replaced by a plain [`Block`][qprogram.blocks.Block] containing the fragment body with parameters substituted
         by the bound arguments. Fragment-local variables are hygienically renamed onto this program
         (``{fragment}_{id}``, numeric suffix on collision); colliding measurement names gain a
         ``_2`` / ``_3`` suffix (the shared handle is renamed, keeping ``handle.state`` conditionals
@@ -1467,7 +1469,7 @@ class QProgram:
         A program with no calls is deep-copied and returned unchanged in structure.
 
         Returns:
-            A new, fragment-free :class:`QProgram`; the original is untouched. Its fragment
+            A new, fragment-free [`QProgram`][qprogram.QProgram]; the original is untouched. Its fragment
             registry and its ``.qp`` source map are both empty either way, because expansion
             restructures the tree the recorded paths address.
 
@@ -1491,14 +1493,14 @@ class QProgram:
         """Return a copy of this program with its bus references re-resolved structurally.
 
         Rather than rewriting bus *strings*, ``rebind`` re-resolves every schema-backed
-        :class:`~qprogram.BusRef` through a schema factory, so the result stays a typed ``BusRef``
+        [`BusRef`][qprogram.BusRef] through a schema factory, so the result stays a typed ``BusRef``
         (serializing as a ``q[1].drive`` path, not a quoted string) and can re-index a qubit, move to a
         different element, swap naming conventions, or move onto another chip's schema — all checked
         against the schema (an absent bus kind raises ``AttributeError``).
 
         Auto-allocated measurement names embed the bus (``q0/readout/m0``); ``rebind`` re-derives them for
         the rebound buses while leaving user-supplied names untouched (see
-        :class:`~qprogram.MeasurementHandle`). Fragment calls are expanded first.
+        [`MeasurementHandle`][qprogram.MeasurementHandle]). Fragment calls are expanded first.
 
         Args:
             schema (BusSchema | None): Target schema. Defaults to the program's current schema
@@ -1507,7 +1509,7 @@ class QProgram:
                 Maps ``(element, idx)`` to ``(element, idx)`` — e.g. ``{("q", 0): ("q", 1)}`` to port
                 qubit 0's operations onto qubit 1. Unlisted ``(element, idx)`` pairs pass through.
             naming (BusNaming | None): Re-resolve every ref under a new
-                :class:`~qprogram.BusNaming` (cross-platform names).
+                [`BusNaming`][qprogram.BusNaming] (cross-platform names).
             strings (Mapping[str, str] | None): Escape hatch for raw-string buses (which carry no
                 schema metadata): an old→new map. Map a string to itself to mark it intentionally
                 untouched.
@@ -1516,7 +1518,7 @@ class QProgram:
                 accident. Set ``True`` to leave uncovered raw-string buses in place.
 
         Returns:
-            A new :class:`QProgram`; the original is untouched.
+            A new [`QProgram`][qprogram.QProgram]; the original is untouched.
 
         Raises:
             ValidationError: If ``naming`` is given without a schema, or raw-string buses are left
@@ -1592,11 +1594,11 @@ class QProgram:
 
         Args:
             waveforms (WaveformLibrary | Mapping[str, Waveform | IQWaveform]): A
-                :class:`~qprogram.WaveformLibrary` (resolved per bus), or a plain
+                [`WaveformLibrary`][qprogram.WaveformLibrary] (resolved per bus), or a plain
                 ``{name: waveform}`` mapping (one global tier, resolved on every bus).
 
         Returns:
-            A new :class:`QProgram` with matching names replaced; the original is untouched.
+            A new [`QProgram`][qprogram.QProgram] with matching names replaced; the original is untouched.
 
         Raises:
             ValidationError: If a resolved waveform's channel count does not match its bus's, or if
@@ -1612,8 +1614,8 @@ class QProgram:
 
         User-supplied names (``handle._auto_named is False``) are reserved and never rewritten. Auto
         names are re-derived in declaration order against the reserved set plus already-assigned auto
-        names, reproducing :meth:`_allocate_measurement_name`'s per-prefix counter. Mutating
-        ``handle.name`` in place keeps every :class:`~qprogram.MeasurementRef` pointing at it consistent.
+        names, reproducing `_allocate_measurement_name`'s per-prefix counter. Mutating
+        ``handle.name`` in place keeps every [`MeasurementRef`][qprogram.MeasurementRef] pointing at it consistent.
         """
         measurement_ops = _walk_measurement_ops(self._body)
         used: set[str] = {op.handle.name for op in measurement_ops if not op.handle._auto_named}
@@ -1636,9 +1638,9 @@ def _rebind_bus(
     string_map: Mapping[str, str],
     unported: set[str],
 ) -> str:
-    """Re-resolve one bus value during :meth:`QProgram.rebind`.
+    """Re-resolve one bus value during [`QProgram.rebind`][qprogram.QProgram.rebind].
 
-    Schema-backed :class:`~qprogram.BusRef` buses are re-resolved through ``target_schema`` after applying
+    Schema-backed [`BusRef`][qprogram.BusRef] buses are re-resolved through ``target_schema`` after applying
     the ``(element, idx)`` remap. Raw strings (and metadata-less BusRefs) use the ``string_map``; any not
     covered there are recorded in ``unported`` for the caller to report.
 
@@ -1652,7 +1654,7 @@ def _rebind_bus(
         unported (set[str]): Collects raw-string buses no mapping covered. Mutated in place.
 
     Returns:
-        The rebound bus: a typed :class:`~qprogram.BusRef` for schema-backed input, the mapped name
+        The rebound bus: a typed [`BusRef`][qprogram.BusRef] for schema-backed input, the mapped name
         for a covered raw string, and the original value otherwise.
 
     Raises:
@@ -1674,7 +1676,7 @@ def _rebind_bus(
 def _resolve_waveforms(block: Block, library: WaveformLibrary) -> None:
     """Resolve string waveform names to concrete waveforms in place, scoped per bus.
 
-    Walks via :meth:`Block.walk` and uses each op's :attr:`WAVEFORM_ATTRS` so vendor ops with custom
+    Walks via `Block.walk` and uses each op's `WAVEFORM_ATTRS` so vendor ops with custom
     waveform attribute names work as long as they declare them. Each replacement is channel-validated
     against the op's bus.
 
@@ -1702,7 +1704,7 @@ def _validate_waveform_channel(bus: str, waveform: Waveform | IQWaveform | str) 
     """Validate the waveform's channel kind against the bus's declared channel.
 
     Raw-string buses and string-alias waveforms skip validation — there's no channel metadata to
-    check. Schema-bound :class:`~qprogram.BusRef` + concrete waveform mismatches raise.
+    check. Schema-bound [`BusRef`][qprogram.BusRef] + concrete waveform mismatches raise.
 
     Args:
         bus (str): The bus the waveform is destined for.
@@ -1731,13 +1733,13 @@ def _validate_waveform_channel(bus: str, waveform: Waveform | IQWaveform | str) 
 
 
 def _walk_measurement_ops(block: Block) -> list[MeasurementOperation]:
-    """Return every :class:`MeasurementOperation` in ``block`` in declaration order.
+    """Return every `MeasurementOperation` in ``block`` in declaration order.
 
     Args:
         block (Block): Root of the tree to walk.
 
     Returns:
-        The measurement operations, in the pre-order :meth:`Block.walk` yields them.
+        The measurement operations, in the pre-order `Block.walk` yields them.
     """
     return [node for node in block.walk() if isinstance(node, MeasurementOperation)]
 
@@ -1760,12 +1762,12 @@ def _measurement_name_prefix(bus: str) -> str:
 
 
 def _sanitize_id(s: str) -> str:
-    """Derive a :class:`Variable` id from an arbitrary string.
+    """Derive a [`Variable`][qprogram.Variable] id from an arbitrary string.
 
     Replaces every non-word character with ``_``, prefixes a leading underscore if the first
     character is a digit, and falls back to ``"var"`` for empty input. The character class is
     Unicode-aware, so an ASCII input yields an id matching ``[A-Za-z_][A-Za-z0-9_]*`` but letters
-    and digits outside ASCII survive untouched — and :class:`Variable` rejects those. Uniqueness
+    and digits outside ASCII survive untouched — and [`Variable`][qprogram.Variable] rejects those. Uniqueness
     is the caller's problem: two different strings can sanitize to the same id.
 
     Args:

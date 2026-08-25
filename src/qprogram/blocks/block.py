@@ -11,9 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Base :class:`Block` container.
+"""Base [`Block`][qprogram.blocks.Block] container.
 
-Blocks satisfy the same introspection contract as :class:`~qprogram.operations.Operation` so the entire
+Blocks satisfy the same introspection contract as [`Operation`][qprogram.operations.Operation] so the entire
 AST walks through a single uniform API. See the architecture docs for the contract.
 """
 
@@ -34,32 +34,31 @@ if TYPE_CHECKING:
 class Block:
     """Generic sequential container for operations and nested blocks.
 
-    The base ``Block`` is what :meth:`QProgram.block` produces — an unstructured grouping with no extra
-    semantics. Repeating blocks (:class:`~qprogram.blocks.Sweep`,
-    :class:`~qprogram.blocks.Average`, :class:`~qprogram.blocks.Parallel`) and
-    :class:`~qprogram.blocks.Conditional` subclass it to add structure the runtime understands.
+    The base ``Block`` is what [`QProgram.block`][qprogram.QProgram.block] produces — an unstructured grouping with no
+    extra semantics. Repeating blocks ([`Sweep`][qprogram.blocks.Sweep], [`Average`][qprogram.blocks.Average],
+    [`Parallel`][qprogram.blocks.Parallel]) and [`Conditional`][qprogram.blocks.Conditional] subclass it to add
+    structure the runtime understands.
 
     Equality and hashing are structural (same class + same children); once a block has been used as a
-    ``set`` / ``dict`` key, do not :meth:`append` to it.
+    ``set`` / ``dict`` key, do not `append` to it.
     """
 
     REPEATS: ClassVar[bool] = False
     """Whether this block re-runs its body, i.e. occupies a **repetition level** on the sequencer.
 
-    ``True`` on the three core repeating blocks (:class:`~qprogram.blocks.Sweep`,
-    :class:`~qprogram.blocks.Parallel`, :class:`~qprogram.blocks.Average` — the last because averaging
-    *is* repetition), ``False`` on the
-    plain grouping :class:`Block` and on :class:`~qprogram.blocks.Conditional` (branching selects a
-    body, it doesn't iterate).
+    ``True`` on the three core repeating blocks ([`Sweep`][qprogram.blocks.Sweep],
+    [`Parallel`][qprogram.blocks.Parallel], [`Average`][qprogram.blocks.Average] — the last because averaging *is*
+    repetition), ``False`` on the plain grouping [`Block`][qprogram.blocks.Block] and on
+    [`Conditional`][qprogram.blocks.Conditional] (branching selects a body, it doesn't iterate).
 
-    :func:`qprogram.validation.validate` reads this to compute ``max_loop_nesting`` — the only reason
+    [`qprogram.validation.validate`][qprogram.validate] reads this to compute ``max_loop_nesting`` — the only reason
     the attribute exists rather than the validator testing concrete classes. A vendor or platform
     package contributing a repeating block of its own (see the ``.qp`` block registry,
-    :func:`~qprogram.serialization.register_vendor_block`) sets it ``True`` on its subclass and is
+    `register_vendor_block`) sets it ``True`` on its subclass and is
     then counted correctly against a platform's loop-depth limit, with no core change.
 
     A ``Parallel`` counts as **one** level in total, not one per composed loop: its loop headers live
-    on :attr:`~qprogram.blocks.Parallel.loops` rather than among its children, and they advance in
+    on `loops` rather than among its children, and they advance in
     lockstep.
     """
 
@@ -70,7 +69,7 @@ class Block:
     def elements(self) -> list[Block | Operation]:
         """The contained operations and sub-blocks, in declaration order.
 
-        The block's own list rather than a copy; :meth:`append` is the sanctioned way to extend it.
+        The block's own list rather than a copy; `append` is the sanctioned way to extend it.
         """
         return self._elements
 
@@ -83,7 +82,7 @@ class Block:
         self._elements.append(element)
 
     def variables(self) -> set[Variable]:
-        """Return every :class:`~qprogram.Variable` referenced by any child.
+        """Return every [`Variable`][qprogram.Variable] referenced by any child.
 
         Loop subclasses override to also include the loop-counter variable they bind.
 
@@ -99,7 +98,7 @@ class Block:
         """Return every bus name referenced by any child.
 
         Returns:
-            The union of every child's bus names. A :class:`~qprogram.BusRef` is a ``str``, so
+            The union of every child's bus names. A [`BusRef`][qprogram.BusRef] is a ``str``, so
             schema-backed references appear alongside raw string buses.
         """
         out: set[str] = set()
@@ -121,7 +120,7 @@ class Block:
     def walk(self) -> Iterator[Block | Operation]:
         """Yield this block, then each descendant in pre-order.
 
-        Pairs with :meth:`Operation.walk` (which yields just the leaf) so callers can write
+        Pairs with `Operation.walk` (which yields just the leaf) so callers can write
         ``for node in program.body.walk():`` without recursion.
 
         Yields:
@@ -134,7 +133,7 @@ class Block:
     def required_capabilities(self) -> set[str]:
         """Return the capability tokens this block needs, in isolation.
 
-        Non-recursive by design — :func:`qprogram.validation.validate` visits every node and checks
+        Non-recursive by design — [`qprogram.validation.validate`][qprogram.validate] visits every node and checks
         each one's own token set against the slot that node routes to. Recursing here would
         double-count. Subclasses override to add their own identity token (``block.<name>``) and
         refinement tokens (sweep shape, etc.).

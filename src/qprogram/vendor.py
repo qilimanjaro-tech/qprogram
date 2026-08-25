@@ -13,14 +13,14 @@
 # limitations under the License.
 """The base class for a vendor extension's runtime namespace.
 
-A vendor extension groups its operations as methods on a :class:`VendorNamespace` subclass and
-registers that subclass under a namespace name via :meth:`QProgram.register_vendor`. The program
-instantiates it lazily on first attribute access, so ``program.<vendor>.<operation>(...)`` reaches
-vendor code without core qprogram knowing that the vendor exists.
+A vendor extension groups its operations as methods on a [`VendorNamespace`][qprogram.VendorNamespace] subclass and
+registers that subclass under a namespace name via [`QProgram.register_vendor`][qprogram.QProgram.register_vendor]. The
+program instantiates it lazily on first attribute access, so ``program.<vendor>.<operation>(...)`` reaches vendor code
+without core qprogram knowing that the vendor exists.
 
-The two helpers here are the whole contract a namespace method needs: :meth:`VendorNamespace._append`
-for a plain operation, :meth:`VendorNamespace._append_measurement` for one that yields a
-:class:`~qprogram.MeasurementHandle`.
+The two helpers here are the whole contract a namespace method needs: `VendorNamespace._append`
+for a plain operation, `VendorNamespace._append_measurement` for one that yields a
+[`MeasurementHandle`][qprogram.MeasurementHandle].
 """
 
 from __future__ import annotations
@@ -40,8 +40,8 @@ if TYPE_CHECKING:
 class VendorNamespace:
     """Base class for vendor operation namespaces.
 
-    Vendors subclass this and add typed methods that construct :class:`Operation` instances and append
-    them to the program via :meth:`_append` (or :meth:`_append_measurement` for measurement ops).
+    Vendors subclass this and add typed methods that construct [`Operation`][qprogram.operations.Operation] instances
+    and append them to the program via `_append` (or `_append_measurement` for measurement ops).
 
     Args:
         program (QProgram): The program whose currently active block receives the appended
@@ -54,8 +54,8 @@ class VendorNamespace:
     def _append(self, operation: Operation) -> None:
         """Append a vendor operation to the program's active block.
 
-        :class:`~qprogram.BusRef` attributes (and lists thereof) are run through
-        :meth:`QProgram._validate_bus` so vendor ops can't sneak in a bus from a different schema.
+        [`BusRef`][qprogram.BusRef] attributes (and lists thereof) are run through
+        `QProgram._validate_bus` so vendor ops can't sneak in a bus from a different schema.
         Plain-string attributes are not validated.
 
         Args:
@@ -63,7 +63,7 @@ class VendorNamespace:
 
         Raises:
             ValidationError: When one of the operation's bus references belongs to a different
-                :class:`~qprogram.BusSchema` than the one attached to the program.
+                [`BusSchema`][qprogram.BusSchema] than the one attached to the program.
         """
         for value in vars(operation).values():
             if isinstance(value, BusRef):
@@ -84,24 +84,24 @@ class VendorNamespace:
     ) -> MeasurementHandle:
         """Allocate a handle, build a vendor measurement op, append it, and return the handle.
 
-        Shares the per-bus name counter with :meth:`QProgram.measure` so vendor and core measurements
-        on the same bus never collide. Vendor measurement methods call this in place of
-        :meth:`_append` so users receive a usable :class:`MeasurementHandle`.
+        Shares the per-bus name counter with [`QProgram.measure`][qprogram.QProgram.measure] so vendor and core
+        measurements on the same bus never collide. Vendor measurement methods call this in place of `_append` so users
+        receive a usable [`MeasurementHandle`][qprogram.MeasurementHandle].
 
         Args:
-            op_cls (type[MeasurementOperation]): The concrete :class:`MeasurementOperation` subclass
+            op_cls (type[MeasurementOperation]): The concrete `MeasurementOperation` subclass
                 to instantiate.
             bus (str): Bus the measurement runs on.
             name (str | None): Explicit handle name; auto-allocated when omitted.
             **kwargs (Any): Remaining keyword arguments forwarded to ``op_cls(...)``.
 
         Returns:
-            The freshly-allocated :class:`MeasurementHandle`.
+            The freshly-allocated [`MeasurementHandle`][qprogram.MeasurementHandle].
 
         Raises:
             ValidationError: When ``name`` is empty, not a string, or already used by another
                 measurement in the program, or when the operation carries a bus reference from a
-                foreign :class:`~qprogram.BusSchema`.
+                foreign [`BusSchema`][qprogram.BusSchema].
 
         Example::
 

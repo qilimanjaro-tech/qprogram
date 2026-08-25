@@ -28,10 +28,10 @@ class Tukey(Waveform):
     edges combined: ``alpha=0`` produces a pure rectangle, ``alpha=1`` produces a Hann window, and
     intermediate values yield a flat top of width ``(1 - alpha) * duration`` with cosine ramps on
     each side of width ``(alpha / 2) * duration``. Matches the ``alpha`` parameter of
-    :func:`scipy.signal.windows.tukey`.
+    `scipy.signal.windows.tukey`.
 
-    Cheaper to compile than :class:`FlatTop` (no ``erf`` evaluation) and commonly used as a smoothing
-    window in pulse calibration.
+    Cheaper to compile than [`FlatTop`][qprogram.waveforms.FlatTop] (no ``erf`` evaluation) and commonly used as a
+    smoothing window in pulse calibration.
 
     Args:
         amplitude (float | Expression): Peak amplitude (achieved across the flat region).
@@ -65,7 +65,7 @@ class Tukey(Waveform):
             forms take their dtype from ``amplitude``, so an integer amplitude yields an integer array.
 
         Raises:
-            UnassignedVariableError: If a parameter is an :class:`~qprogram.Expression` whose variables
+            UnassignedVariableError: If a parameter is an [`Expression`][qprogram.Expression] whose variables
                 have no value.
         """
         amplitude = self.amplitude.evaluate_or_raise() if isinstance(self.amplitude, Expression) else self.amplitude
@@ -98,7 +98,7 @@ class Tukey(Waveform):
             The duration truncated to a whole number of nanoseconds.
 
         Raises:
-            UnassignedVariableError: If ``duration`` is an :class:`~qprogram.Expression` whose variables
+            UnassignedVariableError: If ``duration`` is an [`Expression`][qprogram.Expression] whose variables
                 have no value.
         """
         duration = self.duration.evaluate_or_raise() if isinstance(self.duration, Expression) else self.duration

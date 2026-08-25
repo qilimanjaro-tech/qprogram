@@ -13,12 +13,12 @@
 # limitations under the License.
 """QProgram: A Domain-Specific Language for Pulse-Level Quantum Programming.
 
-This module is the package's whole public surface: the :class:`QProgram` builder, the expression and
+This module is the package's whole public surface: the [`QProgram`][qprogram.QProgram] builder, the expression and
 waveform vocabularies, sweep sources, fragments, the capability protocol and its validator, the
 reference software executor, and the ``.qp`` reader and writer.
 
 ``loads``, ``load``, and ``ParseError`` resolve on first attribute access instead of at import time —
-the parser imports :class:`QProgram`, so importing it eagerly here would close a cycle. They are
+the parser imports [`QProgram`][qprogram.QProgram], so importing it eagerly here would close a cycle. They are
 imported from ``qprogram`` like every other name.
 """
 

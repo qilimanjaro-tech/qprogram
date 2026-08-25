@@ -23,7 +23,7 @@ from qprogram.waveforms.waveform import Waveform
 class Chained(Waveform):
     """Single-channel waveform built by concatenating other single-channel waveforms in time.
 
-    :meth:`Waveform.__add__` builds these and flattens as it goes, so ``a + b + c`` yields one
+    `Waveform.__add__` builds these and flattens as it goes, so ``a + b + c`` yields one
     three-element chain rather than nested pairs. Every child is sampled at whatever resolution the
     chain is asked for, and the chain's duration is the sum of the children's.
 

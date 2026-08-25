@@ -13,12 +13,12 @@
 # limitations under the License.
 """Reusable, parameterized sub-programs (fragments).
 
-A :class:`Fragment` is a named, parameterized program template: it carries the full fluent builder
-surface of :class:`~qprogram.QProgram` (operations, control flow, vendor namespaces) plus a list of
-:class:`Parameter` placeholders. A host program instantiates it with :meth:`QProgram.call`, which
-appends a first-class :class:`~qprogram.operations.Call` node — definitions and call sites survive
-in the AST and round-trip through ``.qp`` (``fragment <name>(<params>):`` sections and bare
-``<name>(<args>)`` statements).
+A [`Fragment`][qprogram.Fragment] is a named, parameterized program template: it carries the full fluent builder surface
+of [`QProgram`][qprogram.QProgram] (operations, control flow, vendor namespaces) plus a list of
+[`Parameter`][qprogram.Parameter] placeholders. A host program instantiates it with
+[`QProgram.call`][qprogram.QProgram.call], which appends a first-class [`Call`][qprogram.operations.Call] node —
+definitions and call sites survive in the AST and round-trip through ``.qp`` (``fragment <name>(<params>):`` sections
+and bare ``<name>(<args>)`` statements).
 
 ``program.expand()`` is the canonical lowering: every call is replaced inline by a copy of the
 fragment body with parameters substituted (values, expressions, buses, waveforms), fragment-local
@@ -82,7 +82,7 @@ _ALLOWED_ARGUMENT_TYPES = (int, float, str, Expression, Waveform, IQWaveform)
 class Parameter(Variable):
     """A fragment parameter — a placeholder substituted with the bound argument at expansion.
 
-    Subclasses :class:`~qprogram.Variable`, so a parameter participates in expressions
+    Subclasses [`Variable`][qprogram.Variable], so a parameter participates in expressions
     (``amp * 2``), serializes as a bare identifier, and follows the same id rules. Parameters are
     untyped: the *binding* determines the kind (number/expression, bus, or waveform), checked at
     expansion with a clear error when a binding is used in an incompatible position.
@@ -93,9 +93,9 @@ class Parameter(Variable):
 
 
 class Fragment(QProgram):
-    """A named, parameterized sub-program — define once, :meth:`~qprogram.QProgram.call` many times.
+    """A named, parameterized sub-program — define once, [`call`][qprogram.QProgram.call] many times.
 
-    Inherits the entire :class:`~qprogram.QProgram` builder (operations, control flow, vendor
+    Inherits the entire [`QProgram`][qprogram.QProgram] builder (operations, control flow, vendor
     namespaces), so a fragment body is built exactly like a program body. A fragment may call another
     fragment that is already defined; cycles are rejected at registration and at expansion.
 
@@ -132,7 +132,7 @@ class Fragment(QProgram):
         return tuple(self._params)
 
     def parameter(self, id: str, *, label: str | None = None) -> Parameter:  # ruff: ignore[builtin-argument-shadowing]
-        """Declare a new :class:`Parameter` on this fragment.
+        """Declare a new [`Parameter`][qprogram.Parameter] on this fragment.
 
         Args:
             id (str): Identifier matching ``[A-Za-z_][A-Za-z0-9_]*``; unique among the fragment's
@@ -141,13 +141,13 @@ class Fragment(QProgram):
             label (str | None): Human-readable name for plots and results.
 
         Returns:
-            The new :class:`Parameter`, usable anywhere in the fragment body a value, bus, or
+            The new [`Parameter`][qprogram.Parameter], usable anywhere in the fragment body a value, bus, or
             waveform is accepted.
 
         Raises:
             ValidationError: If ``id`` collides with an existing parameter or local variable.
             InvalidVariableIdError: If ``id`` violates the identifier pattern or is reserved
-                (see :data:`~qprogram.RESERVED_KEYWORDS`).
+                (see [`RESERVED_KEYWORDS`][qprogram.RESERVED_KEYWORDS]).
         """
         if any(p.id == id for p in self._params):
             msg = f"Parameter {id!r} is already declared on fragment {self._name!r}"
@@ -167,7 +167,7 @@ class Fragment(QProgram):
         units: str | None = None,
         description: str | None = None,
     ) -> Variable:
-        """Declare a fragment-local :class:`~qprogram.Variable`.
+        """Declare a fragment-local [`Variable`][qprogram.Variable].
 
         Local variables are renamed onto the host program at expansion (``{fragment}_{id}``, with a
         numeric suffix on collision) so repeated calls never clash.
@@ -180,12 +180,12 @@ class Fragment(QProgram):
             description (str | None): Longer free-form description.
 
         Returns:
-            The new :class:`~qprogram.Variable`, scoped to this fragment.
+            The new [`Variable`][qprogram.Variable], scoped to this fragment.
 
         Raises:
             ValidationError: If ``id`` collides with a parameter or an existing local variable.
             InvalidVariableIdError: If ``id`` violates the identifier pattern or is reserved
-                (see :data:`~qprogram.RESERVED_KEYWORDS`).
+                (see [`RESERVED_KEYWORDS`][qprogram.RESERVED_KEYWORDS]).
         """
         if any(p.id == id for p in self._params):
             msg = f"Variable {id!r} collides with a parameter of fragment {self._name!r}"
@@ -223,10 +223,10 @@ class Fragment(QProgram):
 
 
 def fragment(func: Callable[..., None]) -> Fragment:
-    """Build a :class:`Fragment` from a function — the signature *is* the parameter list.
+    """Build a [`Fragment`][qprogram.Fragment] from a function — the signature *is* the parameter list.
 
     The first parameter receives the fragment builder; each remaining parameter becomes a
-    :class:`Parameter` (in order); the fragment name is the function's ``__name__``. The body runs
+    [`Parameter`][qprogram.Parameter] (in order); the fragment name is the function's ``__name__``. The body runs
     **once**, at decoration time, to record the AST — Python-level control flow inside it is
     evaluated at definition, not per call.
 
@@ -245,7 +245,7 @@ def fragment(func: Callable[..., None]) -> Fragment:
             them.
 
     Returns:
-        The recorded :class:`Fragment` (the decorated name *is* the fragment object).
+        The recorded [`Fragment`][qprogram.Fragment] (the decorated name *is* the fragment object).
 
     Raises:
         ValidationError: If the object has no ``__name__``, takes no builder parameter, carries a
@@ -253,7 +253,7 @@ def fragment(func: Callable[..., None]) -> Fragment:
             ``"<lambda>"`` fails here), or declares a parameter that is not plain positional or that
             carries a default.
         InvalidVariableIdError: If a parameter's name is reserved (see
-            :data:`~qprogram.RESERVED_KEYWORDS`) or falls outside ``[A-Za-z_][A-Za-z0-9_]*``, which
+            [`RESERVED_KEYWORDS`][qprogram.RESERVED_KEYWORDS]) or falls outside ``[A-Za-z_][A-Za-z0-9_]*``, which
             a non-ASCII Python identifier does.
     """
     func_name = getattr(func, "__name__", None)
@@ -338,13 +338,13 @@ def bind_arguments(frag: Fragment, args: tuple[object, ...], kwargs: dict[str, o
 
 
 def expand_program(program: QProgram) -> QProgram:
-    """Return a deep copy of ``program`` with every :class:`Call` inlined.
+    """Return a deep copy of ``program`` with every `Call` inlined.
 
-    Each call site is replaced by a plain :class:`Block` containing a copy of the fragment body
+    Each call site is replaced by a plain [`Block`][qprogram.blocks.Block] containing a copy of the fragment body
     with parameters substituted by the bound arguments. Fragment-local variables become fresh host
     variables (``{fragment}_{id}``, numeric suffix on collision); measurement names that would
-    collide get a ``_2`` / ``_3`` suffix — the shared :class:`~qprogram.MeasurementHandle` is
-    renamed, so :class:`~qprogram.MeasurementRef` conditionals inside the fragment stay consistent.
+    collide get a ``_2`` / ``_3`` suffix — the shared [`MeasurementHandle`][qprogram.MeasurementHandle] is
+    renamed, so [`MeasurementRef`][qprogram.MeasurementRef] conditionals inside the fragment stay consistent.
     Nested calls expand recursively; expansion is deterministic (document order).
 
     Args:
@@ -367,7 +367,7 @@ def expand_program(program: QProgram) -> QProgram:
 
 
 def _expand_in_block(block: Block, host: QProgram, stack: tuple[str, ...], used_names: set[str]) -> None:
-    """Replace every :class:`Call` element under ``block`` (recursively) with its expansion.
+    """Replace every `Call` element under ``block`` (recursively) with its expansion.
 
     Args:
         block (Block): The block whose elements are rewritten in place.
@@ -401,7 +401,7 @@ def _expand_in_block(block: Block, host: QProgram, stack: tuple[str, ...], used_
 
 
 def _expand_call(call: Call, host: QProgram, stack: tuple[str, ...], used_names: set[str]) -> Block:
-    """Expand one call site into a plain :class:`Block` holding the substituted fragment body.
+    """Expand one call site into a plain [`Block`][qprogram.blocks.Block] holding the substituted fragment body.
 
     Args:
         call (Call): The call site to expand.
@@ -459,8 +459,8 @@ def _fresh_variable_id(host: QProgram, base: str) -> str:
 def _uniquify_measurements(body: Block, used_names: set[str]) -> None:
     """Suffix measurement names under ``body`` that are already taken, using the lowest free number.
 
-    The rename lands on the shared :class:`~qprogram.MeasurementHandle`, so every
-    :class:`~qprogram.MeasurementRef` built from it stays consistent with the operation.
+    The rename lands on the shared [`MeasurementHandle`][qprogram.MeasurementHandle], so every
+    [`MeasurementRef`][qprogram.MeasurementRef] built from it stays consistent with the operation.
 
     Args:
         body (Block): The copied fragment body whose measurement operations are renamed in place.
@@ -569,7 +569,7 @@ def _subst_expr(expr: Expression, mapping: dict[str, object], frag: Fragment) ->
 
     Returns:
         The substituted expression. Composite nodes are rewritten in place and returned as-is; an
-        :class:`~qprogram.Expression` subclass this function does not recognize is left untouched.
+        [`Expression`][qprogram.Expression] subclass this function does not recognize is left untouched.
 
     Raises:
         ValidationError: If a parameter used inside an expression is bound to something that is not
@@ -612,7 +612,7 @@ def _revalidate_op(op: Operation, frag: Fragment) -> None:
     """Re-check kinds after substitution: bus positions hold buses, waveform positions hold waveforms.
 
     Also re-runs the channel/acquires validation the builder applies — fragment bodies skip it
-    when the position holds a :class:`Parameter`, so the bound value is checked here instead.
+    when the position holds a [`Parameter`][qprogram.Parameter], so the bound value is checked here instead.
 
     Args:
         op (Operation): The substituted operation to check.

@@ -31,13 +31,13 @@ class SuddenNetZero(Waveform):
 
     Args:
         amplitude (float | Expression): Amplitude of the positive segment. Accepts an
-            :class:`~qprogram.Expression`.
+            [`Expression`][qprogram.Expression].
         duration (int | Expression): Total pulse duration in nanoseconds. Accepts an
-            :class:`~qprogram.Expression`.
+            [`Expression`][qprogram.Expression].
         b (float | Expression): Ratio of negative-to-positive amplitudes (typically near 1.0). Accepts an
-            :class:`~qprogram.Expression`.
+            [`Expression`][qprogram.Expression].
         t_phi (int | Expression): Width of the zero hold between the two segments in nanoseconds. Accepts an
-            :class:`~qprogram.Expression`.
+            [`Expression`][qprogram.Expression].
     """
 
     def __init__(
@@ -66,7 +66,7 @@ class SuddenNetZero(Waveform):
             A 1-D float array of length ``duration / resolution``.
 
         Raises:
-            UnassignedVariableError: If a parameter is an :class:`~qprogram.Expression` whose variables
+            UnassignedVariableError: If a parameter is an [`Expression`][qprogram.Expression] whose variables
                 have no value.
         """
         amplitude = self.amplitude.evaluate_or_raise() if isinstance(self.amplitude, Expression) else self.amplitude
@@ -90,7 +90,7 @@ class SuddenNetZero(Waveform):
             The duration truncated to a whole number of nanoseconds.
 
         Raises:
-            UnassignedVariableError: If ``duration`` is an :class:`~qprogram.Expression` whose variables
+            UnassignedVariableError: If ``duration`` is an [`Expression`][qprogram.Expression] whose variables
                 have no value.
         """
         duration = self.duration.evaluate_or_raise() if isinstance(self.duration, Expression) else self.duration

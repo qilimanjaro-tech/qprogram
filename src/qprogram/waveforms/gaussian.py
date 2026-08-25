@@ -28,12 +28,12 @@ class Gaussian(Waveform):
     first and last samples sit at whatever amplitude the Gaussian reaches there rather than at zero.
 
     Args:
-        amplitude (float | Expression): Peak amplitude. Accepts an :class:`~qprogram.Expression`.
+        amplitude (float | Expression): Peak amplitude. Accepts an [`Expression`][qprogram.Expression].
         duration (int | Expression): Pulse duration in nanoseconds. Accepts an
-            :class:`~qprogram.Expression`.
+            [`Expression`][qprogram.Expression].
         sigma (float | Expression): Standard deviation in nanoseconds. The truncation ratio
             ``duration / sigma`` controls how steeply the tails are clipped at the window edges. Accepts an
-            :class:`~qprogram.Expression`.
+            [`Expression`][qprogram.Expression].
     """
 
     def __init__(

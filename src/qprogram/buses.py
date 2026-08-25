@@ -13,13 +13,13 @@
 # limitations under the License.
 """Typed bus references for QProgram.
 
-The :class:`BusSchema` API lets users reference buses by typed accessors (e.g. ``schema.q[0].drive``)
-rather than raw strings. :class:`BusRef` subclasses :class:`str` so the resulting value is a string
+The [`BusSchema`][qprogram.BusSchema] API lets users reference buses by typed accessors (e.g. ``schema.q[0].drive``)
+rather than raw strings. [`BusRef`][qprogram.BusRef] subclasses `str` so the resulting value is a string
 everywhere downstream (AST, serialization, compiler) — the typing is purely ergonomic.
 
-Presets (:meth:`BusSchema.transmon` and friends) return fully-typed subclasses with IDE autocomplete;
-dynamic schemas (:meth:`BusSchema.add_element`) use ``__getattr__`` and trade typing for flexibility.
-See the user guide for examples.
+Presets ([`BusSchema.transmon`][qprogram.BusSchema.transmon] and friends) return fully-typed subclasses with IDE
+autocomplete; dynamic schemas ([`BusSchema.add_element`][qprogram.BusSchema.add_element]) use ``__getattr__`` and trade
+typing for flexibility. See the user guide for examples.
 """
 
 from __future__ import annotations
@@ -32,22 +32,22 @@ ChannelType = Literal["single", "IQ"]
 class BusRef(str):
     """A string that also carries structured bus metadata.
 
-    A ``BusRef`` is a real :class:`str` everywhere downstream — operations, serialization, compiler —
+    A ``BusRef`` is a real `str` everywhere downstream — operations, serialization, compiler —
     but exposes metadata attributes for tooling and validation. The ``idx`` attribute is named that way
-    rather than ``index`` to avoid shadowing the inherited :meth:`str.index` method.
+    rather than ``index`` to avoid shadowing the inherited `str.index` method.
 
     The constructor takes the resolved bus name as the string value, followed by the metadata fields
     below. Refs normally come from a schema accessor (``schema.q[0].drive``) or from
-    :func:`resolve_ref`; constructing one directly is for buses that live outside any schema.
+    `resolve_ref`; constructing one directly is for buses that live outside any schema.
 
     Attributes:
         element (str): Element name (e.g. ``"q"``, ``"coupler"``).
         idx (int | tuple[int, ...]): Element index (e.g. ``0`` or ``(0, 1)``).
         kind (str): Bus kind name (e.g. ``"drive"``, ``"flux"``, ``"readout"``).
         channel (ChannelType): ``"single"`` for real-valued waveforms, ``"IQ"`` for complex I/Q.
-        acquires (bool): ``True`` if the bus has an ADC and supports :meth:`QProgram.measure`.
-        schema (BusSchema | None): The :class:`BusSchema` that produced this ref, or ``None`` for
-            manually-built refs. Used by :meth:`QProgram._validate_bus` to reject buses from a
+        acquires (bool): ``True`` if the bus has an ADC and supports [`QProgram.measure`][qprogram.QProgram.measure].
+        schema (BusSchema | None): The [`BusSchema`][qprogram.BusSchema] that produced this ref, or ``None`` for
+            manually-built refs. Used by `QProgram._validate_bus` to reject buses from a
             different schema than the one attached to the program.
     """
 
@@ -76,7 +76,7 @@ class BusRef(str):
 
         The remaining arguments are the metadata fields documented on the class. Leaving ``schema``
         out marks the ref as having no producing schema, which makes
-        :meth:`QProgram._validate_bus` accept it on a program bound to any schema.
+        `QProgram._validate_bus` accept it on a program bound to any schema.
 
         Returns:
             The new reference, carrying its metadata as attributes.
@@ -93,10 +93,10 @@ class BusRef(str):
     def __reduce__(
         self,
     ) -> tuple[type[Self], tuple[str, str, int | tuple[int, ...], str, ChannelType, bool, BusSchema | None]]:
-        """Return the reconstruction recipe for :mod:`pickle` and :func:`copy.deepcopy`.
+        """Return the reconstruction recipe for `pickle` and `copy.deepcopy`.
 
         The override is needed because ``str.__reduce_ex__`` passes only the string value to
-        ``__new__``, while :meth:`BusRef.__new__` requires the metadata fields too. ``schema`` travels
+        ``__new__``, while `BusRef.__new__` requires the metadata fields too. ``schema`` travels
         through the same path, so a deepcopy points at the *deepcopied* schema instance (the memo dict
         shares that one copy across every ref in the program).
 
@@ -155,15 +155,15 @@ class BusNaming:
 class ElementSchema:
     """An element type and the bus kinds it exposes.
 
-    Every schema records one of these per element registered through :meth:`BusSchema.add_element`,
-    whether the schema is a typed preset or built dynamically; the ``.qp`` writer emits the
-    ``schema:`` block from them.
+    Every schema records one of these per element registered through
+    [`BusSchema.add_element`][qprogram.BusSchema.add_element], whether the schema is a typed preset or built
+    dynamically; the ``.qp`` writer emits the ``schema:`` block from them.
 
     Args:
         name (str): Element name (e.g. ``"q"``).
         buses (dict[str, tuple[ChannelType, bool]]): Mapping of bus kind to ``(channel, acquires)``.
-            Same data that ends up on the resulting :class:`BusRef`, declared once per element kind.
-        naming (BusNaming): The naming convention used when resolving :class:`BusRef` strings.
+            Same data that ends up on the resulting [`BusRef`][qprogram.BusRef], declared once per element kind.
+        naming (BusNaming): The naming convention used when resolving [`BusRef`][qprogram.BusRef] strings.
     """
 
     def __init__(
@@ -260,7 +260,7 @@ class _TypedElementAccessor:
 
 
 class _TypedElementFactory:
-    """Base class for typed element factories. Concrete subclasses specify :attr:`_accessor_cls`."""
+    """Base class for typed element factories. Concrete subclasses specify `_accessor_cls`."""
 
     _accessor_cls: type[_TypedElementAccessor]
 
@@ -291,7 +291,7 @@ class TransmonQubitBuses(_TypedElementAccessor):
 
 
 class TransmonQubitFactory(_TypedElementFactory):
-    """Subscriptable factory returning :class:`TransmonQubitBuses` instances."""
+    """Subscriptable factory returning `TransmonQubitBuses` instances."""
 
     _accessor_cls = TransmonQubitBuses
 
@@ -309,7 +309,7 @@ class FluxTunableTransmonQubitBuses(TransmonQubitBuses):
 
 
 class FluxTunableTransmonQubitFactory(_TypedElementFactory):
-    """Subscriptable factory returning :class:`FluxTunableTransmonQubitBuses` instances."""
+    """Subscriptable factory returning `FluxTunableTransmonQubitBuses` instances."""
 
     _accessor_cls = FluxTunableTransmonQubitBuses
 
@@ -332,7 +332,7 @@ class FluxoniumQubitBuses(TransmonQubitBuses):
 
 
 class FluxoniumQubitFactory(_TypedElementFactory):
-    """Subscriptable factory returning :class:`FluxoniumQubitBuses` instances."""
+    """Subscriptable factory returning `FluxoniumQubitBuses` instances."""
 
     _accessor_cls = FluxoniumQubitBuses
 
@@ -350,7 +350,7 @@ class CouplerBuses(_TypedElementAccessor):
 
 
 class CouplerFactory(_TypedElementFactory):
-    """Subscriptable factory returning :class:`CouplerBuses` instances. Indices may be tuples."""
+    """Subscriptable factory returning `CouplerBuses` instances. Indices may be tuples."""
 
     _accessor_cls = CouplerBuses
 
@@ -364,13 +364,13 @@ class CouplerFactory(_TypedElementFactory):
 
 
 def _coerce_to_schema_instance(value: object) -> BusSchema | None:
-    """Return ``value`` as a :class:`BusSchema` instance, or ``None`` if it isn't one.
+    """Return ``value`` as a [`BusSchema`][qprogram.BusSchema] instance, or ``None`` if it isn't one.
 
-    Accepts a :class:`BusSchema` instance (returned as-is) or a :class:`BusSchema` *subclass*
-    (instantiated with default naming). Anything else returns ``None`` so the ``+`` operators can
-    yield ``NotImplemented`` and let Python raise the usual ``TypeError``. Used by both the
-    instance-level :meth:`BusSchema.__add__` and the class-level :meth:`_BusSchemaMeta.__add__` so
-    ``A + B`` behaves the same whether ``A`` / ``B`` are schema classes or instances.
+    Accepts a [`BusSchema`][qprogram.BusSchema] instance (returned as-is) or a [`BusSchema`][qprogram.BusSchema]
+    *subclass* (instantiated with default naming). Anything else returns ``None`` so the ``+`` operators can yield
+    ``NotImplemented`` and let Python raise the usual ``TypeError``. Used by both the instance-level `BusSchema.__add__`
+    and the class-level `_BusSchemaMeta.__add__` so ``A + B`` behaves the same whether ``A`` / ``B`` are schema classes
+    or instances.
 
     Args:
         value (object): The operand to coerce.
@@ -390,9 +390,9 @@ class _BusSchemaMeta(type):
 
     Defining ``+`` between classes (``FluxTunableTransmonSchema + RFSwitchSchema``) requires the
     operator to live on the metaclass — ``__add__`` on the class body only governs instances. This
-    mirrors :meth:`BusSchema.__add__` so the class form and the instance form
+    mirrors `BusSchema.__add__` so the class form and the instance form
     (``FluxTunableTransmonSchema() + RFSwitchSchema()``) produce the *same* result: a new combined
-    :class:`BusSchema` instance. The metaclass adds nothing else, so construction, ``isinstance`` and
+    [`BusSchema`][qprogram.BusSchema] instance. The metaclass adds nothing else, so construction, ``isinstance`` and
     ``issubclass`` are unaffected.
     """
 
@@ -400,7 +400,7 @@ class _BusSchemaMeta(type):
         """Combine two schema classes into one dynamic schema instance.
 
         Args:
-            other (object): Right-hand operand: a :class:`BusSchema` instance or subclass.
+            other (object): Right-hand operand: a [`BusSchema`][qprogram.BusSchema] instance or subclass.
 
         Returns:
             A combined schema instance, or ``NotImplemented`` for an operand that is neither.
@@ -421,31 +421,31 @@ class BusSchema(metaclass=_BusSchemaMeta):
 
     Three construction modes:
 
-    1. **Presets** — :meth:`transmon`, :meth:`fluxonium`, etc. return fully-typed subclasses with IDE
+    1. **Presets** — `transmon`, `fluxonium`, etc. return fully-typed subclasses with IDE
        autocomplete.
-    2. **Dynamic** — instantiate :class:`BusSchema` directly and call :meth:`add_element` for custom
+    2. **Dynamic** — instantiate [`BusSchema`][qprogram.BusSchema] directly and call `add_element` for custom
        topologies. Bus access via ``schema.q[0].drive`` works at runtime but has no static type.
-    3. **Custom typed** — subclass :class:`BusSchema` to expose your own typed accessors; see the user
+    3. **Custom typed** — subclass [`BusSchema`][qprogram.BusSchema] to expose your own typed accessors; see the user
        guide for the template.
 
-    Schemas **compose**: ``schema_a + schema_b`` (or :meth:`combine` for three or more, or for naming
+    Schemas **compose**: ``schema_a + schema_b`` (or `combine` for three or more, or for naming
     control) returns a new schema with the union of both element families. Either operand may be a
     schema instance or a schema class, e.g. ``FluxTunableTransmonSchema + RFSwitchSchema``. The result
-    is a plain (dynamic) :class:`BusSchema` — runtime access like ``combined.q[0].drive`` works, but it
-    carries no static typing (the same trade-off as :meth:`add_element`). Build refs from the
-    *combined* schema, not the originals, so their :attr:`BusRef.schema` back-pointer matches the
+    is a plain (dynamic) [`BusSchema`][qprogram.BusSchema] — runtime access like ``combined.q[0].drive`` works, but it
+    carries no static typing (the same trade-off as `add_element`). Build refs from the
+    *combined* schema, not the originals, so their `BusRef.schema` back-pointer matches the
     schema you attach to a program.
 
-    Each :class:`~qprogram.QProgram` holds at most one schema — passed at construction, or adopted
+    Each [`QProgram`][qprogram.QProgram] holds at most one schema — passed at construction, or adopted
     from the first schema-backed ref the program sees. The ``.qp`` writer reads ``program.schema`` —
-    not the individual refs' :attr:`BusRef.schema` back-pointers — both to emit the ``schema:`` block
+    not the individual refs' `BusRef.schema` back-pointers — both to emit the ``schema:`` block
     and to decide that a bus renders as an ``element[idx].kind`` path. A ref's own back-pointer
     records which schema produced it, which is what lets a program refuse a ref from a foreign schema
     and what routes the bus to its per-bus capability profile.
 
     Args:
         naming (BusNaming | None): Naming convention for the bus strings this schema resolves. When
-            omitted, a default :class:`BusNaming` is used.
+            omitted, a default [`BusNaming`][qprogram.BusNaming] is used.
 
     Attributes:
         KIND (str): Class-level identifier set by built-in presets (``"transmon"``, ``"fluxonium"``,
@@ -461,7 +461,7 @@ class BusSchema(metaclass=_BusSchemaMeta):
 
     @property
     def naming(self) -> BusNaming:
-        """The :class:`BusNaming` this schema resolves bus strings through."""
+        """The [`BusNaming`][qprogram.BusNaming] this schema resolves bus strings through."""
         return self._naming
 
     @property
@@ -472,7 +472,7 @@ class BusSchema(metaclass=_BusSchemaMeta):
     def add_element(self, name: str, buses: dict[str, tuple[ChannelType, bool]]) -> None:
         """Register an element type and its available bus kinds.
 
-        For statically-typed schemas, subclass :class:`BusSchema` and expose ``@property`` accessors
+        For statically-typed schemas, subclass [`BusSchema`][qprogram.BusSchema] and expose ``@property`` accessors
         rather than using this method.
 
         Args:
@@ -489,7 +489,7 @@ class BusSchema(metaclass=_BusSchemaMeta):
         """Resolve ``schema.<element>`` to a subscriptable factory for that element's buses.
 
         This is the dynamic access path: it answers for every element registered through
-        :meth:`add_element`, which is why a combined or dynamically-built schema supports
+        `add_element`, which is why a combined or dynamically-built schema supports
         ``schema.q[0].drive`` without any typed accessor.
 
         Args:
@@ -501,7 +501,7 @@ class BusSchema(metaclass=_BusSchemaMeta):
         Raises:
             AttributeError: If ``name`` names no registered element, in which case the message lists
                 the ones that are registered; or if it starts with an underscore, so that attribute
-                probing by :mod:`copy` and :mod:`pickle` is not mistaken for an element lookup.
+                probing by `copy` and `pickle` is not mistaken for an element lookup.
         """
         if name.startswith("_"):
             raise AttributeError(name)
@@ -526,10 +526,10 @@ class BusSchema(metaclass=_BusSchemaMeta):
         """Combine this schema with another via ``schema_a + schema_b``.
 
         Args:
-            other (object): Right-hand operand: a :class:`BusSchema` instance or subclass.
+            other (object): Right-hand operand: a [`BusSchema`][qprogram.BusSchema] instance or subclass.
 
         Returns:
-            A new combined schema (see :meth:`combine`), or ``NotImplemented`` for an unrelated
+            A new combined schema (see `combine`), or ``NotImplemented`` for an unrelated
             operand, which makes Python raise the usual ``TypeError``.
 
         Raises:
@@ -543,26 +543,26 @@ class BusSchema(metaclass=_BusSchemaMeta):
 
     @staticmethod
     def combine(*schemas: BusSchema, naming: BusNaming | None = None) -> BusSchema:
-        """Merge schemas into a new dynamic :class:`BusSchema`.
+        """Merge schemas into a new dynamic [`BusSchema`][qprogram.BusSchema].
 
         The result holds the **union** of every input schema's elements, so passing a single schema
         yields a dynamic copy of it. It is a plain
-        :class:`BusSchema` (not a typed subclass), so ``combined.q[0].drive`` resolves at runtime but
-        without static typing — the same trade-off as building a schema with :meth:`add_element`.
-        The ``+`` operator (:meth:`__add__`, and the class-level form via the metaclass) delegates
+        [`BusSchema`][qprogram.BusSchema] (not a typed subclass), so ``combined.q[0].drive`` resolves at runtime but
+        without static typing — the same trade-off as building a schema with `add_element`.
+        The ``+`` operator (`__add__`, and the class-level form via the metaclass) delegates
         here; use ``combine`` directly when joining three or more schemas in one call or when you need
         to pick the naming convention explicitly.
 
         Args:
             *schemas (BusSchema): The schemas to merge (at least one). Each must be a
-                :class:`BusSchema` instance.
+                [`BusSchema`][qprogram.BusSchema] instance.
             naming (BusNaming | None): Naming convention for the combined schema. When omitted,
                 every input schema must share the same naming pattern (a combined schema can carry
                 only one) — they usually do, since the default is universal. Pass an explicit
                 ``naming`` to resolve a clash.
 
         Returns:
-            A new :class:`BusSchema` whose ``elements`` are the union of the inputs'.
+            A new [`BusSchema`][qprogram.BusSchema] whose ``elements`` are the union of the inputs'.
 
         Raises:
             ValueError: If no schemas are given, if the inputs disagree on naming and none is given,
@@ -820,23 +820,23 @@ class FluxoniumCoupledSchema(FluxoniumSchema):
 
 
 def resolve_ref(schema: BusSchema, element: str, index: int | tuple[int, ...], kind: str) -> BusRef:
-    """Re-resolve an ``(element, index, kind)`` coordinate into a typed :class:`BusRef`.
+    """Re-resolve an ``(element, index, kind)`` coordinate into a typed [`BusRef`][qprogram.BusRef].
 
-    The single source of truth for turning a structural bus coordinate into a :class:`BusRef` under
+    The single source of truth for turning a structural bus coordinate into a [`BusRef`][qprogram.BusRef] under
     ``schema``'s naming. Used both when loading ``element[i].kind`` paths
-    (:meth:`~qprogram.serialization.parser._Parser._resolve_bus_path`) and when porting a program to
-    new indices or a new schema (:meth:`~qprogram.QProgram.rebind`).
+    (`_resolve_bus_path`) and when porting a program to
+    new indices or a new schema ([`rebind`][qprogram.QProgram.rebind]).
 
     Args:
         schema (BusSchema): The schema to resolve the coordinate against; it becomes the ref's
-            :attr:`BusRef.schema` back-pointer.
+            `BusRef.schema` back-pointer.
         element (str): Element name, as registered on ``schema``.
         index (int | tuple[int, ...]): Element index, a tuple for multi-index elements such as
             couplers.
         kind (str): Bus kind name declared for that element.
 
     Returns:
-        A typed :class:`BusRef` whose string form follows ``schema``'s naming pattern.
+        A typed [`BusRef`][qprogram.BusRef] whose string form follows ``schema``'s naming pattern.
 
     Raises:
         AttributeError: If ``element`` is not an element of ``schema`` or ``kind`` is not one of that
@@ -854,17 +854,17 @@ def resolve_ref(schema: BusSchema, element: str, index: int | tuple[int, ...], k
 def naming_substituted_schema(schema: BusSchema, naming: BusNaming) -> BusSchema:
     """Return a dynamic copy of ``schema`` with every element re-declared under ``naming``.
 
-    Used by :meth:`~qprogram.QProgram.rebind` for naming-only ports: the structural element/bus content
-    is preserved but :class:`BusRef` strings (and the serialized ``schema:`` block) adopt the new
-    pattern. The result is a plain (untyped) :class:`BusSchema` — the same trade-off as
-    :meth:`BusSchema.combine`.
+    Used by [`rebind`][qprogram.QProgram.rebind] for naming-only ports: the structural element/bus content
+    is preserved but [`BusRef`][qprogram.BusRef] strings (and the serialized ``schema:`` block) adopt the new
+    pattern. The result is a plain (untyped) [`BusSchema`][qprogram.BusSchema] — the same trade-off as
+    [`BusSchema.combine`][qprogram.BusSchema.combine].
 
     Args:
         schema (BusSchema): The schema whose elements and bus kinds are carried over.
         naming (BusNaming): The naming convention the copy resolves bus strings through.
 
     Returns:
-        A new dynamic :class:`BusSchema` with the same elements under the given naming.
+        A new dynamic [`BusSchema`][qprogram.BusSchema] with the same elements under the given naming.
     """
     new_schema = BusSchema(naming=naming)
     for name, element in schema.elements.items():

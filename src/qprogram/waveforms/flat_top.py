@@ -35,11 +35,11 @@ class FlatTop(Waveform):
     ``2 * smooth_duration`` therefore never reaches full amplitude.
 
     Args:
-        amplitude (float | Expression): Pulse amplitude. Accepts an :class:`~qprogram.Expression`.
+        amplitude (float | Expression): Pulse amplitude. Accepts an [`Expression`][qprogram.Expression].
         duration (int | Expression): Pulse duration in nanoseconds, including the smoothed edges but
-            excluding the ``buffer`` padding. Accepts an :class:`~qprogram.Expression`.
+            excluding the ``buffer`` padding. Accepts an [`Expression`][qprogram.Expression].
         smooth_duration (int | Expression): Length of each edge (rise and fall) in nanoseconds. Accepts an
-            :class:`~qprogram.Expression`.
+            [`Expression`][qprogram.Expression].
         buffer (int, optional): Zero-amplitude padding added on **each** side of the pulse, in nanoseconds.
             The total duration is ``duration + 2 * buffer``.
     """

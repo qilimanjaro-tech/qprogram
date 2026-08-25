@@ -28,7 +28,7 @@ class SetPhase(Operation):
 
     Args:
         bus (str): Bus whose oscillator phase to set.
-        phase (float | Expression): Phase in radians. Accepts an :class:`~qprogram.Expression`.
+        phase (float | Expression): Phase in radians. Accepts an [`Expression`][qprogram.Expression].
     """
 
     def __init__(self, bus: str, phase: float | Expression) -> None:

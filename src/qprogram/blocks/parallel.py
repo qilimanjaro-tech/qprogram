@@ -13,9 +13,8 @@
 # limitations under the License.
 """The lockstep loop-composition block.
 
-:class:`Parallel` advances two or more :class:`~qprogram.blocks.Sweep` headers together over a single
-shared body, which is how a program sweeps coupled parameters along one axis instead of over their
-cross product.
+[`Parallel`][qprogram.blocks.Parallel] advances two or more [`Sweep`][qprogram.blocks.Sweep] headers together over a
+single shared body, which is how a program sweeps coupled parameters along one axis instead of over their cross product.
 """
 
 from __future__ import annotations
@@ -41,23 +40,23 @@ class Parallel(Block):
     Body operations live in ``_elements`` as usual. The introspection overrides below thread loop
     variables back into the unioned views so analyzers see them.
 
-    The composition occupies a single repetition level (see :attr:`Block.REPEATS`), not one per
+    The composition occupies a single repetition level (see `Block.REPEATS`), not one per
     composed loop, because the headers advance together rather than nesting.
 
     Args:
-        loops (Iterable[Sweep]): The :class:`~qprogram.blocks.Sweep` instances to advance in lockstep.
+        loops (Iterable[Sweep]): The [`Sweep`][qprogram.blocks.Sweep] instances to advance in lockstep.
             At least two, and all with the same number of iterations — which every source can report
             statically, so the check happens here at construction rather than at run time.
 
     Raises:
         ValidationError: If fewer than two loops are given, if their iteration counts differ, or if a
-            bound source cannot describe its points — a :class:`~qprogram.sweeps.File` holding an
+            bound source cannot describe its points — a [`File`][qprogram.File] holding an
             array that is not 1-D, or holding none.
         OSError: If a bound source reads a file whose path does not exist or cannot be read.
     """
 
     REPEATS: ClassVar[bool] = True
-    """This block re-runs its body — it occupies a repetition level (see :attr:`Block.REPEATS`)."""
+    """This block re-runs its body — it occupies a repetition level (see `Block.REPEATS`)."""
 
     def __init__(self, loops: Iterable[Sweep]) -> None:
         super().__init__()
@@ -76,7 +75,7 @@ class Parallel(Block):
         self.loops: list[Sweep] = loop_list
 
     def variables(self) -> set[Variable]:
-        """Return every :class:`~qprogram.Variable` in the shared body, plus the ones the loops bind.
+        """Return every [`Variable`][qprogram.Variable] in the shared body, plus the ones the loops bind.
 
         The loop headers sit outside ``_elements``, so the inherited walk over the body misses them and
         they are unioned in here.
@@ -96,7 +95,7 @@ class Parallel(Block):
         operations that read them.
 
         Yields:
-            This block, then each composed :class:`~qprogram.blocks.Sweep` with its own descendants,
+            This block, then each composed [`Sweep`][qprogram.blocks.Sweep] with its own descendants,
             then every node of the shared body.
         """
         yield self
@@ -108,7 +107,7 @@ class Parallel(Block):
     def required_capabilities(self) -> set[str]:
         """Return the capability tokens this block needs, in isolation.
 
-        :func:`qprogram.validation.validate` classifies each composed header as a child block in its
+        [`qprogram.validation.validate`][qprogram.validate] classifies each composed header as a child block in its
         own right and checks its tokens there, so the headers' ``sweep.*`` tokens are not repeated
         here.
 

@@ -14,7 +14,7 @@
 """QProgram exception hierarchy.
 
 Every error that originates inside QProgram (core construction, ``.qp`` parsing, or platform compile /
-execution) is a subclass of :class:`QProgramError`. User code catches at the granularity it needs:
+execution) is a subclass of [`QProgramError`][qprogram.QProgramError]. User code catches at the granularity it needs:
 ``except QProgramError`` for "anything QProgram", ``except ValidationError`` for construction-time
 issues, ``except ParseError`` for ``.qp`` files, or one of the platform-side classes (``HardwareError``,
 ``CompilationError``, ...) for runtime failures.
@@ -55,25 +55,25 @@ class ValidationError(QProgramError):
     waveform on a single-channel bus, a ``measure()`` on a bus without ADC, duplicate variable ids, or
     a measurement-handle name collision.
 
-    Deliberately not a :class:`ValueError`: construction validation deserves a catch of its own, and
-    inheriting :class:`ValueError` would turn ``except ValueError`` into an accidental catch-all for
-    it. Two subclasses do extend :class:`ValueError` — :class:`InvalidVariableIdError` and
-    :class:`UnassignedVariableError` — because a malformed identifier and an expression that has no
-    value really are bad-value errors in the ordinary Python sense.
+    Deliberately not a `ValueError`: construction validation deserves a catch of its own, and inheriting `ValueError`
+    would turn ``except ValueError`` into an accidental catch-all for it. Two subclasses do extend `ValueError` —
+    [`InvalidVariableIdError`][qprogram.InvalidVariableIdError] and
+    [`UnassignedVariableError`][qprogram.UnassignedVariableError] — because a malformed identifier and an expression
+    that has no value really are bad-value errors in the ordinary Python sense.
     """
 
 
 class InvalidVariableIdError(ValidationError, ValueError):
     """A variable id rejected on its pattern or because it is reserved.
 
-    Also a :class:`ValueError`, since a malformed identifier is a bad value in the ordinary Python
+    Also a `ValueError`, since a malformed identifier is a bad value in the ordinary Python
     sense — ``except ValueError`` around variable construction catches it.
 
     Args:
-        id (str): The offending identifier. Available at catch-time as :attr:`id`.
+        id (str): The offending identifier. Available at catch-time as `id`.
         reserved (bool): ``True`` if ``id`` matches the identifier pattern but is one of
-            :data:`~qprogram.RESERVED_KEYWORDS`; ``False`` for an outright pattern violation. Available
-            at catch-time as :attr:`reserved`.
+            [`RESERVED_KEYWORDS`][qprogram.RESERVED_KEYWORDS]; ``False`` for an outright pattern violation. Available
+            at catch-time as `reserved`.
     """
 
     def __init__(self, id: str, *, reserved: bool = False) -> None:  # ruff: ignore[builtin-argument-shadowing]
@@ -97,14 +97,14 @@ class InvalidVariableIdError(ValidationError, ValueError):
 
 
 class UnassignedVariableError(ValidationError, ValueError):
-    """An :class:`Expression` evaluated while it still references unbound :class:`Variable` s.
+    """An [`Expression`][qprogram.Expression] evaluated while it still references unbound [`Variable`][qprogram.Variable] s.
 
-    Raised by :meth:`Expression.evaluate_or_raise`. Also a :class:`ValueError`, since an expression
-    over unbound variables has no value to give.
+    Raised by [`Expression.evaluate_or_raise`][qprogram.Expression.evaluate_or_raise]. Also a `ValueError`, since an
+    expression over unbound variables has no value to give.
 
     Args:
         expression (Expression): The expression that failed to evaluate. Kept as
-            :attr:`expression`.
+            `expression`.
 
     Attributes:
         free_variables (set[Variable]): The unbound variables that caused the failure, collected
@@ -130,7 +130,7 @@ class SerializationError(QProgramError):
 
     Raised instead of emitting lossy or unparseable output — e.g. an operation or block class that
     was never registered with the serialization registry, a vendor operation whose extension forgot
-    to call :func:`~qprogram.register_vendor_version`, or an attribute value of a type the format
+    to call `register_vendor_version`, or an attribute value of a type the format
     has no representation for. The write-side counterpart of ``ParseError``: a ``.qp`` file that was
     produced without error is guaranteed to parse back into an equal program.
     """
@@ -139,9 +139,9 @@ class SerializationError(QProgramError):
 class VendorActivationError(QProgramError):
     """A discovered vendor extension that could not be activated.
 
-    Raised by :func:`~qprogram.try_activate_vendor` (and, during ``.qp`` parsing, wrapped into a
-    :class:`ParseError`) when a ``qprogram.vendors`` entry point's import target raises, or imports
-    without calling :func:`~qprogram.register_vendor_version` — i.e. the package is installed but
+    Raised by `try_activate_vendor` (and, during ``.qp`` parsing, wrapped into a
+    `ParseError`) when a ``qprogram.vendors`` entry point's import target raises, or imports
+    without calling `register_vendor_version` — i.e. the package is installed but
     broken. A vendor that is not installed at all is *not* this error: discovery reports "no
     matching extension".
     """
@@ -167,16 +167,16 @@ class BusNotAvailableError(QProgramError):
     """Platform-side: a bus the program references but this backend doesn't expose.
 
     The program is structurally well-formed; the incompatibility is with this particular platform.
-    Use :class:`ValidationError` for construction-time bus issues.
+    Use [`ValidationError`][qprogram.ValidationError] for construction-time bus issues.
     """
 
 
 class WaveformResolutionError(QProgramError):
     """Platform-side: a string waveform name that reached execution without a concrete waveform.
 
-    Resolve names before execution with :meth:`QProgram.with_waveforms` (or
-    :meth:`WaveformLibrary.apply`); this is raised when one was missed or the
-    :class:`~qprogram.WaveformLibrary` used had no entry for it.
+    Resolve names before execution with [`QProgram.with_waveforms`][qprogram.QProgram.with_waveforms] (or
+    [`WaveformLibrary.apply`][qprogram.WaveformLibrary.apply]); this is raised when one was missed or the
+    [`WaveformLibrary`][qprogram.WaveformLibrary] used had no entry for it.
     """
 
 

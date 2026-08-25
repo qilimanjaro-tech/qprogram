@@ -13,12 +13,12 @@
 # limitations under the License.
 """AST block types — containers that group operations and other blocks together.
 
-The base :class:`Block` is a simple ordered container; concrete subclasses (:class:`Average`,
-:class:`Conditional`, :class:`Sweep`, :class:`Parallel`) carry extra structure that the runtime,
-validator, and serializer understand.
+The base [`Block`][qprogram.blocks.Block] is a simple ordered container; concrete subclasses
+([`Average`][qprogram.blocks.Average], [`Conditional`][qprogram.blocks.Conditional], [`Sweep`][qprogram.blocks.Sweep],
+[`Parallel`][qprogram.blocks.Parallel]) carry extra structure that the runtime, validator, and serializer understand.
 
-:class:`Sweep` is the only loop: it binds a variable to whatever a
-:class:`~qprogram.sweeps.SweepSource` produces, so a linear ramp, an explicit table, a log-spaced set
+[`Sweep`][qprogram.blocks.Sweep] is the only loop: it binds a variable to whatever a
+[`SweepSource`][qprogram.SweepSource] produces, so a linear ramp, an explicit table, a log-spaced set
 and any composition of those are all the same block with a different source.
 """
 

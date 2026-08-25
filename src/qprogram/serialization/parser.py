@@ -14,12 +14,12 @@
 """Parser for the ``.qp`` file format.
 
 Header / ``require`` / metadata parsing is fixed-grammar; everything inside ``body:`` is dispatched
-through the registries in :mod:`qprogram.serialization.registry`. New operations, blocks, and sweep
+through the registries in `qprogram.serialization.registry`. New operations, blocks, and sweep
 sources can be added by registration alone — no parser change required.
 
-The parser exposes a small *parse context* API used by spec callbacks: :meth:`parse_value` for token
-to typed-value conversion, :meth:`parse_error` for line-tagged errors, and
-:meth:`get_or_declare_variable` for callbacks that need a target variable identifier.
+The parser exposes a small *parse context* API used by spec callbacks: `parse_value` for token
+to typed-value conversion, `parse_error` for line-tagged errors, and
+`get_or_declare_variable` for callbacks that need a target variable identifier.
 """
 
 from __future__ import annotations
@@ -70,8 +70,9 @@ if TYPE_CHECKING:
 class ParseError(QProgramError):
     """Error during ``.qp`` file parsing.
 
-    Direct child of :class:`~qprogram.QProgramError`, distinct from :class:`~qprogram.ValidationError`
-    — validation runs on in-memory programs, parsing fails on malformed input text.
+    Direct child of [`QProgramError`][qprogram.QProgramError], distinct from
+    [`ValidationError`][qprogram.ValidationError] — validation runs on in-memory programs, parsing fails on malformed
+    input text.
 
     Args:
         message (str): Human-readable error description.
@@ -89,8 +90,8 @@ class _QuotedStr(str):
 
     On the wire, the quoting *is* the type distinction: quoted strings are plain values; bare
     ``element[index].kind`` tokens are bus paths. Tokenization erases the quotes, so this marker
-    subclass preserves "was quoted" long enough for :meth:`_Parser._upgrade_busrefs` to know it
-    must NOT promote the value to a :class:`~qprogram.BusRef` — a raw-string bus that merely looks
+    subclass preserves "was quoted" long enough for `_Parser._upgrade_busrefs` to know it
+    must NOT promote the value to a [`BusRef`][qprogram.BusRef] — a raw-string bus that merely looks
     like a path (``"q[0].drive"``) stays the string the author wrote. Behaves exactly like ``str``
     everywhere else (equality, hashing, serialization), so instances may live in the AST.
     """
@@ -99,7 +100,7 @@ class _QuotedStr(str):
 
 
 def loads(text: str, *, auto_activate: bool = True) -> QProgram:
-    """Parse a ``.qp``-format string into a :class:`QProgram`.
+    """Parse a ``.qp``-format string into a [`QProgram`][qprogram.QProgram].
 
     Args:
         text (str): The ``.qp`` document to parse.
@@ -109,12 +110,12 @@ def loads(text: str, *, auto_activate: bool = True) -> QProgram:
             to require that vendors be imported explicitly beforehand (no implicit imports).
 
     Returns:
-        The reconstructed :class:`QProgram`, with its source map populated.
+        The reconstructed [`QProgram`][qprogram.QProgram], with its source map populated.
 
     Raises:
         ParseError: On malformed input, unknown registry entries, or a required vendor that is
             neither registered nor discoverable (and, when its extension is installed but broken,
-            the wrapped :class:`~qprogram.VendorActivationError`).
+            the wrapped [`VendorActivationError`][qprogram.VendorActivationError]).
         ValidationError: If a declaration the grammar accepts is rejected by the program it builds,
             such as a variable id that is a reserved ``.qp`` keyword.
         TypeError: If a constructor call in the file does not fit its class's signature — an inline
@@ -124,16 +125,16 @@ def loads(text: str, *, auto_activate: bool = True) -> QProgram:
 
 
 def load(path: str, *, auto_activate: bool = True) -> QProgram:
-    """Read a ``.qp`` file and parse it into a :class:`QProgram`.
+    """Read a ``.qp`` file and parse it into a [`QProgram`][qprogram.QProgram].
 
     ``.qp`` files are always UTF-8, independent of the platform's locale.
 
     Args:
         path (str): Path to the ``.qp`` file.
-        auto_activate (bool, optional): See :func:`loads`.
+        auto_activate (bool, optional): See `loads`.
 
     Returns:
-        The reconstructed :class:`QProgram`.
+        The reconstructed [`QProgram`][qprogram.QProgram].
 
     Raises:
         ParseError: On malformed input or unknown registry entries.
@@ -162,8 +163,8 @@ _FRAGMENT_HEADER_RE = re.compile(r"^fragment\s+([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)
 _CALL_STMT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\((.*)\)$")
 
 # Operator alphabets — frozen sets so membership checks act as the
-# accept/reject gates for the ``cast`` calls in :meth:`_parse_paren_expression`.
-# Kept in lockstep with the ``Literal`` operator types in :mod:`qprogram.variable`.
+# accept/reject gates for the ``cast`` calls in `_parse_paren_expression`.
+# Kept in lockstep with the ``Literal`` operator types in `qprogram.variable`.
 _UNARY_OPS: frozenset[str] = frozenset({"+", "-"})
 _BINARY_OPS: frozenset[str] = frozenset({"+", "-", "*", "/"})
 _COMPARISON_OPS: frozenset[str] = frozenset({"==", "!=", "<", "<=", ">", ">="})
@@ -180,13 +181,13 @@ class _Parser:
 
     Carries the whole parse state: the input lines, the cursor, the program under construction, and
     the tables that give identifiers meaning — declared variables, measurement handles, and
-    fragment definitions. An instance is single-use; :meth:`parse` walks the input top to bottom and
+    fragment definitions. An instance is single-use; `parse` walks the input top to bottom and
     returns the finished program.
 
     The instance doubles as the *parse context* handed to spec callbacks, which reach it through
-    :meth:`parse_value`, :meth:`parse_error`, :meth:`get_or_declare_variable`,
-    :meth:`declared_variable`, :meth:`get_or_create_handle`,
-    :meth:`allocate_measurement_handle`, and the :attr:`line_num` property a callback reads when it
+    `parse_value`, `parse_error`, `get_or_declare_variable`,
+    `declared_variable`, `get_or_create_handle`,
+    `allocate_measurement_handle`, and the `line_num` property a callback reads when it
     builds an error of its own.
 
     Args:
@@ -315,7 +316,7 @@ class _Parser:
         """Consume the ``require <vendor> <major.minor>`` lines that follow the header.
 
         Scanning stops at the first line that is not a ``require`` declaration, which is what lets
-        :meth:`parse` reject a ``require`` line that appears later in the file.
+        `parse` reject a ``require`` line that appears later in the file.
 
         Raises:
             ParseError: If a ``require`` line omits the version, or names a vendor that is
@@ -443,7 +444,7 @@ class _Parser:
         """Parse the single ``schema:`` block at the current position.
 
         The file format has one schema spelling: the inline ``element`` / bus declarations. The typed
-        Python factories (:meth:`BusSchema.transmon` and friends) are construction-time
+        Python factories ([`BusSchema.transmon`][qprogram.BusSchema.transmon] and friends) are construction-time
         conveniences that record the same ``element`` / bus data, and the writer emits that
         structural form for every schema.
 
@@ -469,7 +470,7 @@ class _Parser:
 
         The body holds an optional quoted ``naming:`` pattern followed by one ``element <name>:``
         header per element, each with its own indented bus declarations. The result is a dynamic
-        (untyped) :class:`~qprogram.BusSchema`, which carries everything the wire format records.
+        (untyped) [`BusSchema`][qprogram.BusSchema], which carries everything the wire format records.
 
         Raises:
             ParseError: On an unquoted ``naming`` value, a line that is neither ``naming:`` nor an
@@ -589,9 +590,9 @@ class _Parser:
         return channel, acquires
 
     def _upgrade_busrefs(self, op: Operation) -> None:
-        """Replace bus-path strings on an operation with resolved :class:`~qprogram.BusRef` values.
+        """Replace bus-path strings on an operation with resolved [`BusRef`][qprogram.BusRef] values.
 
-        Only the attributes the operation declares in :attr:`Operation.BUS_ATTRS` are considered —
+        Only the attributes the operation declares in `Operation.BUS_ATTRS` are considered —
         promoting *every* string attribute would mangle legitimate quoted strings that merely look
         like paths (e.g. a vendor ``myplatform.set_parameter`` alias of ``"cluster[0].module"``,
         whose op declares ``BUS_ATTRS = ()``). Within a bus attribute, a string that does not match
@@ -655,7 +656,7 @@ class _Parser:
     # -- fragment definitions --------------------------------------------------
 
     def _parse_fragment_def(self) -> None:
-        """Parse one ``fragment <name>(<params>):`` section into a :class:`Fragment`.
+        """Parse one ``fragment <name>(<params>):`` section into a [`Fragment`][qprogram.Fragment].
 
         The fragment body is parsed with the same statement machinery as ``body:``, under a
         swapped scope: ``var`` declarations land on the fragment, identifiers resolve to the
@@ -728,7 +729,7 @@ class _Parser:
 
         Args:
             path (tuple[int | str, ...] | None): Structural address of the node (see
-                :mod:`qprogram.paths`); ``None`` marks a node outside the mapped ``body:`` scope.
+                `qprogram.paths`); ``None`` marks a node outside the mapped ``body:`` scope.
             line_num (int): 1-based line the node was parsed from.
         """
         if path is not None:
@@ -763,7 +764,7 @@ class _Parser:
             min_indent (int): Indentation width of this block's body; the first line indented less
                 ends the block.
             path (tuple[int | str, ...] | None): Structural address of ``parent`` (see
-                :mod:`qprogram.paths`); when given, every appended child's path → 1-based line is
+                `qprogram.paths`); when given, every appended child's path → 1-based line is
                 recorded in the program's source map. Fragment bodies pass ``None`` — only the
                 ``body:`` section is mapped.
 
@@ -816,7 +817,7 @@ class _Parser:
             self._pos += 1
 
     def _parse_call_statement(self, match: re.Match[str]) -> Call:
-        """Parse a bare ``<name>(<args>)`` statement into a :class:`Call`.
+        """Parse a bare ``<name>(<args>)`` statement into a `Call`.
 
         Arguments follow the Python calling convention (positional in parameter order, then
         ``key=value`` keywords) and accept the same token shapes as operation arguments: numbers,
@@ -882,7 +883,7 @@ class _Parser:
     def _parse_call_argument(self, token: str) -> object:
         """Parse one fragment-call argument.
 
-        A bare path-shaped token promotes to a :class:`~qprogram.BusRef` exactly as it does in an
+        A bare path-shaped token promotes to a [`BusRef`][qprogram.BusRef] exactly as it does in an
         operation's bus attribute, so a fragment can take a bus as a parameter.
 
         Args:
@@ -1099,8 +1100,8 @@ class _Parser:
     ) -> None:
         """Parse a ``for`` header — one loop, or several composed with ``|`` — together with its body.
 
-        A single header builds a :class:`~qprogram.Sweep`; a ``|``-composed header builds a
-        :class:`~qprogram.Parallel` of sweeps that advance in lockstep. The composed loop headers
+        A single header builds a [`Sweep`][qprogram.blocks.Sweep]; a ``|``-composed header builds a
+        [`Parallel`][qprogram.blocks.Parallel] of sweeps that advance in lockstep. The composed loop headers
         share the parallel block's source line, so each maps to it.
 
         Args:
@@ -1140,7 +1141,7 @@ class _Parser:
         self._parse_statements(block, min_indent + 2, block_path)
 
     def _parse_for_header(self, header: str) -> Sweep:
-        """Parse a single ``for <var> in <source>`` header into a :class:`Sweep`.
+        """Parse a single ``for <var> in <source>`` header into a [`Sweep`][qprogram.blocks.Sweep].
 
         The loop variable is declared on demand, so a file may drive a loop with a variable that has
         no ``var`` declaration of its own.
@@ -1173,7 +1174,7 @@ class _Parser:
     def _parse_sweep_source(self, text: str) -> SweepSource:
         """Parse a sweep source: a bracket literal, or a registered ``Name(args)`` constructor.
 
-        The bracket form is sugar for :class:`~qprogram.sweeps.Values`; everything else resolves
+        The bracket form is sugar for [`Values`][qprogram.Values]; everything else resolves
         through the sweep-source registry and is constructed from its signature, exactly as a waveform
         constructor is. Nested sources inside a combinator come back through ``_parse_arg``, so
         ``Concat(sources=[Rotate(source=[...], by=1)])`` works at any depth.
@@ -1190,7 +1191,7 @@ class _Parser:
                 arguments.
             TypeError: If a source nested inside a combinator's argument list is given arguments
                 that do not fit its signature — only the outermost constructor's failure is wrapped
-                in a :class:`ParseError`.
+                in a `ParseError`.
         """
         if text.startswith("["):
             try:
@@ -1226,7 +1227,7 @@ class _Parser:
 
         Returns:
             A ``(var_id, attrs)`` pair, where ``attrs`` holds the unescaped keyword values ready to
-            pass to :meth:`QProgram.variable`.
+            pass to [`QProgram.variable`][qprogram.QProgram.variable].
 
         Raises:
             ParseError: If the identifier is missing or does not match ``[A-Za-z_][A-Za-z0-9_]*``,
@@ -1281,7 +1282,7 @@ class _Parser:
             line (str): The operation line, comments already stripped.
 
         Returns:
-            The parsed operation, its bus attributes still plain strings — :meth:`_upgrade_busrefs`
+            The parsed operation, its bus attributes still plain strings — `_upgrade_busrefs`
             promotes them.
 
         Raises:
@@ -1324,15 +1325,15 @@ class _Parser:
         waveform constructors, numeric literals, and references to variables already declared
         in the file. Anything that doesn't match any of those is returned as a plain string —
         this is how bus-path tokens (``q[0].drive``) flow through unchanged until
-        ``_upgrade_busrefs`` promotes them to typed :class:`BusRef` instances.
+        ``_upgrade_busrefs`` promotes them to typed [`BusRef`][qprogram.BusRef] instances.
 
         Args:
-            token (str): One ``.qp`` token, as produced by :func:`_tokenize`.
+            token (str): One ``.qp`` token, as produced by `_tokenize`.
 
         Returns:
             The decoded value: a bool, ``None``, a number, a list, a dict, a waveform, a sweep
-            source (it shares the constructor shape), an :class:`~qprogram.Expression` node, a
-            :class:`~qprogram.MeasurementRef`, a declared :class:`~qprogram.Variable`, or a string.
+            source (it shares the constructor shape), an [`Expression`][qprogram.Expression] node, a
+            [`MeasurementRef`][qprogram.MeasurementRef], a declared [`Variable`][qprogram.Variable], or a string.
 
         Raises:
             ParseError: If the token is empty, or a compound token (expression, dict literal,
@@ -1383,7 +1384,7 @@ class _Parser:
             return tok
 
     def parse_error(self, message: str) -> ParseError:
-        """Build a :class:`ParseError` tagged with the current line number.
+        """Build a `ParseError` tagged with the current line number.
 
         Returned rather than raised, so a spec callback raises it from its own ``raise`` statement.
 
@@ -1398,7 +1399,7 @@ class _Parser:
     def _parse_dict_literal(self, tok: str) -> dict[str, object]:
         """Parse a ``{"key": value, ...}`` token into a dict.
 
-        Keys must be quoted strings; values go through :meth:`parse_value` recursively, so nested
+        Keys must be quoted strings; values go through `parse_value` recursively, so nested
         dicts, numbers, ``null``, and quoted strings all work. The generic brace-literal form for
         dict-valued operation kwargs.
 
@@ -1451,7 +1452,7 @@ class _Parser:
         - 3 tokens, middle is a known operator → the appropriate binary node.
 
         Math functions and ``where`` use the function-call shape and are
-        handled by :meth:`_parse_function_call`, not here.
+        handled by `_parse_function_call`, not here.
 
         Args:
             tok (str): The expression token, outer parentheses included.
@@ -1515,14 +1516,14 @@ class _Parser:
 
         Resolution order: math-function names (``sin``, ``cos``, ``minimum``,
         …) → ``where`` → waveform registry. Math and ``where`` are
-        first-class :class:`~qprogram.Expression` nodes; anything else is
+        first-class [`Expression`][qprogram.Expression] nodes; anything else is
         treated as a waveform constructor invocation.
 
         Args:
             tok (str): The ``name(args)`` token.
 
         Returns:
-            An :class:`~qprogram.Expression` node for a math function or ``where``, otherwise the
+            An [`Expression`][qprogram.Expression] node for a math function or ``where``, otherwise the
             constructed waveform (or sweep source, which shares the constructor shape).
 
         Raises:
@@ -1550,10 +1551,10 @@ class _Parser:
         return _parse_waveform_expr(tok, self._variables)
 
     def get_or_declare_variable(self, name: str) -> Variable:
-        """Return the declared :class:`Variable` named ``name``, declaring it on demand.
+        """Return the declared [`Variable`][qprogram.Variable] named ``name``, declaring it on demand.
 
         A loop header may name a variable no ``var`` line declared; the declaration is then created
-        on the program being built, so the round trip through :func:`dumps` writes it out.
+        on the program being built, so the round trip through `dumps` writes it out.
 
         Args:
             name (str): Variable id as written in the file.
@@ -1572,9 +1573,9 @@ class _Parser:
         return var
 
     def declared_variable(self, name: str) -> Variable | None:
-        """Return the declared :class:`Variable` named ``name``, or ``None``.
+        """Return the declared [`Variable`][qprogram.Variable] named ``name``, or ``None``.
 
-        The lookup-only counterpart of :meth:`get_or_declare_variable`, for callbacks that must
+        The lookup-only counterpart of `get_or_declare_variable`, for callbacks that must
         distinguish a variable reference from a plain string without declaring anything.
 
         Args:
@@ -1586,11 +1587,11 @@ class _Parser:
         return self._variables.get(name)
 
     def get_or_create_handle(self, name: str) -> MeasurementHandle:
-        """Return the canonical :class:`MeasurementHandle` for ``name``, creating it on demand.
+        """Return the canonical [`MeasurementHandle`][qprogram.MeasurementHandle] for ``name``, creating it on demand.
 
         The same instance is returned for every call with the same name
         during a single parse, so every measurement op, every
-        :class:`MeasurementRef`, and every other consumer of the handle
+        [`MeasurementRef`][qprogram.MeasurementRef], and every other consumer of the handle
         end up sharing one Python object.
 
         Args:
@@ -1606,12 +1607,12 @@ class _Parser:
     def allocate_measurement_handle(self, bus: object) -> MeasurementHandle:
         """Auto-allocate a handle for a measurement line that carries no ``name=``.
 
-        Uses the same per-bus naming convention as :meth:`QProgram.measure`, computed against the
+        Uses the same per-bus naming convention as [`QProgram.measure`][qprogram.QProgram.measure], computed against the
         program parsed so far — hand-written files without explicit names get ``m0``, ``m1``, ...
         exactly as the builder would have assigned them.
 
         Args:
-            bus (object): The bus the measurement targets. A :class:`~qprogram.BusRef` gives the
+            bus (object): The bus the measurement targets. A [`BusRef`][qprogram.BusRef] gives the
                 per-bus prefix (``q0/readout/m0``); anything else falls back to the global counter.
 
         Returns:
@@ -1711,15 +1712,15 @@ def _parse_major_minor(version: str) -> tuple[int, int]:
 
 
 def _to_expression(value: object) -> Expression:
-    """Promote a parsed value into an :class:`Expression`-compatible operand.
+    """Promote a parsed value into an [`Expression`][qprogram.Expression]-compatible operand.
 
-    Numbers become :class:`Constant`; variables and expression nodes pass
+    Numbers become [`Constant`][qprogram.Constant]; variables and expression nodes pass
     through. Anything else (a bus string, say) reaches here only as a result
     of malformed input — raise so the caller surfaces a clean error instead
     of a downstream ``TypeError`` from the AST constructor.
 
     Args:
-        value (object): A value returned by :meth:`_Parser.parse_value`.
+        value (object): A value returned by `_Parser.parse_value`.
 
     Returns:
         The value as an expression node.
@@ -1796,10 +1797,10 @@ def _parse_waveform_expr(expr: str, variables: dict[str, Variable] | None = None
     """Parse a ``Name(arg, ...)`` waveform constructor call.
 
     When ``variables`` is provided (always the case when called from a live
-    parser, via :meth:`_Parser._parse_function_call`), bare identifiers in
+    parser, via `_Parser._parse_function_call`), bare identifiers in
     the argument list are resolved against the variable table — so
     ``Gaussian(amplitude=amp, ...)`` round-trips with ``amp`` as a
-    :class:`Variable` rather than the string ``"amp"``. Without a table, an
+    [`Variable`][qprogram.Variable] rather than the string ``"amp"``. Without a table, an
     identifier is returned as a plain string.
 
     Positional and keyword arguments are not combined: a call carrying any ``key=value`` argument
@@ -1928,7 +1929,7 @@ def _partition_dict_entry(entry: str) -> tuple[str, str, str]:
 
     Returns:
         ``(key, ":", value)`` on success, ``(entry, "", "")`` when the entry holds no top-level
-        colon — the same no-separator contract as :meth:`str.partition`.
+        colon — the same no-separator contract as `str.partition`.
     """
     in_q = False
     i = 0
@@ -1952,7 +1953,7 @@ def _partition_dict_entry(entry: str) -> tuple[str, str, str]:
 def _parse_list_literal(tok: str, variables: dict[str, Variable] | None = None) -> list:
     """Parse a ``[v0, v1, ...]`` token into a plain Python list.
 
-    Elements go through :func:`_parse_arg`, so numbers, quoted strings, booleans, ``null``, and
+    Elements go through `_parse_arg`, so numbers, quoted strings, booleans, ``null``, and
     nested lists all work. The result is a *list*, not a numpy array — consumers that want arrays
     (``Arbitrary``, ``Values``) convert via ``np.asarray`` themselves, while consumers that store
     lists (e.g. vendor ops with ``list[int]`` attributes) round-trip type-faithfully.
@@ -1978,10 +1979,10 @@ def _parse_list_literal(tok: str, variables: dict[str, Variable] | None = None) 
 def _parse_arg(val: str, variables: dict[str, Variable] | None = None) -> object:
     """Parse a single waveform-constructor argument.
 
-    The :class:`~qprogram.Variable` resolution mirrors
-    :meth:`_Parser.parse_value`: when the parser threads its variable table
+    The [`Variable`][qprogram.Variable] resolution mirrors
+    `_Parser.parse_value`: when the parser threads its variable table
     in (always, in live parsing), an identifier that matches a declared
-    variable returns the :class:`Variable` instance, so waveforms with
+    variable returns the [`Variable`][qprogram.Variable] instance, so waveforms with
     symbolic parameters (``Gaussian(amplitude=amp, ...)``) round-trip with
     their variable references intact. Without a table, the function falls
     back to returning the identifier as a string.

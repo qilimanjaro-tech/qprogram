@@ -32,7 +32,7 @@ class Sech(Waveform):
         amplitude (float | Expression): Peak amplitude (at the midpoint).
         duration (int | Expression): Pulse duration in nanoseconds.
         tau (float | Expression): Width parameter in nanoseconds — analogous to ``sigma`` on
-            :class:`Gaussian`.
+            [`Gaussian`][qprogram.waveforms.Gaussian].
     """
 
     def __init__(

@@ -11,13 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""The :class:`Operation` base class and the measurement-field vocabulary.
+"""The [`Operation`][qprogram.operations.Operation] base class and the measurement-field vocabulary.
 
 The four-method introspection contract (``variables`` / ``buses`` / ``waveforms`` / ``walk``) is shared
-with :class:`~qprogram.blocks.Block`; see the architecture docs for the rationale.
+with [`Block`][qprogram.blocks.Block]; see the architecture docs for the rationale.
 
 There is deliberately no ``attributes()`` helper for the raw constructor view of an op: ``vars(op)`` and
-:mod:`inspect` expose exactly that, and an extra method would only repackage information Python already
+`inspect` expose exactly that, and an extra method would only repackage information Python already
 provides.
 """
 
@@ -43,39 +43,39 @@ class Operation:
 
     Subclasses customize introspection behavior through two class-attribute conventions:
 
-    - :attr:`BUS_ATTRS` lists which ``__init__`` parameter names hold bus references. The default
-      ``("bus",)`` matches every core op except :class:`~qprogram.operations.Sync` (which holds a list
-      under ``targets``) and :class:`~qprogram.operations.Call` (which lists none — buses reach a call
+    - `BUS_ATTRS` lists which ``__init__`` parameter names hold bus references. The default
+      ``("bus",)`` matches every core op except [`Sync`][qprogram.operations.Sync] (which holds a list
+      under ``targets``) and [`Call`][qprogram.operations.Call] (which lists none — buses reach a call
       site only as bound argument values).
-    - :attr:`WAVEFORM_ATTRS` lists which ``__init__`` parameters carry waveform values. Default empty.
+    - `WAVEFORM_ATTRS` lists which ``__init__`` parameters carry waveform values. Default empty.
 
     Equality and hashing are structural; once an instance has been used as a ``set`` / ``dict`` key, do
-    not mutate its attributes. Callers like :meth:`QProgram.rebind` that rewrite operations do
+    not mutate its attributes. Callers like [`QProgram.rebind`][qprogram.QProgram.rebind] that rewrite operations do
     so on a fresh ``deepcopy``.
     """
 
     BUS_ATTRS: ClassVar[tuple[str, ...]] = ("bus",)
     WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ()
     BROADCASTS_WHEN_NO_BUS: ClassVar[bool] = False
-    """When ``True`` and the op's :attr:`BUS_ATTRS` resolve to no buses, the op semantically
+    """When ``True`` and the op's `BUS_ATTRS` resolve to no buses, the op semantically
     touches *every* bus in the program (e.g. ``Sync(targets=None)``). The validator then routes
     it across all program buses instead of the default-bus profile."""
 
     AFFECTS_AVERAGING: ClassVar[bool] = False
-    """Whether this op participates in what an :class:`~qprogram.blocks.Average` block averages.
+    """Whether this op participates in what an [`Average`][qprogram.blocks.Average] block averages.
 
     An ``average`` block repeats its body and accumulates **measurement results**; only the ops
     that produce those results determine whether the averaging itself can run as a real-time
     hardware feature. Ops with ``AFFECTS_AVERAGING = False`` are still validated and still execute
     inside the body — they just don't gate the *Average block's* execution domain (see
-    :func:`qprogram.validation.validate`). Defaults to ``False``; :class:`MeasurementOperation`
+    [`qprogram.validation.validate`][qprogram.validate]). Defaults to ``False``; `MeasurementOperation`
     sets it ``True``, so core ``measure`` and vendor ``acquire`` opt in automatically. A vendor
     adding another averaging-relevant op sets it on its own class."""
 
     def variables(self) -> set[Variable]:
-        """Return every :class:`Variable` referenced by this op, transitively.
+        """Return every [`Variable`][qprogram.Variable] referenced by this op, transitively.
 
-        Walks every public instance attribute, descending into :class:`Expression` nodes, waveform
+        Walks every public instance attribute, descending into [`Expression`][qprogram.Expression] nodes, waveform
         parameters, and nested lists. Ops with data hidden in private fields or computed lazily can
         override this method.
         """
@@ -89,7 +89,7 @@ class Operation:
     def buses(self) -> set[str]:
         """Return every bus name this op touches.
 
-        Reads the attributes listed in :attr:`BUS_ATTRS`. Plain strings, :class:`~qprogram.BusRef`
+        Reads the attributes listed in `BUS_ATTRS`. Plain strings, [`BusRef`][qprogram.BusRef]
         instances, and lists of either are collected.
         """
         out: set[str] = set()
@@ -104,7 +104,7 @@ class Operation:
     def waveforms(self) -> set[Waveform | IQWaveform | str]:
         """Return every waveform (concrete or string alias) the op carries.
 
-        Reads the attributes listed in :attr:`WAVEFORM_ATTRS`. ``None`` values (from optional waveform
+        Reads the attributes listed in `WAVEFORM_ATTRS`. ``None`` values (from optional waveform
         params) are skipped.
         """
         out: set[Waveform | IQWaveform | str] = set()
@@ -117,7 +117,7 @@ class Operation:
     def walk(self) -> Iterator[Operation | Block]:
         """Yield ``self`` — operations are AST leaves.
 
-        Pairs with :meth:`Block.walk`, which recurses through children.
+        Pairs with `Block.walk`, which recurses through children.
         """
         yield self
 
@@ -144,20 +144,20 @@ class MeasurementField(StrEnum):
     """Canonical names for the data a measurement can produce.
 
     Members **are** strings (``MeasurementField.IQ == "iq"`` is ``True``), so they travel unchanged
-    through capability tokens, the ``.qp`` writer, and :attr:`~qprogram.MeasurementResult.fields`
+    through capability tokens, the ``.qp`` writer, and `fields`
     keys. The enum exists for discoverability (type ``MeasurementField.`` and let the editor list
     the options) and for static checking — it is not a new value type.
 
-    Declaration order is the **canonical field order**: :func:`normalize_fields` sorts every
+    Declaration order is the **canonical field order**: `normalize_fields` sorts every
     ``fields`` tuple this way, so ``(IQ, STATE)`` and ``(STATE, IQ)`` build the same AST, hash the
     same, and serialize to the same ``.qp`` line. Vendor-defined fields are plain strings (a vendor
-    ships its own :class:`~enum.StrEnum` if it wants the same ergonomics) and sort after the core
+    ships its own `StrEnum` if it wants the same ergonomics) and sort after the core
     members, alphabetically among themselves.
 
     Attributes:
         STATE: Classified outcome — required to reference ``handle.state`` in a conditional.
         IQ: Demodulated, integrated in-phase/quadrature pair. The default, and the ``data``
-            attribute of a :class:`~qprogram.MeasurementResult` whenever it is requested.
+            attribute of a [`MeasurementResult`][qprogram.MeasurementResult] whenever it is requested.
         RAW: Raw ADC trace.
     """
 
@@ -172,23 +172,23 @@ class MeasurementOperation(Operation):
     Why a marker base (rather than duck-typing on the ``handle`` attribute): vendor authors opt in
     deliberately, and tooling that wants to enumerate measurements has a single ``isinstance`` to check.
 
-    Why store the canonical :class:`~qprogram.MeasurementHandle` rather than a name string: every
-    reference to the measurement — the user's variable, the AST node, every :class:`MeasurementRef` in
-    conditionals, the value returned by :meth:`QProgram.measurement_handles` — becomes the same Python
-    instance, and the runtime writes per-measurement values onto that single object.
+    Why store the canonical [`MeasurementHandle`][qprogram.MeasurementHandle] rather than a name string: every reference
+    to the measurement — the user's variable, the AST node, every [`MeasurementRef`][qprogram.MeasurementRef] in
+    conditionals, the value returned by [`QProgram.measurement_handles`][qprogram.QProgram.measurement_handles] —
+    becomes the same Python instance, and the runtime writes per-measurement values onto that single object.
 
-    Concrete subclasses **must** set :attr:`handle` and :attr:`fields`.
+    Concrete subclasses **must** set `handle` and `fields`.
     """
 
     handle: MeasurementHandle
     fields: tuple[str, ...]
-    """Requested measurement fields, canonically ordered by :func:`normalize_fields`. Typed as
-    ``str`` rather than :class:`MeasurementField` because vendors may register their own field
+    """Requested measurement fields, canonically ordered by `normalize_fields`. Typed as
+    ``str`` rather than `MeasurementField` because vendors may register their own field
     names; core fields always compare equal to their enum member."""
 
     AFFECTS_AVERAGING: ClassVar[bool] = True
     """Measurements are exactly what an ``average`` block accumulates — see
-    :attr:`Operation.AFFECTS_AVERAGING`."""
+    `Operation.AFFECTS_AVERAGING`."""
 
     @property
     def name(self) -> str:
@@ -196,7 +196,7 @@ class MeasurementOperation(Operation):
         return self.handle.name
 
     def required_capabilities(self) -> set[str]:
-        """Return one ``measure.fields.<name>`` token per entry in :attr:`fields`.
+        """Return one ``measure.fields.<name>`` token per entry in `fields`.
 
         Concrete subclasses union this with their own identity-token set.
         """
@@ -208,7 +208,7 @@ class MeasurementOperation(Operation):
 def normalize_fields(value: Iterable[MeasurementField | str]) -> tuple[str, ...]:
     """Coerce a ``fields`` argument into the canonical, sorted ``tuple[str, ...]``.
 
-    Accepts any iterable of :class:`MeasurementField` members or registered field-name strings —
+    Accepts any iterable of `MeasurementField` members or registered field-name strings —
     ``(MeasurementField.IQ, MeasurementField.STATE)`` and ``["iq", "state"]`` are equivalent. A bare
     string is **rejected**: iterating one would yield its characters, and there is no comma-separated
     ``"iq,state"`` spelling.
@@ -216,14 +216,14 @@ def normalize_fields(value: Iterable[MeasurementField | str]) -> tuple[str, ...]
     Every name is checked against the live capability registry, so a typo raises *here* — at the
     ``measure(...)`` call site — instead of surfacing later as an unsupported-capability diagnostic.
     Vendors widen the accepted set by registering ``measure.fields.<name>`` (see
-    :func:`qprogram.protocol.register_capability_tokens`).
+    [`qprogram.protocol.register_capability_tokens`][qprogram.register_capability_tokens]).
 
-    The result is deduplicated and sorted into canonical order (:class:`MeasurementField`
+    The result is deduplicated and sorted into canonical order (`MeasurementField`
     declaration order, then vendor names alphabetically), so two measurements requesting the same
     data compare equal, hash equal, and serialize identically regardless of argument order.
 
     Args:
-        value (Iterable[MeasurementField | str]): Iterable of :class:`MeasurementField` members or
+        value (Iterable[MeasurementField | str]): Iterable of `MeasurementField` members or
             registered field-name strings.
 
     Returns:
@@ -291,7 +291,7 @@ def _bare_string_message(value: str) -> str:
 
 
 _CORE_FIELD_ORDER: dict[str, int] = {name: i for i, name in enumerate(MeasurementField)}
-"""Canonical sort position of each core field, taken from :class:`MeasurementField`'s declaration
+"""Canonical sort position of each core field, taken from `MeasurementField`'s declaration
 order. Keys are enum members; plain-string lookups hit them because ``StrEnum`` members hash and
 compare as their values."""
 
@@ -341,9 +341,9 @@ def _reject_unknown_fields(names: Sequence[str]) -> None:
 
 
 def _collect_variables(value: object) -> set[Variable]:
-    """Recursively gather every :class:`Variable` reachable from ``value``.
+    """Recursively gather every [`Variable`][qprogram.Variable] reachable from ``value``.
 
-    Used by :meth:`Operation.variables`. Tolerates the arbitrary attribute shapes vendor extensions
+    Used by `Operation.variables`. Tolerates the arbitrary attribute shapes vendor extensions
     might invent: anything that isn't a Variable, Expression, Waveform, or list/tuple is skipped.
 
     Args:

@@ -29,7 +29,7 @@ class Wait(Operation):
     Args:
         bus (str): Bus to idle on.
         duration (int | Expression): Wait duration in nanoseconds. Accepts an
-            :class:`~qprogram.Expression` for sweeps.
+            [`Expression`][qprogram.Expression] for sweeps.
     """
 
     def __init__(self, bus: str, duration: int | Expression) -> None:

@@ -9,7 +9,7 @@ For a working reference, the test suite's `tests/_dummy_vendor.py` implements
 Steps 1 through 5 in a single module: operations (one of them a measurement
 op), a namespace, a mixin, a pre-combined `QProgram`, capability tokens, and a
 profile. Two things on this page it does not cover. It is not an installed
-distribution, so it declares no `qprogram.vendors` entry point —
+distribution, so it declares no `qprogram.vendors` entry point;
 `tests/test_vendor_discovery.py` exercises Step 6 against a stub one instead.
 And it registers no vendor block; `tests/test_registry.py` and
 `tests/test_writer.py` cover that.
@@ -43,7 +43,8 @@ Five source files, in increasing order of glue:
 1. `operations.py` defines the AST node classes.
 2. `namespace.py` defines the typed methods.
 3. `mixin.py` defines the typed `@property`.
-4. `profiles.py` declares the vendor's capability tokens and ships one or more `Profile` bundles.
+4. `profiles.py` declares the vendor's capability tokens and ships one or more
+   `Profile` bundles.
 5. `__init__.py` registers everything and ships a pre-combined `QProgram`.
 
 ## Step 1: Define the operation classes
@@ -191,7 +192,7 @@ if TYPE_CHECKING:
 
 
 # Register the vendor's capability tokens *before* the Profile is
-# constructed — `Profile.__post_init__` rejects unknown tokens.
+# constructed: `Profile.__post_init__` rejects unknown tokens.
 register_capability_tokens(
     "vendor.fake_inst.beep",
     "vendor.fake_inst.set_threshold",
@@ -219,7 +220,7 @@ FAKE_INST_DEFAULT_V1 = Profile(
     capabilities=frozenset(
         {
             # bus-touching ops the backend can run (block.* / expr.* / sweep.*
-            # live on the platform-level slot — see notes below).
+            # live on the platform-level slot, see notes below).
             "op.play",
             "op.measure",
             "op.wait",
@@ -254,19 +255,22 @@ def _register() -> None:
 
 A few notes:
 
-- **List the bus-side capabilities the backend supports.** Bus-touching ops (`op.play`,
-  `op.measure`, `op.wait`, ...), waveforms, and `measure.fields.*` all live on the bus profile
-  because the corresponding nodes route there. Block / expression / sweep tokens come from core
-  `qprogram-base-v1` — the platform-level slot of `PlatformCapabilities`, which the platform
-  materializes from that profile alongside its bus profiles; see
+- **List the bus-side capabilities the backend supports.** Bus-touching ops
+  (`op.play`, `op.measure`, `op.wait`, ...), waveforms, and `measure.fields.*`
+  all live on the bus profile because the corresponding nodes route there. Block
+  / expression / sweep tokens come from core `qprogram-base-v1`, the
+  platform-level slot of `PlatformCapabilities`, which the platform materializes
+  from that profile alongside its bus profiles; see
   [Building `CompilerCapabilities` from a profile](capability-protocol.md#building-compilercapabilities-from-a-profile).
-  (Core `op.set_parameter` / `op.get_parameter` are also bus-touching, host-side-only ops; their
-  tokens are *not* in `qprogram-base-v1`, so a platform opts them into a bus slot's `host` half
-  explicitly if it supports them.) Leaving out a bus-touching token your backend can actually run
-  means programs using it will fail validation against this profile.
-- **Platform-level limits** like `max_loop_nesting`, `max_parallel_loops`, `max_measurements` live
-  on the platform slot, not on the bus profile. Apply them via `limit_overrides=` when
-  materializing the platform-level slot from `qprogram-base-v1`.
+  (Core `op.set_parameter` / `op.get_parameter` are also bus-touching,
+  host-side-only ops; their tokens are *not* in `qprogram-base-v1`, so a
+  platform opts them into a bus slot's `host` half explicitly if it supports
+  them.) Leaving out a bus-touching token your backend can actually run means
+  programs using it will fail validation against this profile.
+- **Platform-level limits** like `max_loop_nesting`, `max_parallel_loops`,
+  `max_measurements` live on the platform slot, not on the bus profile. Apply
+  them via `limit_overrides=` when materializing the platform-level slot from
+  `qprogram-base-v1`.
 - **Per-class waveform tokens** (`waveform.square`, `waveform.iq_drag`,
   ...) refine the channel-kind tokens. Include the per-class tokens for
   every waveform your compiler knows how to lower. Programs using a
@@ -276,18 +280,19 @@ A few notes:
   `max_loop_nesting`, `max_parallel_loops`, `max_measurements`, and
   `min_wait_duration_ns`; vendors may declare additional keys for forward
   compatibility, which the validator silently ignores.
-- **Predicates** are callables `(node, ctx) -> Iterable[Diagnostic | DomainConstraint]`. Use
-  them for context-sensitive checks that depend on more than one node —
-  the canonical example is "this op's variable argument must be bound by
-  a linear loop". See [Capability protocol internals](capability-protocol.md)
-  for the full predicate / `ValidationContext` reference.
+- **Predicates** are callables
+  `(node, ctx) -> Iterable[Diagnostic | DomainConstraint]`. Use them for
+  context-sensitive checks that depend on more than one node. The canonical
+  example is "this op's variable argument must be bound by a linear loop". See
+  [Capability protocol internals](capability-protocol.md) for the full predicate
+  / `ValidationContext` reference.
 
 If you want a tiered family of profiles (`-base-v1`, `-adaptive-v1`,
 ...), use `extends="<parent-name>"`. Capabilities and predicates
 accumulate; limits inherit and may be overridden. Start with
 a single `<vendor>-default-v1` and split only when a real device demands
-it — a proliferation of near-identical profiles is the classic way this kind
-of protocol becomes unusable.
+it, because a proliferation of near-identical profiles is the classic way this
+kind of protocol becomes unusable.
 
 ## Step 5: The `__init__.py` glue
 
@@ -343,18 +348,18 @@ __all__ = [
 ]
 ```
 
-Four registration steps run on import — five calls, since each operation is
-registered on its own line — plus the capability-token registration that
+Four registration steps run on import (five calls, since each operation is
+registered on its own line) plus the capability-token registration that
 happens as a side effect of importing `profiles.py` at the top of
 `__init__.py`; profile registration is a separate call so the order is
-explicit. The last piece — the `qprogram.vendors` entry point in
-[`pyproject.toml`](#step-6-pyprojecttoml) — is what lets `loads()` trigger this
+explicit. The last piece, the `qprogram.vendors` entry point in
+[`pyproject.toml`](#step-6-pyprojecttoml), is what lets `loads()` trigger this
 whole import on demand, so a `.qp` file requiring the vendor loads without an
 explicit `import`.
 
 The vendor name (`"fake_inst"`) must not be one of the [reserved
 keywords](../reference/reserved.md), the sentinel `"core"`, or the name of
-any `QProgram` attribute — the last would make the namespace unreachable,
+any `QProgram` attribute. The last would make the namespace unreachable,
 since vendor lookup happens in `__getattr__`, after normal attribute
 resolution.
 
@@ -364,10 +369,11 @@ in `pyproject.toml`.
 
 ## Step 6: `pyproject.toml`
 
-The `[project.entry-points."qprogram.vendors"]` table is what makes the extension
-**auto-discoverable**: when a `.qp` file declares `require fake_inst <ver>` and the package is
-installed but not yet imported, `qprogram.loads(...)` imports the module named here on demand (its
-import-time side effects then run the registration steps above). The entry-point *name* is
+The `[project.entry-points."qprogram.vendors"]` table is what makes the
+extension **auto-discoverable**: when a `.qp` file declares
+`require fake_inst <ver>` and the package is installed but not yet imported,
+`qprogram.loads(...)` imports the module named here on demand (its import-time
+side effects then run the registration steps above). The entry-point *name* is
 the vendor namespace; the *value* is the module that self-registers.
 
 ```toml
@@ -457,8 +463,8 @@ the registry.
 
 ## Contributing a control-flow block
 
-An extension is not limited to operations. It can add a **block** — a
-container with its own header keyword — by subclassing `Block` and
+An extension is not limited to operations. It can add a **block**, a
+container with its own header keyword, by subclassing `Block` and
 registering it with `register_vendor_block`:
 
 ```python
@@ -484,13 +490,13 @@ The wire form is `fake_inst.forever:` followed by an indented suite. Four
 things to get right:
 
 1. **`REPEATS`.** Set it `True` if the block re-runs its body. That is what
-   makes it count toward `max_loop_nesting` — the validator reads the marker
+   makes it count toward `max_loop_nesting`: the validator reads the marker
    rather than testing concrete classes, so extensions participate in the
    limit check for free. Leave it `False` (the default) for a block that
    merely groups.
 2. **Capability slot.** Blocks route to the **platform** slot, not a per-bus
    one, so the token goes on your platform-slot profile. If the block should
-   be real-time capable, it must be in that slot's `rt` half too — a token
+   be real-time capable, it must be in that slot's `rt` half too. A token
    present only in `host` makes the block host-only, which will force
    everything inside it host-side.
 3. **Opening it.** Add a namespace method returning a context manager that
@@ -500,7 +506,7 @@ things to get right:
    touches `program._append_to_active` / `program._block_stack` directly.
 4. **Registration, not `register_block`.** The vendor wrapper records the
    vendor on the spec, which is what puts a `require fake_inst 0.1` line in
-   any file containing the block — even one with no vendor *operations*.
+   any file containing the block, even one with no vendor *operations*.
    Without it the file would not auto-activate your package on load.
 
 A vendor block is deliberately not a `Sweep`: it binds no variable,
@@ -549,8 +555,8 @@ exists for IDE autocomplete.
 - **Importing `qprogram_fakeinst` is the activation step**, and the entry
   point is what lets `loads()` perform that import for you. A `.qp` file
   using `fake_inst.*` loads on a machine where the package is *installed*
-  even if nothing imported it; on a machine where it is not installed — or
-  under `loads(..., auto_activate=False)` — the parser rejects the file.
+  even if nothing imported it. On a machine where it is not installed, or
+  under `loads(..., auto_activate=False)`, the parser rejects the file.
   Say which package to install in your README.
 - **Do not re-export `qprogram.QProgram` unchanged.** The pre-combined
   class on the vendor's `__init__` should subclass the mixin so users get

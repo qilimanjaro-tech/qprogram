@@ -1,7 +1,7 @@
 # Errors
 
 QProgram has a single-rooted exception hierarchy. Errors raised by the
-library — and by a platform that adopts the contract — are subclasses of
+library, and by a platform that adopts the contract, are subclasses of
 `QProgramError`, with one documented gap: a malformed inline waveform
 constructor in a `.qp` file escapes as a plain `TypeError`, described under
 [Parse-time errors](#parse-time-errors). Catch the level of granularity you
@@ -38,10 +38,12 @@ QProgramError
   HardwareError
 ```
 
-`VendorActivationError` is raised by `qp.try_activate_vendor(...)` (and surfaces, wrapped in a
-`ParseError`, during `loads()`) when a vendor's `qprogram.vendors` entry point is found but its
-import fails or registers no version — i.e. the extension is installed but broken. A vendor that
-is simply *not installed* is not this error; discovery reports "no matching extension" instead.
+`VendorActivationError` is raised by `qp.try_activate_vendor(...)` (and
+surfaces, wrapped in a `ParseError`, during `loads()`) when a vendor's
+`qprogram.vendors` entry point is found but its import fails or registers no
+version: the extension is installed but broken. A vendor that is *not
+installed* at all is a different case; discovery reports "no matching extension"
+instead.
 
 `ParseError` lives at `qprogram.ParseError`; the construction-time and
 platform-side classes are exported from `qprogram` directly.
@@ -63,7 +65,7 @@ operations rejects its arguments. Examples:
   away from `stop`; an empty `Values([])` source; `average(shots=0)`.
 - Parallel (`|`) loops with mismatched iteration counts.
 - An `IQPair` whose I/Q channels have different concrete durations.
-- `sync([])` (ambiguous — pass `None` to sync everything).
+- `sync([])` (ambiguous: pass `None` to sync everything).
 
 ```python
 try:
@@ -79,7 +81,7 @@ The base `ValidationError` does not extend `ValueError`, so a generic
 ### `SerializationError`
 
 Raised by the `.qp` **writer** (`dumps`/`save`) when the program contains
-something the format cannot represent faithfully — an unregistered
+something the format cannot represent faithfully: an unregistered
 operation/block class, a vendor op whose extension never registered its
 version, an attribute value with no `.qp` form, or a measurement name that
 cannot survive the unquoted `name.field` wire form of a conditional
@@ -107,9 +109,9 @@ qp.loads(text)
 ```
 
 `Gaussian(amplitude=(phi * 2), ...)` fails the same way. Keep constructor
-arguments to numbers, quoted strings, and bare variable references — the
-shapes [the format documents](qp-format.md#inline-waveform-constructors) —
-and a file that writes without a `SerializationError` parses back into an
+arguments to numbers, quoted strings, and bare variable references, the
+shapes [the format documents](qp-format.md#inline-waveform-constructors), and
+a file that writes without a `SerializationError` parses back into an
 equal program. Nothing in the writer checks this for you.
 
 ### `InvalidVariableIdError`
@@ -161,8 +163,8 @@ follow the grammar or fails a compatibility check. Common cases:
   mismatch; installed minor too old; malformed version).
 - A `var` declaration duplicates an id already declared in the file. (An id
   that is reserved or malformed comes back as `InvalidVariableIdError`
-  instead — the `Variable` constructor rejects it before the parser gets a
-  say.)
+  instead, because the `Variable` constructor rejects it before the parser
+  gets a say.)
 - A schema declaration has no elements or a malformed `info=` value.
 - A bus path references an unknown element or kind.
 - An operation, a sweep source, or a fragment call has the wrong number of
@@ -206,15 +208,15 @@ So treat `line_num == 0` as "no line attributed", not as "whole-file error".
 
 These five classes give platforms (vendor backends, ...) one hierarchy to
 report failures through, so the catch surface is uniform across backends.
-Four of them — `BusNotAvailableError`, `WaveformResolutionError`,
-`CompilationError`, and `HardwareError` — are defined in `qprogram` and
+Four of them (`BusNotAvailableError`, `WaveformResolutionError`,
+`CompilationError`, and `HardwareError`) are defined in `qprogram` and
 raised only by platforms. `UnsupportedOperationError` is the exception: core
 raises it too.
 
 ### `UnsupportedOperationError`
 
 The platform cannot run an operation as written. Core raises it from
-`ReferencePlatform.execute()` — the engine behind `qp.simulate` — on any
+`ReferencePlatform.execute()`, the engine behind `qp.simulate`, on any
 `severity="error"` diagnostic the validator reports, listing every one in the
 message:
 
@@ -273,8 +275,8 @@ validate time.
 
 `InvalidVariableIdError` and `UnassignedVariableError` inherit from both
 `ValidationError` and `ValueError`. Each reports a value that is wrong on its
-own terms — an identifier that is not a legal identifier, an expression with
-no number to compute — which is exactly what `ValueError` means in Python, so
+own terms: an identifier that is not a legal identifier, an expression with
+no number to compute. That is exactly what `ValueError` means in Python, so
 both spellings catch them. Every other class in the hierarchy descends from
 `QProgramError` alone.
 
@@ -282,7 +284,7 @@ both spellings catch them. Every other class in the hierarchy descends from
 
 The validator surface lives next door, but it is **not** part of this
 hierarchy. `qp.validate(program, caps)` returns a tuple
-`(list[Diagnostic], ExecutionPlan)` rather than raising — the list comes
+`(list[Diagnostic], ExecutionPlan)` rather than raising. The list comes
 back, the caller decides what to do. A `Diagnostic` is a frozen dataclass
 with `severity` (`"error"`, `"warning"`, or `"info"`), `code`, `message`,
 `node`, `path`, `capability`, `limit`, and `domain` fields. Platforms
@@ -290,8 +292,8 @@ typically translate any `severity="error"` diagnostic into one of the
 platform-side exceptions above (`UnsupportedOperationError` is the usual
 choice) so end users see one consistent error class regardless of which axis
 tripped. A `severity="warning"` diagnostic means the program runs but in a
-degraded way — the `"forced-host"` notice on a block that lost real-time
-dispatch is the one core qprogram emits — and is surfaced without raising.
+degraded way. The `"forced-host"` notice on a block that lost real-time
+dispatch is the one core qprogram emits, and it is surfaced without raising.
 `severity="info"` diagnostics, such as the `"reorderable-averaging"` hint,
 are passed through as advisory output.
 

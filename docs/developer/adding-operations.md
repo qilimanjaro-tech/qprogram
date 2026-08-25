@@ -67,7 +67,7 @@ A few rules.
 - `required_capabilities()` declares the capability tokens *this op
   instance* needs. The base class returns an empty set; concrete ops add
   their identity token (`op.<name>`) plus any refinement tokens computed
-  from instance state — expression tokens for numeric arguments, waveform
+  from instance state: expression tokens for numeric arguments, waveform
   channel-kind and per-class tokens for waveform arguments,
   `measure.fields.*` tokens for measurement ops, and so on. The method is
   **non-recursive**: each op returns only its own tokens, and the validator

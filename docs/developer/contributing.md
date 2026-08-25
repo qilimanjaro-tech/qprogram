@@ -97,7 +97,7 @@ All of them are configured in `pyproject.toml`.
   owns it. Expect the linter to push back on most external code.
 - **Docstrings are enforced.** Preview mode means both the `D` and the `DOC`
   families run, under the Google convention. Every parameter gets a
-  `name (type): Description.` entry — the parenthesized type is house style
+  `name (type): Description.` entry, where the parenthesized type is house style
   even though the signature is annotated. A non-`None` return needs a
   `Returns:` section, and every exception a caller can observe needs a
   `Raises:` entry. Constructor arguments are documented on the **class**
@@ -114,7 +114,7 @@ All of them are configured in `pyproject.toml`.
   reStructuredText reader; `tests/test_docstring_style.py` fails the suite on
   one. The docs build runs with `--strict`, so a cross-reference whose target
   no page renders fails CI as well.
-- **Every file carries the Apache header** — the standard 13-line notice
+- **Every file carries the Apache header.** That is the standard 13-line notice
   with `Copyright 2026 Qilimanjaro Quantum Tech`. Ruff's
   `missing-copyright-notice` rule fails the lint on a file without it.
 - **Type hints everywhere.** `ty` (Astral's type checker) is in the dev
@@ -123,7 +123,7 @@ All of them are configured in `pyproject.toml`.
 - **Function-style tests.** No test classes. Use fixtures and
   parametrization.
 - **No new runtime dependencies** without discussion. `qprogram` is
-  numpy + xarray; that is on purpose. Anything heavier belongs in an extra —
+  numpy + xarray; that is on purpose. Anything heavier belongs in an extra:
   `matplotlib` behind `qprogram[viz]`, `pygls` behind `qprogram[lsp]`.
 
 ## What goes where

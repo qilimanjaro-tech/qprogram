@@ -1,8 +1,8 @@
-# Running programs — the reference executor
+# Running programs
 
 Core qprogram ships a complete software platform: `ReferencePlatform`, plus the
 one-liner `qp.simulate()`. It validates, interprets the AST in pure Python, and
-returns a real `QProgramResult` of xarray `DataArray`s — so a program runs
+returns a real `QProgramResult` of xarray `DataArray`s, so a program runs
 end to end with no instrument attached, and what comes back is the
 **reference semantics** vendor compilers are tested against.
 
@@ -46,7 +46,7 @@ da.sel(IQ="I").plot()  # a noisy Rabi oscillation (needs matplotlib, the `viz` e
   `measure(..., fields=)`: `result.get("m0")` is the `"iq"` array,
   `result.get("m0", field=qp.MeasurementField.STATE)` has no IQ dim, and
   `field=qp.MeasurementField.RAW` adds a `"time"` dimension. Asking for a field
-  the measurement didn't request raises `KeyError` — the default included, so a
+  the measurement didn't request raises `KeyError`, the default included, so a
   state-only measurement needs the field spelled out.
 - A measurement inside a conditional arm is **NaN** at sweep points where the
   arm never executed.
@@ -56,7 +56,7 @@ da.sel(IQ="I").plot()  # a noisy Rabi oscillation (needs matplotlib, the `viz` e
 The executor asks a `MeasurementModel` for one `sample(bus, env)` per shot.
 `env` holds the currently bound loop variables (by id) and the platform
 parameters (by `"bus.parameter"`), so the simulated response can follow the
-sweep — a Lorentzian for spectroscopy, `sin²` for Rabi, anything. The default
+sweep: a Lorentzian for spectroscopy, `sin²` for Rabi, anything. The default
 `MockMeasurementModel` is deterministic given its `seed`:
 
 | Argument | Meaning |
@@ -65,7 +65,7 @@ sweep — a Lorentzian for spectroscopy, `sin²` for Rabi, anything. The default
 | `p_excited(bus, env) -> float` | Excited-state probability for `state`. Omitted, every shot classifies as 0. |
 | `noise` | Gaussian σ added per quadrature per shot. Defaults to `0.0`. |
 | `raw_samples` | Length of the `raw` time trace. Defaults to `16`. |
-| `seed` | One RNG drives everything — same seed, same result. Defaults to `0`. |
+| `seed` | One RNG drives everything, so the same seed gives the same result. Defaults to `0`. |
 
 ## The platform
 
@@ -76,10 +76,10 @@ fragments expand first, error diagnostics raise `UnsupportedOperationError`,
 warnings surface as `ExecutionWarning` via `warnings.warn` (a swept
 `set_parameter` triggers the `forced-host` warning here too, alongside a
 `reorderable-averaging` hint when an `average` encloses that sweep), info
-passes through. Its capabilities cover **every registered token** — vendor operations
-execute generically (measurement ops record results; other ops validate their
-expressions and are otherwise no-ops; there is no timing simulation) — while
-`set_parameter`/`get_parameter` stay host-side-only, so
+passes through. Its capabilities cover **every registered token**. Vendor
+operations execute generically: measurement ops record results, other ops
+validate their expressions and are otherwise no-ops, and there is no timing
+simulation. `set_parameter` and `get_parameter` stay host-side only, so
 `platform.explain(p)` shows meaningful rt/host plans.
 
 State feedback works by construction: each measurement writes its classified
@@ -94,6 +94,6 @@ result = platform.execute(p)
 
 ## See also
 
-- [Measurements and results](measurements.md) — handles, names, `QProgramResult`.
-- [Capabilities](capabilities.md) — validation, plans, `explain()`.
-- [Fragments](fragments.md) — composed programs expand before execution.
+- [Measurements and results](measurements.md): handles, names, `QProgramResult`.
+- [Capabilities](capabilities.md): validation, plans, `explain()`.
+- [Fragments](fragments.md): composed programs expand before execution.

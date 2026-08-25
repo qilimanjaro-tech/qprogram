@@ -42,7 +42,7 @@ the narrative guides where helpful.
 
 ### Sweep builders
 
-`program.sweep(variable)` — with the source left out — returns a source builder;
+`program.sweep(variable)`, with the source left out, returns a source builder;
 `program.sweep(variable, source)` returns the loop context straight away. Neither
 type is constructed directly, but their methods are part of the public surface.
 

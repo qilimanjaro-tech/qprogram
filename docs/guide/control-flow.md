@@ -24,7 +24,7 @@ inside it. The compiler decides.
 
 Leave `source` out and you get a **source builder**: its `from_*` methods pick
 the values. Pass a source object and it is bound directly. Both build the same
-`Sweep` node and write the same `.qp` line — pick by which reads better at the
+`Sweep` node and write the same `.qp` line, so pick by which reads better at the
 call site:
 
 ```python
@@ -35,18 +35,18 @@ with program.sweep(freq, qp.Range(4e9, 6e9, 1e6)):  # explicit, the source is a 
 ```
 
 The fluent form is the shorter one for a sweep you are writing by hand. Reach
-for the explicit form when you are *computing* the source — holding it in a
+for the explicit form when you are *computing* the source: holding it in a
 variable, building it in a comprehension, reading it from a scan spec, or
 nesting combinators deeper than the shortcuts below.
 
 Every registered source has a builder, named after its class (`Range` →
-`from_range`, `IQTable` → `from_iq_table` — case and underscores are ignored).
+`from_range`, `IQTable` → `from_iq_table`; case and underscores are ignored).
 Vendor sources included: registering one is all it takes for its `from_*` to
 appear. Misspell it and the `AttributeError` lists the ones that exist.
 
 ### Sources
 
-A source is a small value object — the sweep analogue of a waveform. Pick the
+A source is a small value object, the sweep analogue of a waveform. Pick the
 one that describes your intent; the platform can then compile a ramp as a ramp
 and a table as a table:
 
@@ -83,11 +83,12 @@ with program.sweep(phi).from_values(base).rotate(by=1).repeat(3):
     ...  # same as sweep(phi, qp.Repeat(qp.Rotate(qp.Values(base), by=1), times=3))
 ```
 
-Both are pure — they return a fresh context and leave the original alone, just
+Both are pure: they return a fresh context and leave the original alone, just
 as `|` does. They shape one sweep, so calling them on a `|` composition raises.
 
-`Range` and `Linspace` report kind **linear** — exactly `start + step * i` — which
-is what lets a sequencer run them from a loop register. Everything else is
+`Range` and `Linspace` report kind **linear**, meaning exactly
+`start + step * i`, which is what lets a sequencer run them from a loop
+register. Everything else is
 **arbitrary**: a value table, or a host-side step per point. Note that `Values`
 is arbitrary even if the numbers you pass happen to be evenly spaced, because
 nothing about the source proves that regularity to a compiler. Reach for `Range`
@@ -96,7 +97,7 @@ or `Linspace` when the sweep really is a ramp.
 ### Writing your own source
 
 Subclass `qp.SweepSource` with declared parameters. This is the supported way to
-express a computed sweep — a source describes its values, so it can never be a
+express a computed sweep: a source describes its values, so it can never be a
 plain function:
 
 ```python
@@ -119,8 +120,8 @@ class Chevron(qp.SweepSource):
 ```
 
 It now round-trips through `.qp` as `Chevron(center=..., span=..., num=...)`,
-reports its token to the validator, and composes inside the combinators — all
-without touching the core. If you just need a one-off computation, materialize
+reports its token to the validator, and composes inside the combinators, all
+without touching the core. For a one-off computation, materialize
 it instead: `qp.Values(my_function(...))`.
 
 ## `average(shots)`
@@ -135,7 +136,7 @@ with program.average(shots=1000):
 
 `average` is special-cased in the result-array shape: it does not produce a
 dimension on the resulting `xarray.DataArray`. The shots collapse into an
-average over them instead — `iq` and `raw` come back as means, and `state`
+average over them instead: `iq` and `raw` come back as means, and `state`
 as the excited-state population.
 
 ## `block()`
@@ -152,8 +153,8 @@ with program.block():
 
 ## Conditional execution: `if_` / `elif_` / `else_`
 
-Branch on a measurement outcome. Build chains with sequential `with` blocks
-— exactly mirroring Python's own `if`/`elif`/`else` shape.
+Branch on a measurement outcome. Build chains with sequential `with` blocks,
+mirroring Python's own `if`/`elif`/`else` shape.
 
 ```python
 from qprogram import MeasurementField as MF
@@ -173,13 +174,17 @@ Three rules to keep in mind:
 - **The condition is a measurement-state predicate.** The accepted
   shapes are:
 
-    - `handle.state == 0` / `handle.state != 1` — measurement vs `int` literal
-    - `0 == handle.state` / `1 != handle.state` — reverse order (same node)
-    - `m1.state == m2.state` / `m1.state != m2.state` — measurement vs measurement, useful for "did two qubits land in the same state?"
-    - `qp.eq(handle.state, 0)` / `qp.ne(handle.state, 0)` — the helper form, equivalent to the operator form. Use this when you want to build a condition programmatically without relying on operator overloading.
+    - `handle.state == 0` / `handle.state != 1`: measurement against an `int`
+      literal
+    - `0 == handle.state` / `1 != handle.state`: reverse order, same node
+    - `m1.state == m2.state` / `m1.state != m2.state`: measurement against
+      measurement, useful for "did two qubits land in the same state?"
+    - `qp.eq(handle.state, 0)` / `qp.ne(handle.state, 0)`: the helper form,
+      equivalent to the operator form. Use this when you want to build a
+      condition programmatically without relying on operator overloading.
 
-  Anything else — a bare `Variable` comparison, a logical combination of
-  two conditions — raises `ValidationError` at the `if_()` call, naming the
+  Anything else, such as a bare `Variable` comparison or a logical combination
+  of two conditions, raises `ValidationError` at the `if_()` call, naming the
   node kind it got instead.
 
 - **`elif_` and `else_` must follow immediately.** Each must come
@@ -194,7 +199,7 @@ Three rules to keep in mind:
   `fields=(MeasurementField.STATE,)` for state-only)
   when calling `measure(...)`.
   In a `m1.state == m2.state` comparison, *both* measurements must
-  request classification — the validator checks each `MeasurementRef`
+  request classification; the validator checks each `MeasurementRef`
   it finds in the condition.
 
 ### The shape of an `if` chain
@@ -208,7 +213,7 @@ from qprogram.blocks import Conditional
 
 cond = program.body.elements[-1]
 isinstance(cond, Conditional)  # True
-len(cond.arms)  # 2 — the `if_` and the `elif_`
+len(cond.arms)  # 2: the `if_` and the `elif_`
 [(arm[0].op, arm[0].right.value) for arm in cond.arms]
 # [('==', 1), ('==', 0)]
 cond.else_body  # the `else_` body, or None when the chain has no else
@@ -219,7 +224,7 @@ list preserves source order.
 
 ### Active reset, portably
 
-The motivating use case is active reset — measure, then conditionally
+The motivating use case is active reset: measure, then conditionally
 apply a π-pulse if the qubit landed in `|1⟩`:
 
 ```python
@@ -326,5 +331,5 @@ the same loop, you get distinct handles (`q0/readout/m0`,
 `Parallel` is not exposed as a context manager directly; you build it with
 `|`. If you need to construct one programmatically, the class lives at
 `qprogram.blocks.Parallel`. Its `loops` attribute holds the composed `Sweep`
-headers — note that they live there rather than in `elements`, which holds the
+headers. They live there rather than in `elements`, which holds the
 shared body.

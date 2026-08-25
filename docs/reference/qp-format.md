@@ -45,10 +45,10 @@ require myvendor 0.1
 require othervendor 1.2
 ```
 
-The writer emits a line for every vendor the program touches — across the
-body and every fragment definition, counting a vendor whose only contribution
-is a block, and reaching vendor operations buried in conditional arms — so a
-file `qp.dumps` produces is always complete. The parser does not check the
+The writer emits a line for every vendor the program touches: across the body
+and every fragment definition, counting a vendor whose only contribution is a
+block, and reaching vendor operations buried in conditional arms. A file
+`qp.dumps` produces is always complete. The parser does not check the
 converse: a hand-written file that calls `myvendor.acquire` with no
 `require myvendor` line loads without complaint, provided the extension is
 already imported. Write the line anyway; it is what makes the file
@@ -62,7 +62,7 @@ installed extension:
 - The patch part is informational only; the writer truncates it.
 - A vendor that is not imported yet is activated on the spot, through its
   `qprogram.vendors` entry point. This is the discovery hook, so a file
-  missing the line never triggers it — the first dotted operation then fails
+  missing the line never triggers it, and the first dotted operation then fails
   as an unknown vendor operation instead.
 
 If any check fails, parsing stops before the body is even read. The error
@@ -120,7 +120,7 @@ Each bus line is `<kind> info=<channel>[+acquires]`:
 - `<channel>` is `single` or `IQ`.
 - `acquires` is a flag indicating the bus has an ADC.
 
-Programs without a schema simply omit the section. Bus references in the
+Programs without a schema omit the section. Bus references in the
 body stay as quoted strings.
 
 ## Bus references in operations
@@ -175,7 +175,7 @@ The parser rejects:
 ## Operations
 
 One operation per line. Quoting is the type distinction: a quoted token is a
-plain string — a raw bus name, a waveform alias, a parameter name — and a bare
+plain string (a raw bus name, a waveform alias, a parameter name) and a bare
 token is a variable reference or a schema-backed bus path. Numeric arguments
 are decimal: integer, float, or scientific notation.
 
@@ -205,12 +205,14 @@ Key rules:
 - Variable references are bare identifiers.
 - Inline waveforms use constructor syntax.
 - `get_parameter` uses `->` to assign the result to a variable.
-- Sequence values are bracket literals (`outputs=[1, 2]`) and string-keyed dict values are brace
-  literals (`matrix={"a": 1.0}`); both are generic forms, available wherever an operation takes a
-  list or a dict. `null` is the literal for Python `None`, `true`/`false` for the booleans.
-- Unknown operations, unknown block keywords, and excess positional tokens are hard parse
-  errors — a file never loads with content silently missing. Symmetrically, the writer raises
-  `SerializationError` for anything it cannot represent faithfully (and never truncates arrays).
+- Sequence values are bracket literals (`outputs=[1, 2]`) and string-keyed dict
+  values are brace literals (`matrix={"a": 1.0}`); both are generic forms,
+  available wherever an operation takes a list or a dict. `null` is the literal
+  for Python `None`, `true`/`false` for the booleans.
+- Unknown operations, unknown block keywords, and excess positional tokens are
+  hard parse errors, so a file never loads with content silently missing.
+  Symmetrically, the writer raises `SerializationError` for anything it cannot
+  represent faithfully (and never truncates arrays).
 
 ## Inline waveform constructors
 
@@ -226,12 +228,12 @@ Built-in waveform types: `Square`, `Gaussian`, `GaussianDragCorrection`,
 `Ramp`, `FlatTop`, `SuddenNetZero`, `Sine`, `Cosine`, `Sech`, `Tukey`,
 `Arbitrary`, `Chained`, `IQPair`, `IQDrag`, `Modulated`, `IQRotation`,
 `IQZero`. Custom waveforms registered with `@qp.register_waveform` work the
-same way. Sample arrays — `Arbitrary` samples, the values of a `Values`
-sweep source — are always written in full; the format never truncates.
+same way. Sample arrays, meaning `Arbitrary` samples and the values of a
+`Values` sweep source, are always written in full; the format never truncates.
 
 Constructor arguments are numbers, quoted strings, or bare variable
 references. An expression or a math function in an argument position is not
-part of the constructor syntax — `FlatTop(amplitude=(amp * 2), ...)` and
+part of the constructor syntax: `FlatTop(amplitude=(amp * 2), ...)` and
 `Gaussian(amplitude=sin(phi), ...)` are both parse errors, and the `.qp`
 language has no assignment statement to compute the value on a line of its
 own. Fold the arithmetic into a Python number before serializing, or move it
@@ -243,9 +245,10 @@ emit these forms when the in-memory program holds them, and that is how a
 ## Expressions
 
 Arithmetic, comparison, and logical expressions appear inline in their canonical
-**parenthesized** form (the only form the parser accepts — an unparenthesized `100 - t` is a
-"too many arguments" error, never a silent drop); math functions and `where` use the
-function-call form:
+**parenthesized** form. That is the only form the parser accepts: an
+unparenthesized `100 - t` is a "too many arguments" error, never a silent
+drop. Math functions
+and `where` use the function-call form:
 
 ```
 wait "drive_q0" (100 - t)
@@ -305,7 +308,7 @@ for freq in Range(start=4e9, stop=6e9, step=2e7) | for gain in Range(start=0.0, 
   play "drive_q0" "pi_pulse"
 ```
 
-All loops in a parallel composition must have the same iteration count — 101
+All loops in a parallel composition must have the same iteration count, 101
 apiece above. A mismatch is a `ParseError` reported on the header line.
 
 ### `average`
@@ -355,7 +358,7 @@ body:
     x_pulse("drive_q1", amp=(g * 0.5))
 ```
 
-Fragment bodies use the same statement grammar as `body:` — including `var`
+Fragment bodies use the same statement grammar as `body:`, including `var`
 declarations (fragment-local), control flow, vendor operations, and calls to
 *already defined* fragments (define-before-use is enforced). Call
 arguments follow the Python calling convention: positionals in parameter
@@ -521,15 +524,16 @@ One case the corpus does not reach: an auto-allocated measurement name embeds
 the bus path, so a conditional on a schema-backed measurement is written
 `if q0/readout/m0.state == 1:`. The production parser reads that back exactly;
 the Lark grammar rejects it, because its name terminals exclude `/`. Pass an
-explicit `name=` to any measurement you intend to branch on — `if m0.state ==
-1:` satisfies both — if you also run your files through the Lark grammar.
+explicit `name=` to any measurement you intend to branch on, since
+`if m0.state == 1:` satisfies both, if you also run your files through the
+Lark grammar.
 
 Editor support builds on the real toolchain rather than the grammar:
 
-- `python -m qprogram.lsp check <file|->` — one-shot JSON diagnostics
-  (line-tagged parse errors + reference-platform validation via source maps).
-- `python -m qprogram.lsp explain <file|->` — the execution-plan tree.
-- `python -m qprogram.lsp serve` — an LSP server over stdio (`qprogram[lsp]`
+- `python -m qprogram.lsp check <file|->`: one-shot JSON diagnostics
+  (line-tagged parse errors plus reference-platform validation via source maps).
+- `python -m qprogram.lsp explain <file|->`: the execution-plan tree.
+- `python -m qprogram.lsp serve`: an LSP server over stdio (`qprogram[lsp]`
   extra), for any editor that speaks LSP.
 
 ## Parser and writer API

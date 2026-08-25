@@ -42,7 +42,7 @@ those five names are free to use as variable ids or vendor namespaces.
 ## Vendor namespaces
 
 Vendor namespaces cannot use any of the keywords above, plus one more:
-`"core"`. That set — `qprogram.RESERVED_KEYWORDS | {"core"}` — is exposed as
+`"core"`. That set, `qprogram.RESERVED_KEYWORDS | {"core"}`, is exposed as
 `qprogram._reserved.RESERVED_VENDOR_NAMES` and is what
 `register_vendor_operation` and `register_vendor_version` check.
 

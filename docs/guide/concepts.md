@@ -62,8 +62,8 @@ with program.average(shots=1000):
         program.measure("readout_q0", "readout", "weights")
 ```
 
-The block context managers — `sweep`, `average`, `block`, and the
-`if_` / `elif_` / `else_` chain — are described in
+The block context managers (`sweep`, `average`, `block`, and the
+`if_` / `elif_` / `else_` chain) are described in
 [Control flow](control-flow.md).
 
 ## Real-time and host-side loops look identical
@@ -150,15 +150,15 @@ data the platform owns.
 ## Platforms declare what they support
 
 QProgram describes *what* you want to happen. The platform decides *how* to
-run it — and different platforms support different subsets of the language.
-QProgram captures the difference through a small **capability protocol**.
+run it, and different platforms support different subsets of the language.
+QProgram captures the difference through a **capability protocol**.
 
 Each `Operation` and `Block` knows the *capability tokens* it needs
 (instance-aware: a `Play(IQDrag(...))` needs different tokens than a
 `Play(Square(...))`). A platform exposes a `PlatformCapabilities`
 descriptor with per-bus profiles (each split into rt + host halves) and a
 platform-wide slot for block and expression tokens. `qp.validate(program,
-caps)` walks the AST and returns a tuple of `(diagnostics, plan)` — the
+caps)` walks the AST and returns a tuple of `(diagnostics, plan)`. The
 diagnostic list is empty when the program is supported with no
 forced-host fallback events, and the plan maps each AST node to its
 allowed execution domains.
@@ -177,8 +177,8 @@ full story.
 ## Measurements return handles
 
 `program.measure(...)` returns a `MeasurementHandle`. The handle has a name
-(`"q0/readout/m0"`, `"q0/readout/m1"`, ...) that survives `.qp` round-trips and shows up in
-the result object after execution.
+(`"q0/readout/m0"`, `"q0/readout/m1"`, ...) that survives `.qp` round-trips and
+shows up in the result object after execution.
 
 ```python
 m0 = program.measure(q[0].readout, "readout", "weights")

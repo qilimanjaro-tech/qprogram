@@ -47,7 +47,7 @@ with program.average(shots=1000):
 - The schema is `flux_tunable_transmon`, so each qubit has `drive`,
   `readout`, and a `flux` line.
 - The two sweeps are nested, `amp` outside and `dur` inside, so the flux
-  pulse visits every `(amp, dur)` combination — the square grid the chevron
+  pulse visits every `(amp, dur)` combination, the square grid the chevron
   pattern lives on. Nesting order sets which axis moves fastest, and it is
   the order the result dimensions come back in.
 - `FlatTop(amplitude=amp, duration=dur, smooth_duration=5)` is an inline
@@ -96,7 +96,7 @@ The reference executor is a pure-Python interpreter that walks every shot of
 every grid point. At the sizes above that is 101 amplitudes x 101 durations x
 1000 shots x 2 measurements, which runs for a few minutes; an 11 x 11 grid at
 the same shot count takes about 4.4 s. Coarsen the `Range` steps or lower
-`average(shots=...)` while you are iterating — the dimensions and coordinates
+`average(shots=...)` while you are iterating; the dimensions and coordinates
 below come back the same shape either way.
 
 ```python
@@ -119,7 +119,7 @@ data0.coords["amp"]
 data0.coords["dur"]
 ```
 
-To plot the chevron, project to the IQ component you care about — the array
+To plot the chevron, project to the IQ component you care about. The array
 is already on the 2D grid:
 
 ```python
@@ -133,8 +133,8 @@ plt.ylabel("Flux amplitude (V)")
 
 ## Notes
 
-- To move both parameters together — one diagonal cut through the grid
-  instead of the whole grid — compose the loops in parallel:
+- To move both parameters together (one diagonal cut through the grid
+  instead of the whole grid) compose the loops in parallel:
   `with program.sweep(amp, ...) | program.sweep(dur, ...):`. Both loops must
   then have the same number of iterations, and the results come back on one
   `"amp|dur"` dimension carrying both coordinates. See

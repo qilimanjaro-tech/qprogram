@@ -1,7 +1,7 @@
 # Changelog
 
 Notable changes to QProgram, newest first. Each entry starts life as a news
-fragment under `changelog.d/`, and `towncrier build` assembles the fragments
+fragment under `changelog/`, and `towncrier build` assembles the fragments
 into a release section here. See
 [Contributing](https://qilimanjaro-tech.github.io/qprogram/developer/contributing.html)
 for how to add one.

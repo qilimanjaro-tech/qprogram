@@ -72,7 +72,7 @@ Say so in the PR description, and name the guide pages you touched.
    [`docs/reference/qp-format.md`](../reference/qp-format.md).
 
 9. **Add a changelog entry.** Anything a user would notice gets one news
-   fragment under `changelog.d/`, named `<pr-number>.<type>.md`, where the type
+   fragment under `changelog/`, named `<pr-number>.<type>.md`, where the type
    is `added`, `changed`, `fixed`, or `removed`.
 
    ```bash
@@ -155,11 +155,11 @@ Use this when you are not sure which file to touch.
 | New vendor operation                                        | The vendor's own package. See [Building a vendor extension](vendor-extensions.md). |
 | New vendor package                                          | A separate package depending on `qprogram`. Same guide.                        |
 | Docs                                                        | `docs/` (this site); the nav lives in `zensical.toml`.                         |
-| Changelog entry                                             | One fragment in `changelog.d/`. Never edit `CHANGELOG.md` by hand.             |
+| Changelog entry                                             | One fragment in `changelog/`. Never edit `CHANGELOG.md` by hand.               |
 
 ## Releasing
 
-`CHANGELOG.md` is assembled from the fragments in `changelog.d/`, so it is
+`CHANGELOG.md` is assembled from the fragments in `changelog/`, so it is
 written once per release rather than edited per PR. A release goes out from its
 own pull request:
 
@@ -191,7 +191,24 @@ own pull request:
 5. Open the release PR, and merge it once CI is green.
 6. Create the GitHub Release on the merge commit, with a tag matching the
    version now in `pyproject.toml`, and use the new changelog section as the
-   release body.
+   release body. Publishing it starts `publish.yml`, which runs `uv build` for
+   the wheel and the sdist, checks both with `twine check`, and uploads them
+   through trusted publishing. Pre-releases publish too, so a version such as
+   `0.2.0rc1` reaches PyPI the same way; `pip` installs it only when asked with
+   `--pre`.
+7. Approve the deployment. The run waits on the `pypi` environment until a
+   reviewer releases it. PyPI never lets a file be replaced, so this approval is
+   the last point at which a wrong version can be stopped.
+
+`publish.yml` can also be started by hand from the Actions tab, which is how the
+first release goes out and how a run that failed on a transient error is
+retried. A manual run takes three inputs: `platform` chooses between PyPI and
+the `qilimanjaro` AWS CodeArtifact domain, `repository` names the CodeArtifact
+repository, and `dry_run` builds and validates the distributions without
+uploading them.
+
+One wheel covers every platform, since `qprogram` is pure Python. A package with
+compiled extensions would need a build matrix here instead.
 
 ## Commit messages
 

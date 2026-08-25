@@ -91,10 +91,6 @@ jobs:
         with:
           enable-cache: false
           python-version: "3.13"
-      # twine is pinned so that a release of it cannot change what this step
-      # accepts, and --no-build stops uv building a source distribution, which
-      # would run a dependency's setup code inside the job holding the upload
-      # credential.
       - name: List & validate distributions
         run: |
           ls -lh dist

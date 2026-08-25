@@ -21,8 +21,10 @@ nav = [
         { "Waveforms" = "guide/waveforms.md" },
         { "Operations" = "guide/operations.md" },
         { "Control flow" = "guide/control-flow.md" },
+        { "Fragments" = "guide/fragments.md" },
         { "Measurements and results" = "guide/measurements.md" },
         { "Capabilities, diagnostics, and profiles" = "guide/capabilities.md" },
+        { "Running programs" = "guide/execution.md" },
         { "Saving and loading" = "guide/serialization.md" },
     ] },
     { "Examples" = [

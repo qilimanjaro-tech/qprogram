@@ -56,6 +56,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-mock>=3.15.1",
     "ruff>=0.16.4",
+    "towncrier>=25.8.0",
     "ty>=0.0.74",
 ]
 docs = [
@@ -77,6 +78,7 @@ include = [
     "/docs",
     "/zensical.toml",
     "/README.md",
+    "/CHANGELOG.md",
     "/LICENSE",
 ]
 
@@ -216,3 +218,50 @@ exclude_also = [
 show_missing = true
 skip_covered = false
 precision = 1
+
+# ----------------------------------------------------------------------------
+# Changelog
+# ----------------------------------------------------------------------------
+# Each change lands as a news fragment under changelog.d/, and `towncrier build`
+# assembles them into CHANGELOG.md at release time. Fragments keep the changelog
+# out of the merge-conflict path: two PRs add two files rather than editing the
+# same lines.
+[tool.towncrier]
+directory = "changelog.d"
+filename = "CHANGELOG.md"
+template = "towncrier:default.md"
+start_string = "<!-- towncrier release notes start -->\n"
+title_format = "## {version} ({project_date})"
+issue_format = "[#{issue}](https://github.com/qilimanjaro-tech/qprogram/issues/{issue})"
+# Markdown headings carry their own level, so the reST underline characters are
+# blanked out.
+underlines = ["", "", ""]
+# Wrapping keeps generated entries inside the 88-column limit the docs style
+# uses, and an empty `ignore` list makes a misnamed fragment fail the build
+# rather than pass unnoticed.
+wrap = true
+ignore = []
+
+# The four categories a reader upgrading actually sorts changes into. A `.qp`
+# grammar or format revision is a Changed entry, not a category of its own:
+# it is the first thing anyone upgrading needs to see, not a subsection to
+# scroll past. Add `deprecated` or `security` on the day one is first needed.
+[[tool.towncrier.type]]
+directory = "added"
+name = "Added"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "changed"
+name = "Changed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "fixed"
+name = "Fixed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "removed"
+name = "Removed"
+showcontent = true

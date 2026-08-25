@@ -24,7 +24,7 @@ from qprogram.waveforms.waveform import Waveform
 class Cosine(Waveform):
     """Cosine envelope ``amplitude · cos(2π·frequency·t + phase)``.
 
-    See :class:`Sine` for the analogous sine variant and the same caveats.
+    See [`Sine`][qprogram.waveforms.Sine] for the analogous sine variant and the same caveats.
 
     Args:
         amplitude (float | Expression): Peak amplitude.

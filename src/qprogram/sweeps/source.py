@@ -11,29 +11,29 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Abstract base for sweep sources — the value description a :class:`~qprogram.blocks.Sweep` binds.
+"""Abstract base for sweep sources — the value description a [`Sweep`][qprogram.blocks.Sweep] binds.
 
-A :class:`SweepSource` is to :class:`~qprogram.blocks.Sweep` what a
-:class:`~qprogram.waveforms.Waveform` is to :class:`~qprogram.operations.Play`: a small, immutable,
+A [`SweepSource`][qprogram.SweepSource] is to [`Sweep`][qprogram.blocks.Sweep] what a
+[`Waveform`][qprogram.waveforms.Waveform] is to [`Play`][qprogram.operations.Play]: a small, immutable,
 registered value object that serializes as a constructor call and carries its own capability tokens.
 The AST stores the *description* of the values, never a producer of them — which is what keeps a
-program inspectable by :func:`~qprogram.validate`, renderable by :func:`~qprogram.explain`, and
+program inspectable by [`validate`][qprogram.validate], renderable by `explain`, and
 round-trippable through ``.qp``.
 
 Every source must answer three questions **without executing the program**, because three existing
 consumers ask them at build or validate time:
 
-- :meth:`SweepSource.length` — :class:`~qprogram.blocks.Parallel` refuses to compose sweeps of
-  differing length, and the reference executor sizes every result array before the first shot.
-- :attr:`SweepSource.KIND` — a platform reads it through
-  :meth:`~qprogram.ValidationContext.sweep_kind_of` to tell a hardware ramp (one loop register plus
+- [`SweepSource.length`][qprogram.SweepSource.length] — [`Parallel`][qprogram.blocks.Parallel] refuses to compose sweeps
+  of differing length, and the reference executor sizes every result array before the first shot.
+- `SweepSource.KIND` — a platform reads it through
+  [`sweep_kind_of`][qprogram.ValidationContext.sweep_kind_of] to tell a hardware ramp (one loop register plus
   an increment) from a value table or host-side dispatch.
-- :meth:`SweepSource.values` — the interpreter, the result coordinates, and
-  :func:`~qprogram.optimize` all need the concrete numbers.
+- [`SweepSource.values`][qprogram.SweepSource.values] — the interpreter, the result coordinates, and
+  [`optimize`][qprogram.optimize] all need the concrete numbers.
 
 That contract is also the reason a source cannot wrap an arbitrary callable: a deferred function can
 answer none of the three ahead of time. Custom generation is expressed by *subclassing* with declared,
-serializable parameters — see :class:`~qprogram.sweeps.Logspace` for the shape to copy.
+serializable parameters — see [`Logspace`][qprogram.Logspace] for the shape to copy.
 """
 
 from __future__ import annotations
@@ -50,9 +50,9 @@ if TYPE_CHECKING:
 
 
 class SweepSource(ABC):
-    """How a :class:`~qprogram.blocks.Sweep` generates the values it binds to its variable.
+    """How a [`Sweep`][qprogram.blocks.Sweep] generates the values it binds to its variable.
 
-    Subclasses declare :attr:`KIND` and :attr:`TOKEN`, implement :meth:`length` and :meth:`values`,
+    Subclasses declare `KIND` and `TOKEN`, implement `length` and `values`,
     and store their parameters as public instance attributes (which is what makes the ``.qp``
     serialization signature-driven and free).
 
@@ -68,7 +68,7 @@ class SweepSource(ABC):
     This is a claim about **compilability**, not a description of the numbers: a platform may compile
     a linear sweep to a loop register with an increment, while an arbitrary one needs a value table or
     a host-side dispatch per point. Two sources can produce identical values and still differ here —
-    :class:`~qprogram.sweeps.Values` listing an even ramp is still ``"arbitrary"``, because nothing
+    [`Values`][qprogram.Values] listing an even ramp is still ``"arbitrary"``, because nothing
     about the source proves the regularity to a compiler.
     """
 
@@ -85,7 +85,7 @@ class SweepSource(ABC):
         Must be answerable statically — without running the program, and without side effects beyond
         reading this source's own parameters. It must also be at least one: a sweep with no points
         never executes its body, so every built-in source rejects an empty parameterization at
-        construction, and :func:`validate_source` holds a subclass to the same rule.
+        construction, and `validate_source` holds a subclass to the same rule.
 
         Returns:
             The number of points the sweep iterates through.
@@ -95,19 +95,19 @@ class SweepSource(ABC):
     def values(self) -> np.ndarray:
         """Return the 1-D array of values this source sweeps, in iteration order.
 
-        ``len(values()) == length()`` is an invariant; :func:`validate_source` checks it for the
+        ``len(values()) == length()`` is an invariant; `validate_source` checks it for the
         built-ins' tests and any subclass that wants the same guard.
 
         Returns:
-            A 1-D array of :meth:`length` values, in the order the sweep binds them.
+            A 1-D array of `length` values, in the order the sweep binds them.
         """
 
     def tokens(self) -> set[str]:
         """Return every capability token this source requires.
 
-        The source's own :attr:`TOKEN` plus its ``sweep.<kind>`` token. Combinators override this to
+        The source's own `TOKEN` plus its ``sweep.<kind>`` token. Combinators override this to
         union their wrapped sources' tokens too — a platform that cannot generate
-        :class:`~qprogram.sweeps.Logspace` also cannot generate a rotation of one.
+        [`Logspace`][qprogram.Logspace] also cannot generate a rotation of one.
 
         Returns:
             The capability tokens a platform must declare to generate this source.
@@ -129,7 +129,7 @@ class SweepSource(ABC):
 
 
 def validate_source(source: SweepSource) -> None:
-    """Assert the :meth:`SweepSource.length` / :meth:`SweepSource.values` invariants.
+    """Assert the [`SweepSource.length`][qprogram.SweepSource.length] / [`SweepSource.values`][qprogram.SweepSource.values] invariants.
 
     Not called on the hot path — it materializes the values. Tests and source authors use it to check
     a new subclass honors the contract.
@@ -139,7 +139,7 @@ def validate_source(source: SweepSource) -> None:
 
     Raises:
         AssertionError: If the values are not a non-empty 1-D array whose length matches
-            :meth:`SweepSource.length`.
+            [`SweepSource.length`][qprogram.SweepSource.length].
     """
     array = np.asarray(source.values())
     assert array.ndim == 1, f"{type(source).__name__}.values() must be 1-D, got {array.ndim}-D"  # ruff: ignore[assert]

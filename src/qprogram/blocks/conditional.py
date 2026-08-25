@@ -13,8 +13,8 @@
 # limitations under the License.
 """Multi-armed conditional block.
 
-A :class:`Conditional` represents a chain of ``if`` / ``elif`` / ``else`` arms in source order. Built via
-:meth:`QProgram.if_` / :meth:`elif_` / :meth:`else_` — never instantiated directly.
+A [`Conditional`][qprogram.blocks.Conditional] represents a chain of ``if`` / ``elif`` / ``else`` arms in source order.
+Built via [`QProgram.if_`][qprogram.QProgram.if_] / `elif_` / `else_` — never instantiated directly.
 """
 
 from __future__ import annotations
@@ -37,8 +37,8 @@ class Conditional(Block):
 
     Why this doesn't reuse the inherited ``_elements`` list: arms each carry an independent body and a
     condition expression, so a single ordered list would conflate "arm body" with "shared body" — there
-    is no shared body in a conditional. :meth:`append` therefore raises; populate via the builder
-    methods on :class:`~qprogram.QProgram`.
+    is no shared body in a conditional. `append` therefore raises; populate via the builder
+    methods on [`QProgram`][qprogram.QProgram].
 
     Attributes:
         arms (list[tuple[Expression, Block]]): The ``(condition, body)`` pairs, in source order. The
@@ -52,7 +52,7 @@ class Conditional(Block):
         self.else_body: Block | None = None
 
     def append(self, element: Block | Operation) -> None:  # ruff: ignore[unused-method-argument]
-        """Raise ``ValidationError`` — populate via :meth:`QProgram.if_` / :meth:`elif_` / :meth:`else_` instead.
+        """Raise ``ValidationError`` — populate via [`QProgram.if_`][qprogram.QProgram.if_] / `elif_` / `else_` instead.
 
         Args:
             element (Block | Operation): Ignored; the call never succeeds.
@@ -70,7 +70,7 @@ class Conditional(Block):
         """Yield this block, then every node of each arm body and of the ``else`` body.
 
         Arm conditions are expressions rather than AST nodes, so they are not yielded; a consumer that
-        needs them reads :attr:`arms` directly.
+        needs them reads `arms` directly.
 
         Yields:
             This conditional first, then each arm body's nodes in source order, then the ``else``
@@ -83,7 +83,7 @@ class Conditional(Block):
             yield from self.else_body.walk()
 
     def variables(self) -> set[Variable]:
-        """Return every :class:`~qprogram.Variable` referenced by an arm condition or an arm body.
+        """Return every [`Variable`][qprogram.Variable] referenced by an arm condition or an arm body.
 
         The conditions count: a branch taken on a swept threshold makes that variable part of the
         conditional even when no operation inside it reads the variable.

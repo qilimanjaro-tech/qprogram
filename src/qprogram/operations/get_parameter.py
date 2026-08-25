@@ -24,15 +24,15 @@ if TYPE_CHECKING:
 
 
 class GetParameter(Operation):
-    """A read of a bus-scoped parameter into a :class:`~qprogram.Variable` at runtime.
+    """A read of a bus-scoped parameter into a [`Variable`][qprogram.Variable] at runtime.
 
     Targets a **bus** (``BUS_ATTRS = ("bus",)``), so the op routes to that bus's capability slot.
-    Like :class:`~qprogram.operations.SetParameter`, reading a parameter is a platform-configuration
+    Like [`SetParameter`][qprogram.operations.SetParameter], reading a parameter is a platform-configuration
     action — platforms expose ``op.get_parameter`` only in a bus slot's host half, making it
     host-side-only.
 
     Args:
-        variable (Variable): Destination :class:`~qprogram.Variable` for the read value.
+        variable (Variable): Destination [`Variable`][qprogram.Variable] for the read value.
         bus (str): The bus whose parameter is read.
         parameter (str): Name of the parameter to read.
     """

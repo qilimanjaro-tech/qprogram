@@ -14,10 +14,10 @@
 """``.qp`` serialization layer.
 
 Importing this package activates the registry-driven dispatch: built-in waveforms, operations,
-blocks, and sweep sources register themselves with :mod:`qprogram.serialization.registry`.
+blocks, and sweep sources register themselves with `qprogram.serialization.registry`.
 
 The lazy ``__getattr__`` for ``loads`` / ``load`` / ``ParseError`` breaks the import cycle between
-the parser (which constructs :class:`QProgram` instances) and the rest of the package.
+the parser (which constructs [`QProgram`][qprogram.QProgram] instances) and the rest of the package.
 """
 
 from qprogram.serialization import _specs as _core_specs
@@ -36,7 +36,7 @@ from qprogram.serialization.registry import (
 )
 from qprogram.serialization.writer import dumps, save
 
-# Idempotent — registers the built-in operation, block, and sweep-source specs from :mod:`_specs`.
+# Idempotent — registers the built-in operation, block, and sweep-source specs from `_specs`.
 _core_specs._register_core_specs()  # ruff: ignore[private-member-access]
 
 __all__ = [
@@ -62,7 +62,7 @@ __all__ = [
 def __getattr__(name: str):  # ruff: ignore[missing-return-type-private-function]
     """Resolve the parser's public names on first access.
 
-    The parser module constructs :class:`~qprogram.QProgram` instances, so importing it eagerly
+    The parser module constructs [`QProgram`][qprogram.QProgram] instances, so importing it eagerly
     from this package would close an import cycle. Deferring that import until the attribute is
     actually read keeps ``loads`` / ``load`` / ``ParseError`` on the package surface without one.
 

@@ -53,7 +53,7 @@ class _StructuralEqMixin:
 class Waveform(_StructuralEqMixin, ABC):
     """Abstract base for single-channel (real-valued) waveforms.
 
-    A concrete shape supplies :meth:`envelope` and :meth:`get_duration`; the analysis and plotting helpers
+    A concrete shape supplies `envelope` and `get_duration`; the analysis and plotting helpers
     here are derived from the sampled envelope, so they work for any subclass. Equality and hashing are
     structural over the constructor attributes, which lets a waveform be used as a dictionary key and lets
     two independently built shapes compare equal.
@@ -84,7 +84,7 @@ class Waveform(_StructuralEqMixin, ABC):
     def __add__(self, other: Waveform) -> Waveform:
         """Concatenate two waveforms in time.
 
-        Flattens when either operand is already a :class:`~qprogram.waveforms.Chained`, so ``a + b + c``
+        Flattens when either operand is already a [`Chained`][qprogram.waveforms.Chained], so ``a + b + c``
         produces a single three-element chain rather than a nested structure. An operand that is not a
         waveform yields ``NotImplemented``, leaving Python to fall back to the reflected operation.
 
@@ -92,7 +92,7 @@ class Waveform(_StructuralEqMixin, ABC):
             other (Waveform): Waveform played immediately after ``self``.
 
         Returns:
-            A :class:`~qprogram.waveforms.Chained` waveform containing both envelopes.
+            A [`Chained`][qprogram.waveforms.Chained] waveform containing both envelopes.
         """
         from qprogram.waveforms.chained import Chained  # ruff: ignore[import-outside-top-level]
 
@@ -158,7 +158,7 @@ class Waveform(_StructuralEqMixin, ABC):
             resolution (int, optional): Sample period in nanoseconds.
 
         Returns:
-            ``(frequencies_hz, complex_spectrum)`` from :func:`numpy.fft.rfft`.
+            ``(frequencies_hz, complex_spectrum)`` from `numpy.fft.rfft`.
 
         Raises:
             UnassignedVariableError: If the envelope depends on a variable that has no value.
@@ -171,7 +171,7 @@ class Waveform(_StructuralEqMixin, ABC):
     # -- visualization -----------------------------------------------------
 
     def plot(self, resolution: int = 1, ax: Axes | None = None) -> Axes:
-        """Plot the envelope on a matplotlib :class:`~matplotlib.axes.Axes`.
+        """Plot the envelope on a matplotlib `Axes`.
 
         Requires ``matplotlib``, which ships in the ``viz`` extra; it is imported inside the call so the
         rest of the package stays importable without it.
@@ -181,7 +181,7 @@ class Waveform(_StructuralEqMixin, ABC):
             ax (Axes | None): Axes to draw on. A fresh figure+axes is created when ``None``.
 
         Returns:
-            The :class:`~matplotlib.axes.Axes` containing the plot.
+            The `Axes` containing the plot.
 
         Raises:
             ModuleNotFoundError: When ``matplotlib`` is not installed — install ``qprogram[viz]``.
@@ -215,14 +215,14 @@ class Waveform(_StructuralEqMixin, ABC):
 class IQWaveform(_StructuralEqMixin, ABC):
     """Abstract base for IQ (two-channel, complex-valued) waveforms.
 
-    A concrete shape supplies :meth:`get_I`, :meth:`get_Q` and :meth:`get_duration`; the analysis and
+    A concrete shape supplies `get_I`, `get_Q` and `get_duration`; the analysis and
     plotting helpers here work on the complex envelope ``I + jQ``. Equality and hashing are structural over
     the constructor attributes, recursing into the component waveforms.
     """
 
     @abstractmethod
     def get_I(self) -> Waveform:
-        """Return the in-phase component as a single-channel :class:`Waveform`.
+        """Return the in-phase component as a single-channel [`Waveform`][qprogram.waveforms.Waveform].
 
         Returns:
             The waveform played on the I channel.
@@ -231,7 +231,7 @@ class IQWaveform(_StructuralEqMixin, ABC):
 
     @abstractmethod
     def get_Q(self) -> Waveform:
-        """Return the quadrature component as a single-channel :class:`Waveform`.
+        """Return the quadrature component as a single-channel [`Waveform`][qprogram.waveforms.Waveform].
 
         Returns:
             The waveform played on the Q channel.
@@ -314,7 +314,7 @@ class IQWaveform(_StructuralEqMixin, ABC):
     def spectrum(self, resolution: int = 1) -> tuple[np.ndarray, np.ndarray]:
         """Return the two-sided frequency spectrum of the complex envelope.
 
-        IQ waveforms are complex, so a two-sided :func:`numpy.fft.fft` is more informative than a
+        IQ waveforms are complex, so a two-sided `numpy.fft.fft` is more informative than a
         real-only one-sided transform.
 
         Args:
@@ -395,9 +395,9 @@ def _waveform_svg(plot_fn: Callable[[], object]) -> str:
 
     Args:
         plot_fn (Callable[[], object]): Plotting callable that leaves the figure it drew as pyplot's
-            current figure — which is what creating one through :func:`matplotlib.pyplot.subplots`
+            current figure — which is what creating one through `matplotlib.pyplot.subplots`
             does. Its return value is discarded; the figure is picked up with
-            :func:`matplotlib.pyplot.gcf`.
+            `matplotlib.pyplot.gcf`.
 
     Returns:
         The SVG markup of the figure ``plot_fn`` drew.

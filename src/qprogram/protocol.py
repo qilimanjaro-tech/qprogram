@@ -39,7 +39,7 @@ Domain = Literal["rt", "host"]
 orchestration on the lab server (``"host"``)."""
 
 BusSelector = tuple[str, str]
-"""``(element_kind, bus_kind)`` key into :attr:`PlatformCapabilities.bus`. ``("q", "drive")`` selects
+"""``(element_kind, bus_kind)`` key into `PlatformCapabilities.bus`. ``("q", "drive")`` selects
 every transmon drive bus on the platform."""
 
 
@@ -134,7 +134,7 @@ _BASE_TOKENS: frozenset[str] = frozenset(
 
 CAPABILITY_REGISTRY: set[str] = set(_BASE_TOKENS)
 """Mutable token registry. Core tokens are added at import time;
-vendor packages extend it via :func:`register_capability_tokens`."""
+vendor packages extend it via [`register_capability_tokens`][qprogram.register_capability_tokens]."""
 
 MEASUREMENT_FIELD_TOKEN_PREFIX = "measure.fields."  # ruff: ignore[hardcoded-password-string]  # a capability-token namespace, not a secret
 """Token namespace for measurement fields. The registry is the single source of truth for which
@@ -157,9 +157,9 @@ def measurement_field_token(field: str) -> str:
 def known_measurement_fields() -> set[str]:
     """Return every currently registered measurement field name (core plus vendor).
 
-    Derived from :data:`CAPABILITY_REGISTRY` rather than from :class:`MeasurementField`, so vendor
+    Derived from `CAPABILITY_REGISTRY` rather than from `MeasurementField`, so vendor
     fields are included the moment their token is registered. Used by
-    :func:`qprogram.operations.operation.normalize_fields` to reject typos at the ``measure(...)``
+    [`qprogram.operations.operation.normalize_fields`][] to reject typos at the ``measure(...)``
     call site, and by editor tooling to offer completions.
 
     Returns:
@@ -195,14 +195,14 @@ def register_capability_tokens(*tokens: str) -> None:
 def validate_tokens(tokens: Iterable[str]) -> None:
     """Validate that every token in ``tokens`` is registered.
 
-    Called from :class:`Profile`'s ``__post_init__``, so an unknown token — a typo, or a feature this
+    Called from [`Profile`][qprogram.Profile]'s ``__post_init__``, so an unknown token — a typo, or a feature this
     build does not have — is rejected at registration rather than during validation.
 
     Args:
         tokens (Iterable[str]): Capability tokens to check.
 
     Raises:
-        ValueError: If any token is not in :data:`CAPABILITY_REGISTRY`.
+        ValueError: If any token is not in `CAPABILITY_REGISTRY`.
     """
     unknown = [t for t in tokens if t not in CAPABILITY_REGISTRY]
     if unknown:
@@ -219,13 +219,13 @@ def validate_tokens(tokens: Iterable[str]) -> None:
 
 WAVEFORM_TOKEN: dict[type, str] = {}
 """Map of waveform class to canonical capability token. Populated lazily on first use to avoid a
-circular import; vendor packages extend it via :func:`register_waveform_token`."""
+circular import; vendor packages extend it via [`register_waveform_token`][qprogram.register_waveform_token]."""
 
 
 def register_waveform_token(cls: type, token: str) -> None:
     """Register a waveform class → token mapping.
 
-    Also registers ``token`` in :data:`CAPABILITY_REGISTRY` so profiles that list the token don't
+    Also registers ``token`` in `CAPABILITY_REGISTRY` so profiles that list the token don't
     have to call both functions.
 
     Args:
@@ -240,9 +240,9 @@ def register_waveform_token(cls: type, token: str) -> None:
 
 
 def _register_builtin_waveform_tokens() -> None:
-    """Populate :data:`WAVEFORM_TOKEN` with the built-in waveforms.
+    """Populate `WAVEFORM_TOKEN` with the built-in waveforms.
 
-    Lazily imported here to break the circular import between this module and :mod:`qprogram.waveforms`.
+    Lazily imported here to break the circular import between this module and [`qprogram.waveforms`][].
     """
     if WAVEFORM_TOKEN:
         return
@@ -294,13 +294,13 @@ def waveform_token(wf: object) -> str | None:
 
     String aliases return ``None`` (callers add ``waveform.alias`` directly). Unknown concrete classes
     also return ``None``; the validator skips per-class refinement for them. Channel-kind tokens
-    (``waveform.single`` / ``waveform.iq``) come from :meth:`Operation.required_capabilities` via
+    (``waveform.single`` / ``waveform.iq``) come from `Operation.required_capabilities` via
     ``isinstance`` checks, so they remain present even when no per-class token is registered.
 
     Args:
         wf (object): The waveform value to classify. Typed ``object`` because the dispatch is purely
             class-keyed, and vendor packages register their own classes here without subclassing
-            :class:`~qprogram.waveforms.Waveform` / :class:`~qprogram.waveforms.IQWaveform`.
+            [`Waveform`][qprogram.waveforms.Waveform] / [`IQWaveform`][qprogram.waveforms.IQWaveform].
 
     Returns:
         The token registered for the value's class, or ``None`` for a string alias or an
@@ -321,12 +321,12 @@ def expression_tokens(value: object) -> set[str]:
     """Recursively collect capability tokens contributed by an expression value.
 
     The returned set always describes the ``Expression`` node type (and operator name for
-    :class:`MathFunc`), not the value. Plain numeric literals contribute nothing — they're not
+    [`MathFunc`][qprogram.MathFunc]), not the value. Plain numeric literals contribute nothing — they're not
     Expression nodes. Operations call this on each Expression-typed instance attribute they carry.
 
     Args:
         value (object): Anything that can appear as an expression operand. A value that is not an
-            :class:`~qprogram.Expression` contributes nothing.
+            [`Expression`][qprogram.Expression] contributes nothing.
 
     Returns:
         Set of capability tokens contributed by the value and its descendants.
@@ -401,14 +401,14 @@ class Diagnostic:
         node (Operation | Block | None): The offending AST node when one is available.
             Capability-missing diagnostics always have one; whole-program checks
             (total-measurement-count, ...) do not.
-        path (tuple[int | str, ...] | None): Structural address of :attr:`node` under the validated
-            program's body (see :mod:`qprogram.paths`). Stamped by ``validate()``; ``None`` when
+        path (tuple[int | str, ...] | None): Structural address of `node` under the validated
+            program's body (see `qprogram.paths`). Stamped by ``validate()``; ``None`` when
             there is no node. Because the ``.qp`` round-trip preserves structure, the same path
-            resolves against ``loads(dumps(p))`` — whose :attr:`~qprogram.QProgram.source_map` then
+            resolves against ``loads(dumps(p))`` — whose [`source_map`][qprogram.QProgram.source_map] then
             maps it to a 1-based ``.qp`` line.
         capability (str | None): The token that was missing, when applicable.
         limit (tuple[str, float] | None): ``(name, observed_value)`` when a numeric limit was
-            exceeded. The threshold itself lives in :attr:`CompilerCapabilities.limits`.
+            exceeded. The threshold itself lives in `CompilerCapabilities.limits`.
         domain (Domain | None): Populated on ``"forced-host"`` diagnostics with the domain the node
             ended up running in (typically ``"host"``).
     """
@@ -437,12 +437,12 @@ class DomainConstraint:
     """A predicate's soft outcome: this node *would* be supported, except in the listed domains.
 
     The classifier collects these and subtracts ``exclude`` from the node's per-domain support set.
-    Compare to :class:`Diagnostic`, which is a hard outcome (the node is unsupported outright in the
+    Compare to [`Diagnostic`][qprogram.Diagnostic], which is a hard outcome (the node is unsupported outright in the
     slot being validated). A predicate may yield zero or more of each type from a single call.
 
     Attributes:
         node (Operation | Block): The AST node the constraint applies to. Must be a
-            :class:`~qprogram.blocks.Block` — the classifier reports an op-targeted constraint as
+            [`Block`][qprogram.blocks.Block] — the classifier reports an op-targeted constraint as
             ``bad-domain-constraint``.
         exclude (frozenset[Domain]): Domains the node cannot run in. Usually a single-element
             frozenset (``{"rt"}``).
@@ -464,22 +464,21 @@ class DomainConstraint:
 class Predicate(Protocol):
     """Per-node validation predicate consulted while ``validate()`` walks the program.
 
-    Receives a :class:`ValidationContext` with cross-op data-flow facts. Returns zero or more
-    :class:`Diagnostic` or :class:`DomainConstraint` objects.
+    Receives a [`ValidationContext`][qprogram.ValidationContext] with cross-op data-flow facts. Returns zero or more
+    [`Diagnostic`][qprogram.Diagnostic] or [`DomainConstraint`][qprogram.DomainConstraint] objects.
 
-    A node is judged against each domain half of each slot it routes to, so a predicate carried by
-    both the ``rt`` and the ``host`` half of a profile runs once per (domain, bus) pair: twice for a
-    single-bus node, and twice more for every additional bus a multi-bus operation such as
-    :class:`~qprogram.operations.Sync` touches. The validator discards duplicate outputs, so a predicate should be a cheap,
-    side-effect-free function of ``(node, ctx)``.
+    A node is judged against each domain half of each slot it routes to, so a predicate carried by both the ``rt`` and
+    the ``host`` half of a profile runs once per (domain, bus) pair: twice for a single-bus node, and twice more for
+    every additional bus a multi-bus operation such as [`Sync`][qprogram.operations.Sync] touches. The validator
+    discards duplicate outputs, so a predicate should be a cheap, side-effect-free function of ``(node, ctx)``.
 
     Motivating examples:
 
-    - Flagging a :class:`Wait` whose ``duration`` is bound by an arbitrary-valued sweep —
-      qblox can't run it at all, so the predicate emits a :class:`Diagnostic`.
-    - Flagging an :class:`IQDrag` whose ``sigma`` is loop-bound — qblox can't realtime-update
+    - Flagging a [`Wait`][qprogram.operations.Wait] whose ``duration`` is bound by an arbitrary-valued sweep —
+      qblox can't run it at all, so the predicate emits a [`Diagnostic`][qprogram.Diagnostic].
+    - Flagging an [`IQDrag`][qprogram.waveforms.IQDrag] whose ``sigma`` is loop-bound — qblox can't realtime-update
       ``sigma``, but the platform can still dispatch one shot per iteration host-side, so the
-      predicate emits a :class:`DomainConstraint` excluding ``"rt"``.
+      predicate emits a [`DomainConstraint`][qprogram.DomainConstraint] excluding ``"rt"``.
     """
 
     def __call__(
@@ -495,8 +494,8 @@ class Predicate(Protocol):
                 cannot answer.
 
         Returns:
-            Zero or more outputs, in any order: a :class:`Diagnostic` for a hard failure in the
-            slot being validated, a :class:`DomainConstraint` for a restriction that only rules out
+            Zero or more outputs, in any order: a [`Diagnostic`][qprogram.Diagnostic] for a hard failure in the
+            slot being validated, a [`DomainConstraint`][qprogram.DomainConstraint] for a restriction that only rules out
             some domains.
         """
         ...
@@ -519,7 +518,7 @@ class ValidationContext:
             source's ``KIND``.
         max_loop_nesting (int): Deepest repetition-level count observed in the program.
         max_parallel_arity (int): Largest number of loops composed by any
-            :class:`~qprogram.blocks.Parallel` block.
+            [`Parallel`][qprogram.blocks.Parallel] block.
         measurement_count (int): Total number of measurement operations in the program.
         measurement_fields (Mapping[str, tuple[str, ...]] | None): Requested fields per measurement
             name; ``None`` is read as an empty mapping.
@@ -552,7 +551,7 @@ class ValidationContext:
             var (Variable): The variable to look up.
 
         Returns:
-            The binding :class:`~qprogram.blocks.Sweep`'s source ``KIND`` — ``"linear"`` for an
+            The binding [`Sweep`][qprogram.blocks.Sweep]'s source ``KIND`` — ``"linear"`` for an
             exact ``start + step * i`` ramp, ``"arbitrary"`` otherwise — or ``None`` when the
             variable is not loop-bound (set externally, or unused). ``"averaged"`` belongs to the
             vocabulary but no built-in source declares it.
@@ -566,9 +565,9 @@ class ValidationContext:
             var (Variable): The variable to look up.
 
         Returns:
-            The :class:`~qprogram.blocks.Sweep` that binds ``var`` — a standalone loop or one of a
-            :class:`~qprogram.blocks.Parallel`'s composed headers — or ``None`` when nothing binds
-            it. This is the node a :class:`DomainConstraint` about ``var`` must target.
+            The [`Sweep`][qprogram.blocks.Sweep] that binds ``var`` — a standalone loop or one of a
+            [`Parallel`][qprogram.blocks.Parallel]'s composed headers — or ``None`` when nothing binds
+            it. This is the node a [`DomainConstraint`][qprogram.DomainConstraint] about ``var`` must target.
         """
         return self._variable_bindings.get(var)
 
@@ -576,20 +575,20 @@ class ValidationContext:
     def max_loop_nesting(self) -> int:
         """Deepest repetition-level count observed in the program.
 
-        A block adds a level when it declares :attr:`~qprogram.blocks.Block.REPEATS`, so a
-        :class:`~qprogram.blocks.Parallel` counts as one level however many loops it composes —
+        A block adds a level when it declares `REPEATS`, so a
+        [`Parallel`][qprogram.blocks.Parallel] counts as one level however many loops it composes —
         its headers advance in lockstep rather than nesting.
         """
         return self._max_loop_nesting
 
     @property
     def max_parallel_arity(self) -> int:
-        """Largest ``len(parallel.loops)`` observed across any :class:`Parallel` block."""
+        """Largest ``len(parallel.loops)`` observed across any [`Parallel`][qprogram.blocks.Parallel] block."""
         return self._max_parallel_arity
 
     @property
     def measurement_count(self) -> int:
-        """Total number of :class:`MeasurementOperation` instances in the program."""
+        """Total number of `MeasurementOperation` instances in the program."""
         return self._measurement_count
 
     def measurement_fields(self, name: str) -> tuple[str, ...] | None:
@@ -597,7 +596,7 @@ class ValidationContext:
 
         Predicates use this to check that a referenced measurement requested the data they care
         about — e.g. that a ``handle.state`` reference's source measurement requested
-        :attr:`~qprogram.MeasurementField.STATE` classification.
+        `STATE` classification.
 
         Args:
             name (str): Measurement name to look up.
@@ -621,9 +620,9 @@ class ValidationContext:
     def program_buses(self) -> frozenset[str]:
         """Every bus name referenced anywhere in the program (``QProgram.buses`` at build time).
 
-        Elements may be :class:`~qprogram.BusRef` instances (which subclass ``str``), so per-bus
-        routing through :meth:`PlatformCapabilities.for_bus` keeps its schema awareness. Used by
-        the validator to route broadcast ops (``Sync(targets=None)``) across every touched bus.
+        Elements may be [`BusRef`][qprogram.BusRef] instances (which subclass ``str``), so per-bus routing through
+        [`PlatformCapabilities.for_bus`][qprogram.PlatformCapabilities.for_bus] keeps its schema awareness. Used by the
+        validator to route broadcast ops (``Sync(targets=None)``) across every touched bus.
         """
         return self._program_buses
 
@@ -637,7 +636,7 @@ class ValidationContext:
 class Profile:
     """A named, versioned bundle of capabilities, limits, and predicates.
 
-    Vendors register one or more profiles via :func:`register_profile`. Profiles may :attr:`extends`
+    Vendors register one or more profiles via [`register_profile`][qprogram.register_profile]. Profiles may `extends`
     another by name — capabilities and predicates accumulate (parent → child), limits inherit and may
     be overridden by the child.
 
@@ -646,7 +645,7 @@ class Profile:
         version (tuple[int, int, int]): Profile version as ``(major, minor, patch)``.
         extends (str | None): Name of a parent profile, or ``None`` for a root profile.
         capabilities (frozenset[str]): Capability tokens this profile advertises. Validated against
-            :data:`CAPABILITY_REGISTRY` at construction.
+            `CAPABILITY_REGISTRY` at construction.
         limits (Mapping[str, float]): Numeric thresholds. The validator ignores keys it does not
             know, so a profile may declare a limit an older validator has no check for.
         predicates (tuple[Predicate, ...]): Predicates run against every visited node.
@@ -669,9 +668,9 @@ class Profile:
 
 @dataclass(frozen=True)
 class CompilerCapabilities:
-    """The capability descriptor that :class:`PlatformProtocol` exposes via ``.capabilities``.
+    """The capability descriptor that [`PlatformProtocol`][qprogram.PlatformProtocol] exposes via ``.capabilities``.
 
-    Materialized by :meth:`from_profile`, which walks ``extends`` and merges parent → child:
+    Materialized by `from_profile`, which walks ``extends`` and merges parent → child:
     capabilities/predicates union, limits replace. A live device may pass ``limit_overrides=`` to
     further tighten any limit. The same object is what the validator consumes and what users
     introspect — there is no separate "advertised vs. enforced" surface.
@@ -715,7 +714,7 @@ class CompilerCapabilities:
         """Resolve a registered profile and merge it into a capability descriptor.
 
         Args:
-            profile_name (str): Name of a profile registered with :func:`register_profile`.
+            profile_name (str): Name of a profile registered with [`register_profile`][qprogram.register_profile].
             limit_overrides (Mapping[str, float] | None): Per-limit replacements for the merged
                 values — typically supplied by a device that knows its hardware is tighter than the
                 profile defaults.
@@ -724,7 +723,7 @@ class CompilerCapabilities:
                 vendor-shipped profile.
 
         Returns:
-            The materialized :class:`CompilerCapabilities`.
+            The materialized [`CompilerCapabilities`][qprogram.CompilerCapabilities].
 
         Raises:
             KeyError: If ``profile_name``, or any profile named by an ``extends`` link, is not
@@ -763,7 +762,7 @@ class CompilerCapabilities:
 
 @dataclass(frozen=True)
 class BusCapabilities:
-    """Two stacked :class:`CompilerCapabilities` for a single bus or platform slot.
+    """Two stacked [`CompilerCapabilities`][qprogram.CompilerCapabilities] for a single bus or platform slot.
 
     Each half describes what the slot supports in that execution domain. Either may be ``None``
     when the bus or platform lacks an engine for that domain — e.g. a flux bus driven only by a
@@ -778,7 +777,7 @@ class BusCapabilities:
     host: CompilerCapabilities | None
 
     def get(self, domain: Domain) -> CompilerCapabilities | None:
-        """Return the :class:`CompilerCapabilities` for ``domain``, or ``None`` if unsupported.
+        """Return the [`CompilerCapabilities`][qprogram.CompilerCapabilities] for ``domain``, or ``None`` if unsupported.
 
         Args:
             domain (Domain): The execution domain to read.
@@ -804,20 +803,20 @@ class BusCapabilities:
 
 @dataclass(frozen=True)
 class PlatformCapabilities:
-    """The capability descriptor returned by :attr:`PlatformProtocol.capabilities`.
+    """The capability descriptor returned by `PlatformProtocol.capabilities`.
 
     Capabilities split along two grains — per-bus and platform-wide — plus a fallback slot for
     buses the per-bus mapping does not cover.
 
     Attributes:
         bus (Mapping[BusSelector, BusCapabilities]): One slot per ``(element_kind, bus_kind)``.
-            Bus-touching ops (``play``, ``wait``, ``measure``, ...) route here via :meth:`for_bus`,
+            Bus-touching ops (``play``, ``wait``, ``measure``, ...) route here via `for_bus`,
             and so do the tokens that travel with them: ``waveform.*`` and ``measure.fields.*``.
         platform (BusCapabilities): The platform-wide slot. Holds block-structure tokens,
             expression tokens, and bus-less ops.
         default_bus_profile (BusCapabilities): Fallback for raw-string buses lacking schema
             metadata, and for bus-touching ops whose ``(element, kind)`` key is missing from
-            :attr:`bus`.
+            `bus`.
     """
 
     bus: Mapping[BusSelector, BusCapabilities]
@@ -825,11 +824,11 @@ class PlatformCapabilities:
     default_bus_profile: BusCapabilities
 
     def for_bus(self, bus: str | BusRef) -> BusCapabilities:
-        """Resolve the :class:`BusCapabilities` that applies to ``bus``.
+        """Resolve the [`BusCapabilities`][qprogram.BusCapabilities] that applies to ``bus``.
 
-        A :class:`BusRef` carrying schema metadata routes to ``bus[(element, kind)]`` when present,
-        otherwise to :attr:`default_bus_profile`. A plain ``str`` or schema-less ``BusRef`` always
-        routes to :attr:`default_bus_profile`.
+        A [`BusRef`][qprogram.BusRef] carrying schema metadata routes to ``bus[(element, kind)]`` when present,
+        otherwise to `default_bus_profile`. A plain ``str`` or schema-less ``BusRef`` always
+        routes to `default_bus_profile`.
 
         Args:
             bus (str | BusRef): The bus a node touches.
@@ -851,7 +850,7 @@ ExecutionPlan = Mapping["Operation | Block", frozenset[Domain]]
 
 A ``frozenset({"rt"})`` entry means a real-time hardware path; ``frozenset({"host"})`` means host-side
 dispatch; ``frozenset({"rt", "host"})`` means the platform may pick either at compile time. Delivered
-by :meth:`PlatformProtocol.plan`."""
+by [`PlatformProtocol.plan`][qprogram.PlatformProtocol.plan]."""
 
 
 # ---------------------------------------------------------------------------
@@ -863,7 +862,7 @@ PROFILE_REGISTRY: dict[str, Profile] = {}
 
 
 def register_profile(profile: Profile) -> None:
-    """Register a profile in :data:`PROFILE_REGISTRY` under its name.
+    """Register a profile in `PROFILE_REGISTRY` under its name.
 
     Idempotent for the *same* Profile object — useful for import-time side-effect modules that may
     load twice. Re-registering a different profile under an existing name raises.
@@ -890,7 +889,7 @@ def resolve_profile(name: str) -> Profile:
         name (str): The registered profile name.
 
     Returns:
-        The registered :class:`Profile`.
+        The registered [`Profile`][qprogram.Profile].
 
     Raises:
         KeyError: If ``name`` is not registered. The message lists the currently-known names.

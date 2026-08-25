@@ -25,17 +25,17 @@ class GaussianDragCorrection(Gaussian):
     """Derivative-of-Gaussian envelope used as the Q-channel of a DRAG pulse.
 
     On its own, this waveform is rarely emitted directly; it is the Q-channel partner produced by
-    :meth:`~qprogram.waveforms.IQDrag.get_Q`.
+    `get_Q`.
 
-    Only the envelope differs from :class:`~qprogram.waveforms.Gaussian`: the duration, and the meaning of
+    Only the envelope differs from [`Gaussian`][qprogram.waveforms.Gaussian]: the duration, and the meaning of
     ``amplitude``, ``duration``, and ``sigma``, are inherited unchanged, so the correction always spans the
     same window as the Gaussian it partners.
 
     Args:
         amplitude (float | Expression): Peak amplitude of the underlying Gaussian. Accepts an
-            :class:`~qprogram.Expression`.
+            [`Expression`][qprogram.Expression].
         duration (int | Expression): Pulse duration in nanoseconds. Accepts an
-            :class:`~qprogram.Expression`.
+            [`Expression`][qprogram.Expression].
         sigma (float | Expression): Standard deviation of the underlying Gaussian in nanoseconds.
         beta (float | Expression): DRAG scaling (``β`` in the Motzoi et al. parameterization).
             Multiplicative weight on the derivative term.

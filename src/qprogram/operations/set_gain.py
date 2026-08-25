@@ -28,7 +28,7 @@ class SetGain(Operation):
 
     Args:
         bus (str): Bus whose output gain to set.
-        gain (float | Expression): New gain. Accepts an :class:`~qprogram.Expression` for sweeps.
+        gain (float | Expression): New gain. Accepts an [`Expression`][qprogram.Expression] for sweeps.
     """
 
     def __init__(self, bus: str, gain: float | Expression) -> None:

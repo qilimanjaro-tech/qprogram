@@ -25,10 +25,10 @@ class Ramp(Waveform):
     """Linearly-interpolated ramp between two amplitudes.
 
     Args:
-        from_amplitude (float | Expression): Starting amplitude. Accepts an :class:`~qprogram.Expression`.
-        to_amplitude (float | Expression): Ending amplitude. Accepts an :class:`~qprogram.Expression`.
+        from_amplitude (float | Expression): Starting amplitude. Accepts an [`Expression`][qprogram.Expression].
+        to_amplitude (float | Expression): Ending amplitude. Accepts an [`Expression`][qprogram.Expression].
         duration (int | Expression): Ramp duration in nanoseconds. Accepts an
-            :class:`~qprogram.Expression`.
+            [`Expression`][qprogram.Expression].
     """
 
     def __init__(

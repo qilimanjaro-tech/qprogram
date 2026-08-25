@@ -25,10 +25,10 @@ class Square(Waveform):
     """Constant-amplitude rectangular pulse.
 
     Args:
-        amplitude (float | Expression): Pulse amplitude. Accepts an :class:`~qprogram.Expression` to be
+        amplitude (float | Expression): Pulse amplitude. Accepts an [`Expression`][qprogram.Expression] to be
             swept by an enclosing loop.
         duration (int | Expression): Pulse duration in nanoseconds. Accepts an
-            :class:`~qprogram.Expression`.
+            [`Expression`][qprogram.Expression].
     """
 
     def __init__(self, amplitude: float | Expression, duration: int | Expression) -> None:
@@ -46,7 +46,7 @@ class Square(Waveform):
             follows ``amplitude``, so an integer amplitude yields an integer array.
 
         Raises:
-            UnassignedVariableError: If a parameter is an :class:`~qprogram.Expression` whose variables
+            UnassignedVariableError: If a parameter is an [`Expression`][qprogram.Expression] whose variables
                 have no value.
         """
         amplitude = self.amplitude.evaluate_or_raise() if isinstance(self.amplitude, Expression) else self.amplitude
@@ -60,7 +60,7 @@ class Square(Waveform):
             The duration truncated to a whole number of nanoseconds.
 
         Raises:
-            UnassignedVariableError: If ``duration`` is an :class:`~qprogram.Expression` whose variables
+            UnassignedVariableError: If ``duration`` is an [`Expression`][qprogram.Expression] whose variables
                 have no value.
         """
         duration = self.duration.evaluate_or_raise() if isinstance(self.duration, Expression) else self.duration

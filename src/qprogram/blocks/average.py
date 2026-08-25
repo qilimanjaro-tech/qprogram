@@ -13,7 +13,7 @@
 # limitations under the License.
 """The shot-averaging block.
 
-:class:`Average` repeats its body the way a sweep does, but the repetitions are collapsed instead of
+[`Average`][qprogram.blocks.Average] repeats its body the way a sweep does, but the repetitions are collapsed instead of
 reported: every measurement inside it yields the mean over the shots rather than an extra result
 dimension.
 """
@@ -30,7 +30,7 @@ class Average(Block):
     """A body run ``shots`` times, with measurement results averaged across the repetitions.
 
     Averaging *is* repetition, so the block occupies a repetition level on the sequencer
-    (:attr:`Block.REPEATS`). Unlike a :class:`~qprogram.blocks.Sweep` it contributes no dimension to
+    (`Block.REPEATS`). Unlike a [`Sweep`][qprogram.blocks.Sweep] it contributes no dimension to
     the results: the shots are accumulated and divided out, so a ``state`` field arrives as the
     excited-state population over the shots.
 
@@ -43,7 +43,7 @@ class Average(Block):
     """
 
     REPEATS: ClassVar[bool] = True
-    """This block re-runs its body — it occupies a repetition level (see :attr:`Block.REPEATS`)."""
+    """This block re-runs its body — it occupies a repetition level (see `Block.REPEATS`)."""
 
     def __init__(self, shots: int) -> None:
         super().__init__()

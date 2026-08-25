@@ -27,8 +27,8 @@ class Play(Operation):
     Args:
         bus (str): Bus to play on.
         waveform (Waveform | IQWaveform | str): Either a concrete
-            :class:`~qprogram.waveforms.Waveform` / :class:`~qprogram.waveforms.IQWaveform`, or a
-            string alias to be resolved later by :meth:`QProgram.with_waveforms`.
+            [`Waveform`][qprogram.waveforms.Waveform] / [`IQWaveform`][qprogram.waveforms.IQWaveform], or a
+            string alias to be resolved later by [`QProgram.with_waveforms`][qprogram.QProgram.with_waveforms].
     """
 
     WAVEFORM_ATTRS: ClassVar[tuple[str, ...]] = ("waveform",)
@@ -42,7 +42,7 @@ class Play(Operation):
 
         A string alias contributes ``waveform.alias``; a concrete waveform contributes its channel
         kind (``waveform.iq`` or ``waveform.single``) and, when its class is registered, the
-        per-class token from :func:`qprogram.protocol.waveform_token`.
+        per-class token from [`qprogram.protocol.waveform_token`][].
         """
         from qprogram.protocol import waveform_token  # ruff: ignore[import-outside-top-level]
 

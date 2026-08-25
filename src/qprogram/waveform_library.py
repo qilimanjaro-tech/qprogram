@@ -13,21 +13,22 @@
 # limitations under the License.
 """Per-bus waveform resolution for QProgram.
 
-A :class:`WaveformLibrary` maps a *waveform name* (the string a program plays as an alias, e.g.
-``play q[0].drive "pi_pulse"``) to a concrete :class:`~qprogram.waveforms.Waveform` /
-:class:`~qprogram.waveforms.IQWaveform`. Lookup is **scoped to the bus**: the same name can resolve
+A [`WaveformLibrary`][qprogram.WaveformLibrary] maps a *waveform name* (the string a program plays as an alias, e.g.
+``play q[0].drive "pi_pulse"``) to a concrete [`Waveform`][qprogram.waveforms.Waveform] /
+[`IQWaveform`][qprogram.waveforms.IQWaveform]. Lookup is **scoped to the bus**: the same name can resolve
 to a *different* pulse on ``q[0].drive`` than on ``q[1].drive``, which a flat
 ``dict[str, Waveform]`` cannot express.
 
-This is the mechanism behind :meth:`QProgram.with_waveforms`. A program stays portable by referencing
-waveforms by name; the concrete pulses live in a library, applied as a pre-execution step
-(``program.with_waveforms(library)`` or :meth:`WaveformLibrary.apply`). The library is a standalone
-artifact — it is independent of any platform.
+This is the mechanism behind [`QProgram.with_waveforms`][qprogram.QProgram.with_waveforms]. A program stays portable by
+referencing waveforms by name; the concrete pulses live in a library, applied as a pre-execution step
+(``program.with_waveforms(library)`` or [`WaveformLibrary.apply`][qprogram.WaveformLibrary.apply]). The library is a
+standalone artifact — it is independent of any platform.
 
-The library is **not** part of a ``.qp`` program file — like the platform parameter store, it is
-calibration/snapshot state that travels alongside the (stable, name-bearing) program, not inside it. It
-has its own portable text format with the ``.wfl`` extension (see :meth:`WaveformLibrary.dumps` /
-:meth:`WaveformLibrary.save`), so a calibration set can be saved, shared, and reloaded independently.
+The library is **not** part of a ``.qp`` program file — like the platform parameter store, it is calibration/snapshot
+state that travels alongside the (stable, name-bearing) program, not inside it. It has its own portable text format with
+the ``.wfl`` extension (see [`WaveformLibrary.dumps`][qprogram.WaveformLibrary.dumps] /
+[`WaveformLibrary.save`][qprogram.WaveformLibrary.save]), so a calibration set can be saved, shared, and reloaded
+independently.
 """
 
 from __future__ import annotations
@@ -59,12 +60,12 @@ _COORD_RE = re.compile(r"^(\w+)\[(\*|\d+(?:,\d+)*)\]\.(\w+)$")
 class WaveformLibrary:
     """A per-bus store mapping waveform names to concrete waveforms.
 
-    Entries are keyed at one of three tiers; :meth:`get` tries them most-specific first:
+    Entries are keyed at one of three tiers; `get` tries them most-specific first:
 
     1. **exact** — ``set(name, wf, element="q", idx=0, kind="drive")`` — only ``q[0].drive``.
     2. **family** — ``set(name, wf, element="q", kind="drive")`` — any ``q[*].drive`` (idx unspecified).
     3. **global** — ``set(name, wf)`` — any bus. This tier is the only one a raw-string bus can reach,
-       and a bare ``dict`` passed to :meth:`QProgram.with_waveforms` lands here.
+       and a bare ``dict`` passed to [`QProgram.with_waveforms`][qprogram.QProgram.with_waveforms] lands here.
 
     More specific entries shadow less specific ones for a given bus.
     """
@@ -76,8 +77,8 @@ class WaveformLibrary:
     def from_mapping(cls, mapping: Mapping[str, Waveform | IQWaveform]) -> WaveformLibrary:
         """Build a global-tier-only library from a plain ``{name: waveform}`` mapping.
 
-        This is what makes a bare ``dict`` usable with :meth:`QProgram.with_waveforms`: every name in
-        the mapping resolves on every bus, whatever its ``(element, idx, kind)`` coordinate.
+        This is what makes a bare ``dict`` usable with [`QProgram.with_waveforms`][qprogram.QProgram.with_waveforms]:
+        every name in the mapping resolves on every bus, whatever its ``(element, idx, kind)`` coordinate.
 
         Args:
             mapping (Mapping[str, Waveform | IQWaveform]): Waveform names mapped to concrete
@@ -140,11 +141,11 @@ class WaveformLibrary:
     def get(self, bus: str, name: str) -> Waveform | IQWaveform | None:
         """Resolve ``name`` for ``bus``, trying exact → family → global; ``None`` if no entry matches.
 
-        A schema-backed :class:`~qprogram.BusRef` can match all three tiers; a raw-string bus carries no
+        A schema-backed [`BusRef`][qprogram.BusRef] can match all three tiers; a raw-string bus carries no
         ``(element, idx, kind)`` metadata, so only the global tier is reachable.
 
         Args:
-            bus (str): The bus the name is played on — a :class:`~qprogram.BusRef` to reach the
+            bus (str): The bus the name is played on — a [`BusRef`][qprogram.BusRef] to reach the
                 exact and family tiers, any string for the global tier alone.
             name (str): The waveform name to resolve.
 
@@ -231,14 +232,14 @@ class WaveformLibrary:
             path (str): Filesystem path to write. An existing file is overwritten.
 
         Raises:
-            SerializationError: If a stored waveform is not concrete (see :meth:`dumps`).
+            SerializationError: If a stored waveform is not concrete (see `dumps`).
             OSError: If the path cannot be written.
         """
         Path(path).write_text(self.dumps(), encoding="utf-8")
 
     @classmethod
     def loads(cls, text: str) -> WaveformLibrary:
-        """Parse a ``.wfl`` text document into a :class:`WaveformLibrary`.
+        """Parse a ``.wfl`` text document into a [`WaveformLibrary`][qprogram.WaveformLibrary].
 
         The ``#!WaveformLibrary`` header must come first, preceded by blank lines at most — a
         comment ahead of it is an error. After the header, blank lines and ``#`` comment lines are
@@ -324,7 +325,7 @@ class WaveformLibrary:
 
         Raises:
             ParseError: If the file's contents are not a valid ``.wfl`` document (see
-                :meth:`loads`).
+                `loads`).
             OSError: If the path cannot be read.
         """
         return cls.loads(Path(path).read_text(encoding="utf-8"))

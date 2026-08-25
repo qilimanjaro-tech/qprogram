@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""The one sweep block. See :mod:`qprogram.sweeps` for the value sources it binds."""
+"""The one sweep block. See `qprogram.sweeps` for the value sources it binds."""
 
 from __future__ import annotations
 
@@ -26,23 +26,23 @@ if TYPE_CHECKING:
 
 
 class Sweep(Block):
-    """A loop binding ``variable`` to each value a :class:`~qprogram.sweeps.SweepSource` produces.
+    """A loop binding ``variable`` to each value a [`SweepSource`][qprogram.SweepSource] produces.
 
     The DSL's single sweep construct. It carries no notion of *how* the values are generated — that is
     entirely the source's business, which is what lets ``Range``, ``Values``, ``Logspace``, a file, and
     any composition of those be peers rather than separate block types.
 
     Args:
-        variable (Variable): The :class:`~qprogram.Variable` rebound on each iteration.
-        source (SweepSource): The :class:`~qprogram.sweeps.SweepSource` describing the values. A bare
-            1-D sequence is accepted as a shorthand for :class:`~qprogram.sweeps.Values`.
+        variable (Variable): The [`Variable`][qprogram.Variable] rebound on each iteration.
+        source (SweepSource): The [`SweepSource`][qprogram.SweepSource] describing the values. A bare
+            1-D sequence is accepted as a shorthand for [`Values`][qprogram.Values].
 
     Raises:
         ValidationError: If ``source`` is neither a source nor a sequence of values.
     """
 
     REPEATS: ClassVar[bool] = True
-    """This block re-runs its body — it occupies a repetition level (see :attr:`Block.REPEATS`)."""
+    """This block re-runs its body — it occupies a repetition level (see `Block.REPEATS`)."""
 
     def __init__(self, variable: Variable, source: SweepSource) -> None:
         super().__init__()
@@ -53,25 +53,25 @@ class Sweep(Block):
         """Return the number of sweep points, delegated to the source.
 
         Answerable without executing the program, which is what lets
-        :class:`~qprogram.blocks.Parallel` check lockstep lengths at construction time and the executor
+        [`Parallel`][qprogram.blocks.Parallel] check lockstep lengths at construction time and the executor
         size a composed parallel axis before the first shot. Cheap for every built-in source except
-        :class:`~qprogram.sweeps.File`, which reads its array to answer.
+        [`File`][qprogram.File], which reads its array to answer.
 
         Returns:
             The number of points the bound source produces.
 
         Raises:
             ValidationError: If the bound source cannot describe its points — a
-                :class:`~qprogram.sweeps.File` holding an array that is not 1-D, or holding none.
+                [`File`][qprogram.File] holding an array that is not 1-D, or holding none.
             OSError: If the bound source reads a file whose path does not exist or cannot be read.
         """
         return self.source.length()
 
     def variables(self) -> set[Variable]:
-        """Return every :class:`~qprogram.Variable` referenced by the body, plus the swept one.
+        """Return every [`Variable`][qprogram.Variable] referenced by the body, plus the swept one.
 
         Returns:
-            The body's variables together with :attr:`variable`.
+            The body's variables together with `variable`.
         """
         return super().variables() | {self.variable}
 
@@ -82,15 +82,15 @@ class Sweep(Block):
         source's class token and its ``sweep.<kind>``, unioned across everything a combinator wraps.
 
         Returns:
-            The identity token ``block.sweep`` together with :meth:`SweepSource.tokens`.
+            The identity token ``block.sweep`` together with [`SweepSource.tokens`][qprogram.SweepSource.tokens].
         """
         return {"block.sweep"} | self.source.tokens()
 
 
 def _coerce_source(source: object) -> SweepSource:
-    """Return ``source`` as a :class:`~qprogram.sweeps.SweepSource`, wrapping a bare sequence.
+    """Return ``source`` as a [`SweepSource`][qprogram.SweepSource], wrapping a bare sequence.
 
-    A sequence is the shorthand spelling of :class:`~qprogram.sweeps.Values`. A callable is refused
+    A sequence is the shorthand spelling of [`Values`][qprogram.Values]. A callable is refused
     outright: a deferred function can report neither its length nor its kind before the program runs,
     and cannot be serialized to ``.qp``.
 
@@ -98,7 +98,7 @@ def _coerce_source(source: object) -> SweepSource:
         source (object): A sweep source, or a 1-D sequence of values to wrap.
 
     Returns:
-        The source unchanged, or a :class:`~qprogram.sweeps.Values` over the given points.
+        The source unchanged, or a [`Values`][qprogram.Values] over the given points.
 
     Raises:
         ValidationError: If ``source`` is a callable, or is not a 1-D sequence of values.

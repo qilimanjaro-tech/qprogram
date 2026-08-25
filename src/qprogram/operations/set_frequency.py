@@ -29,7 +29,7 @@ class SetFrequency(Operation):
     Args:
         bus (str): Bus whose oscillator to retune.
         frequency (float | Expression): New frequency in Hz. Accepts an
-            :class:`~qprogram.Expression` for sweeps.
+            [`Expression`][qprogram.Expression] for sweeps.
     """
 
     def __init__(self, bus: str, frequency: float | Expression) -> None:

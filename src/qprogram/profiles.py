@@ -13,7 +13,7 @@
 # limitations under the License.
 """Built-in capability profiles for QProgram core.
 
-Ships :data:`QPROGRAM_BASE_V1` — a domain-agnostic, platform-level base profile listing every
+Ships [`QPROGRAM_BASE_V1`][qprogram.QPROGRAM_BASE_V1] — a domain-agnostic, platform-level base profile listing every
 non-bus capability the DSL exposes: block-structure tokens, sweep kind and sweep source tokens, and
 expression tokens. ``set_parameter`` / ``get_parameter`` are **bus-scoped** ops, so
 ``op.set_parameter`` / ``op.get_parameter`` live on bus profiles rather than here.
@@ -100,7 +100,7 @@ QPROGRAM_BASE_V1 = Profile(
 
 
 def _register() -> None:
-    """Idempotently register :data:`QPROGRAM_BASE_V1` on the global profile registry."""
+    """Idempotently register [`QPROGRAM_BASE_V1`][qprogram.QPROGRAM_BASE_V1] on the global profile registry."""
     register_profile(QPROGRAM_BASE_V1)
 
 

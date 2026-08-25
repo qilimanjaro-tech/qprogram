@@ -11,9 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Human-readable rendering of a program's :data:`~qprogram.ExecutionPlan`.
+"""Human-readable rendering of a program's [`ExecutionPlan`][qprogram.ExecutionPlan].
 
-:func:`explain` runs :func:`~qprogram.validation.validate` and returns a string holding one row
+`explain` runs [`validate`][qprogram.validate] and returns a string holding one row
 per body node: the node as its ``.qp`` text, then the node's execution-domain set in an aligned
 column — ``[rt|host]``, ``[rt]``, ``[host]``, or ``[--]`` (no executable domain) — plus inline
 annotations: ``!!`` for errors, ``~`` for warnings (notably ``forced-host`` with its reasons),

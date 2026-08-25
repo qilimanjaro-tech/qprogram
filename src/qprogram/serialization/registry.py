@@ -27,9 +27,9 @@ The five registries:
 - **Waveforms** by class name.
 - **Vendor protocol versions** by vendor name.
 
-Vendor extensions register through :func:`register_vendor_operation`,
-:func:`register_vendor_block`, and :func:`register_vendor_version` at import time. They additionally
-declare a ``qprogram.vendors`` entry point so :func:`try_activate_vendor` can import them on demand
+Vendor extensions register through `register_vendor_operation`,
+`register_vendor_block`, and `register_vendor_version` at import time. They additionally
+declare a ``qprogram.vendors`` entry point so `try_activate_vendor` can import them on demand
 when a ``.qp`` file's ``require`` line names a vendor that is not registered yet.
 """
 
@@ -73,7 +73,7 @@ class OperationSpec:
         name (str): Operation name as it appears in ``.qp``.
         vendor (str | None): Vendor name for the dot-prefix (``<vendor>.<name>``), or ``None`` for
             core.
-        cls (type[Operation]): The :class:`Operation` subclass.
+        cls (type[Operation]): The [`Operation`][qprogram.operations.Operation] subclass.
         serialize (OperationSerializeFn | None): Optional override; default uses
             ``inspect.signature``-driven serialization.
         parse (OperationParseFn | None): Optional override; default uses
@@ -101,14 +101,14 @@ class BlockSpec:
     """Serialization metadata for a keyword-led control-flow block, core or vendor.
 
     Sweeps are not registered here — ``for <var> in <Source>(...)`` is driven by the sweep-source
-    registry (:func:`register_sweep_source`) instead.
+    registry (`register_sweep_source`) instead.
 
     Attributes:
         name (str): Header keyword as it appears in ``.qp`` (e.g. ``"average"``, ``"block"``),
             without any vendor prefix.
-        cls (type[Block]): The :class:`Block` subclass.
+        cls (type[Block]): The [`Block`][qprogram.blocks.Block] subclass.
         vendor (str | None): Vendor name for the dot-prefix (``<vendor>.<name>``), or ``None`` for a
-            core block. Mirrors :attr:`OperationSpec.vendor`, and is what lets the writer emit a
+            core block. Mirrors `OperationSpec.vendor`, and is what lets the writer emit a
             ``require`` line for a file whose only vendor content is a block.
         serialize_header (BlockSerializeHeaderFn | None): Optional override returning the header text
             without the trailing ``:`` (e.g. ``"average 1000"``). Default emits the bare (qualified)
@@ -176,9 +176,9 @@ def register_operation(
     Args:
         name (str): Keyword used in ``.qp`` (``play``, ``measure``, ...). Operation names are
             unrestricted; keyword-led block headers register on the block registry instead.
-        cls (type[Operation]): The :class:`Operation` subclass.
+        cls (type[Operation]): The [`Operation`][qprogram.operations.Operation] subclass.
         vendor (str | None): Vendor namespace. ``None`` registers a core op (emitted without
-            prefix). Cannot be ``"core"`` or any :data:`~qprogram.RESERVED_KEYWORDS`.
+            prefix). Cannot be ``"core"`` or any [`RESERVED_KEYWORDS`][qprogram.RESERVED_KEYWORDS].
         serialize (OperationSerializeFn | None): Optional override; default uses signature-driven
             serialization.
         parse (OperationParseFn | None): Optional override; default uses signature-driven parsing.
@@ -227,14 +227,14 @@ def register_vendor_operation(
     Equivalent to ``register_operation(name, cls, vendor=vendor, ...)`` — the spelling vendor
     extension packages use at import time. The optional ``serialize`` / ``parse`` callbacks are
     forwarded unchanged: a vendor shipping a measurement operation passes
-    :func:`qprogram.serialization._specs.measurement_op_serialize` and
-    :func:`qprogram.serialization._specs.make_measurement_op_parse`, so the parser produces the
-    canonical handle instance shared with every :class:`~qprogram.MeasurementRef` naming it.
+    `qprogram.serialization._specs.measurement_op_serialize` and
+    `qprogram.serialization._specs.make_measurement_op_parse`, so the parser produces the
+    canonical handle instance shared with every [`MeasurementRef`][qprogram.MeasurementRef] naming it.
 
     Args:
         vendor (str): Vendor namespace the operation is emitted under (``<vendor>.<name>``).
         name (str): Operation keyword within that namespace.
-        cls (type[Operation]): The :class:`Operation` subclass.
+        cls (type[Operation]): The [`Operation`][qprogram.operations.Operation] subclass.
         serialize (OperationSerializeFn | None): Optional override; default uses signature-driven
             serialization.
         parse (OperationParseFn | None): Optional override; default uses signature-driven parsing.
@@ -272,10 +272,10 @@ def register_block(
     Args:
         name (str): Leading keyword in the block header (``average``, ``block``, ...), without any
             vendor prefix.
-        cls (type[Block]): The :class:`Block` subclass.
+        cls (type[Block]): The [`Block`][qprogram.blocks.Block] subclass.
         vendor (str | None): Vendor namespace. ``None`` registers a core block (emitted without
-            prefix). Cannot be ``"core"`` or any :data:`~qprogram.RESERVED_KEYWORDS`. Prefer the
-            :func:`register_vendor_block` wrapper from a vendor package.
+            prefix). Cannot be ``"core"`` or any [`RESERVED_KEYWORDS`][qprogram.RESERVED_KEYWORDS]. Prefer the
+            `register_vendor_block` wrapper from a vendor package.
         serialize_header (BlockSerializeHeaderFn | None): Optional header-text override.
         parse_header (BlockParseHeaderFn | None): Optional header-token override.
 
@@ -323,20 +323,20 @@ def register_vendor_block(
     serialize_header: BlockSerializeHeaderFn | None = None,
     parse_header: BlockParseHeaderFn | None = None,
 ) -> None:
-    """Register a vendor control-flow block — the block analogue of :func:`register_vendor_operation`.
+    """Register a vendor control-flow block — the block analogue of `register_vendor_operation`.
 
     Equivalent to ``register_block(name, cls, vendor=vendor, ...)``. The block's wire form becomes
     ``<vendor>.<name>:`` followed by an indented suite, and — because the spec records the vendor —
     a program containing the block gets a ``require <vendor> <x.y>`` line even when it contains no
     vendor *operations*.
 
-    A block that repeats its body should also set :attr:`~qprogram.blocks.Block.REPEATS` ``True`` on
+    A block that repeats its body should also set `REPEATS` ``True`` on
     the class so it counts toward ``max_loop_nesting``.
 
     Args:
         vendor (str): Vendor namespace the block header is emitted under (``<vendor>.<name>:``).
         name (str): Header keyword within that namespace.
-        cls (type[Block]): The :class:`Block` subclass.
+        cls (type[Block]): The [`Block`][qprogram.blocks.Block] subclass.
         serialize_header (BlockSerializeHeaderFn | None): Optional header-text override.
         parse_header (BlockParseHeaderFn | None): Optional header-token override.
 
@@ -382,13 +382,13 @@ def register_waveform(cls: type[Waveform | IQWaveform]) -> type:
 def register_sweep_source(cls: type[SweepSource]) -> type[SweepSource]:
     """Register a sweep-source class for ``.qp`` serialization, keyed by its class name.
 
-    The sweep analogue of :func:`register_waveform`, and the whole extension step for a new source:
+    The sweep analogue of `register_waveform`, and the whole extension step for a new source:
     once registered, ``for <var> in <ClassName>(...)`` parses and writes itself from the constructor
     signature, exactly as a waveform constructor does.
 
-    Also registers the class's :attr:`~qprogram.sweeps.SweepSource.TOKEN` in the capability registry,
+    Also registers the class's `TOKEN` in the capability registry,
     so a profile may list it without a separate ``register_capability_tokens`` call — mirroring
-    :func:`~qprogram.protocol.register_waveform_token`.
+    [`register_waveform_token`][qprogram.register_waveform_token].
 
     Same-class re-registration is a no-op; registering a different class under an already-taken name
     raises — it would silently change how every existing file parses that constructor.
@@ -423,7 +423,7 @@ def register_vendor_version(vendor: str, version: str) -> None:
 
     Args:
         vendor (str): Vendor name as used in the dot-notation operations. Cannot be ``"core"`` or
-            any :data:`~qprogram.RESERVED_KEYWORDS`.
+            any [`RESERVED_KEYWORDS`][qprogram.RESERVED_KEYWORDS].
         version (str): Semver string with at least ``major.minor`` integer components. Major.minor
             governs compatibility; patch is informational.
 
@@ -462,7 +462,7 @@ def get_operation_spec(vendor: str | None, name: str) -> OperationSpec | None:
         name (str): Operation keyword within that namespace.
 
     Returns:
-        The registered :class:`OperationSpec`, or ``None`` if the keyword is unknown.
+        The registered `OperationSpec`, or ``None`` if the keyword is unknown.
     """
     return _operation_specs_by_qualified.get((vendor, name))
 
@@ -474,7 +474,7 @@ def get_operation_spec_by_class(cls: type) -> OperationSpec | None:
         cls (type): The operation's class. Lookup is exact, not by inheritance.
 
     Returns:
-        The registered :class:`OperationSpec`, or ``None`` if the class is not registered.
+        The registered `OperationSpec`, or ``None`` if the class is not registered.
     """
     return _operation_specs_by_class.get(cls)
 
@@ -487,7 +487,7 @@ def get_block_spec(name: str) -> BlockSpec | None:
             ``<vendor>.<name>`` for a vendor one.
 
     Returns:
-        The registered :class:`BlockSpec`, or ``None`` if the keyword is unknown.
+        The registered `BlockSpec`, or ``None`` if the keyword is unknown.
     """
     return _block_specs_by_name.get(name)
 
@@ -499,7 +499,7 @@ def get_block_spec_by_class(cls: type) -> BlockSpec | None:
         cls (type): The block's class. Lookup is exact, not by inheritance.
 
     Returns:
-        The registered :class:`BlockSpec`, or ``None`` if the class is not registered.
+        The registered `BlockSpec`, or ``None`` if the class is not registered.
     """
     return _block_specs_by_class.get(cls)
 
@@ -545,7 +545,7 @@ def get_vendor_version(vendor: str) -> str | None:
     """Return the protocol version an installed vendor extension declared.
 
     A registered version is also what marks a vendor as active: it is the check
-    :func:`try_activate_vendor` makes before and after importing an extension.
+    `try_activate_vendor` makes before and after importing an extension.
 
     Args:
         vendor (str): Vendor namespace, e.g. ``"qblox"``.
@@ -584,7 +584,7 @@ def _vendor_entry_points() -> dict[str, importlib.metadata.EntryPoint]:
     Memoized — the set of installed distributions is fixed within a process. On a name clash (two
     distributions claiming the same vendor namespace) the first discovered wins; that case is
     pathological, and the rule exists only to make the outcome deterministic. Tests that inject
-    entry points should patch this function or call :func:`clear_vendor_discovery_cache`.
+    entry points should patch this function or call `clear_vendor_discovery_cache`.
 
     Returns:
         A mapping of vendor namespace to the entry point that activates it.
@@ -659,7 +659,7 @@ def get_operation_class(vendor: str, name: str) -> type | None:
         name (str): Operation keyword within that namespace.
 
     Returns:
-        The :class:`Operation` subclass, or ``None`` if the keyword is not registered.
+        The [`Operation`][qprogram.operations.Operation] subclass, or ``None`` if the keyword is not registered.
     """
     spec = _operation_specs_by_qualified.get((vendor, name))
     return spec.cls if spec is not None else None

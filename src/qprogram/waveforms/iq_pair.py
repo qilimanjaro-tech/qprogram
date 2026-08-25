@@ -30,7 +30,7 @@ class IQPair(IQWaveform):
         Q (Waveform): Quadrature channel. Must have the same duration as ``I``.
 
     Raises:
-        TypeError: If either argument is not a :class:`Waveform` instance.
+        TypeError: If either argument is not a [`Waveform`][qprogram.waveforms.Waveform] instance.
         ValidationError: If the two channels have different (concretely-known) durations. The
             check is best-effort — symbolic durations whose variables are still unassigned are
             accepted here and left to the platform compiler to verify once values are bound.

@@ -16,7 +16,7 @@
 Walks the QProgram AST and dispatches each node to the registry's spec callbacks; no hard-coded
 ``isinstance`` ladder over operation or block keywords. The instance's ``serialize_*`` and
 ``var_ident`` methods form the *write context* — the duck-typed surface every callback in
-:mod:`_specs` and every vendor extension's ``serialize`` consumes.
+`_specs` and every vendor extension's ``serialize`` consumes.
 
 The ``_var_idents`` table maps each variable id to the identifier written in the file. Ids are
 unique within a program, so the mapping is an identity; routing every emission through it keeps
@@ -75,7 +75,7 @@ _MEASUREMENT_REF_UNSAFE = re.compile(r'[\s"#,.()\[\]{}]')
 
 
 def dumps(program: QProgram) -> str:
-    """Serialize a :class:`QProgram` to a ``.qp``-format string.
+    """Serialize a [`QProgram`][qprogram.QProgram] to a ``.qp``-format string.
 
     Args:
         program (QProgram): Program to serialize.
@@ -87,7 +87,7 @@ def dumps(program: QProgram) -> str:
         SerializationError: If the program contains a node or value the format cannot represent
             faithfully (unregistered operation/block class, vendor without a registered version,
             attribute value of an unsupported type), or if ``program`` is itself a
-            :class:`~qprogram.Fragment` — fragments serialize as sections of the host program
+            [`Fragment`][qprogram.Fragment] — fragments serialize as sections of the host program
             that calls them. The writer never emits lossy output.
     """
     from qprogram.fragments import Fragment  # ruff: ignore[import-outside-top-level]
@@ -111,7 +111,7 @@ def save(program: QProgram, path: str) -> None:
         path (str): Destination file path.
 
     Raises:
-        SerializationError: See :func:`dumps`.
+        SerializationError: See `dumps`.
     """
     Path(path).write_text(dumps(program), encoding="utf-8")
 
@@ -124,9 +124,9 @@ def save(program: QProgram, path: str) -> None:
 class _Writer:
     """A single program's ``.qp`` rendering, section by section.
 
-    The instance doubles as the *write context* handed to every spec callback: :meth:`serialize_value`,
-    :meth:`serialize_bus`, :meth:`serialize_waveform`, :meth:`serialize_sweep_source`, and
-    :meth:`var_ident` are the whole surface a callback may rely on.
+    The instance doubles as the *write context* handed to every spec callback: `serialize_value`,
+    `serialize_bus`, `serialize_waveform`, `serialize_sweep_source`, and
+    `var_ident` are the whole surface a callback may rely on.
 
     Args:
         program (QProgram): Program to render. It is read, never mutated.
@@ -164,9 +164,9 @@ class _Writer:
         """Emit ``require <vendor> <major.minor>`` for each vendor referenced in the body.
 
         The version comes from whichever extension is currently registered via
-        :func:`register_vendor_version`; patch is truncated since compatibility semantics are
+        `register_vendor_version`; patch is truncated since compatibility semantics are
         defined at major.minor. Fragment bodies are scanned alongside the program body — a vendor
-        operation reachable only through a :class:`Call` still needs its ``require`` line.
+        operation reachable only through a `Call` still needs its ``require`` line.
 
         Raises:
             SerializationError: If a vendor is referenced but no extension has registered a version
@@ -233,7 +233,7 @@ class _Writer:
     def _write_fragments(self) -> None:
         """Emit a ``fragment <name>(<params>):`` section per fragment, dependencies first.
 
-        Ordering is computed here (depth-first over nested :class:`Call` nodes) rather than
+        Ordering is computed here (depth-first over nested `Call` nodes) rather than
         trusted from registration order, so the emitted file always defines a fragment before any
         fragment that calls it — the define-before-use rule the parser enforces.
         """
@@ -334,13 +334,13 @@ class _Writer:
 
         Five cases, in the priority order the code tests them:
 
-        1. A :class:`Call` — a bare ``name(args)`` statement.
-        2. Any other :class:`Operation` — look up its :class:`OperationSpec` and call either the
+        1. A `Call` — a bare ``name(args)`` statement.
+        2. Any other [`Operation`][qprogram.operations.Operation] — look up its `OperationSpec` and call either the
            registered custom callback or the default signature-driven serializer.
-        3. A :class:`Parallel` — emit a pipe-joined sequence of loop headers from its child loops,
+        3. A [`Parallel`][qprogram.blocks.Parallel] — emit a pipe-joined sequence of loop headers from its child loops,
            then recurse into the body.
-        4. A :class:`Conditional` — emit one header per arm (via :meth:`_write_conditional`).
-        5. Any other :class:`Block` — emit ``<header>:`` (via :meth:`_serialize_block_header`) and
+        4. A [`Conditional`][qprogram.blocks.Conditional] — emit one header per arm (via `_write_conditional`).
+        5. Any other [`Block`][qprogram.blocks.Block] — emit ``<header>:`` (via `_serialize_block_header`) and
            recurse.
 
         Parallel and Conditional are special-cased rather than registered because neither is
@@ -399,15 +399,15 @@ class _Writer:
     def _serialize_condition(self, condition: object) -> str:
         """Render a conditional's condition without the wrapping parens.
 
-        :meth:`serialize_value` wraps :class:`Comparison` in
+        `serialize_value` wraps [`Comparison`][qprogram.Comparison] in
         ``(<left> <op> <right>)`` to keep operator precedence
         unambiguous when comparisons appear nested inside arithmetic.
         For an ``if``/``elif`` header the wrap is noise, so a top-level
         Comparison is rendered without its outer parentheses.
 
         Args:
-            condition (object): The arm's condition — a :class:`Comparison`, or any other value
-                :meth:`serialize_value` accepts.
+            condition (object): The arm's condition — a [`Comparison`][qprogram.Comparison], or any other value
+                `serialize_value` accepts.
 
         Returns:
             The condition text to place between the keyword and the colon.
@@ -419,7 +419,7 @@ class _Writer:
     def _serialize_block_header(self, block: Block) -> str:
         """Render a block's header line without the trailing colon.
 
-        A :class:`~qprogram.blocks.Sweep` renders its own ``for <var> in <Source>(...)``
+        A [`Sweep`][qprogram.blocks.Sweep] renders its own ``for <var> in <Source>(...)``
         header from the source object and never reaches the block registry.
         Every other block dispatches through that registry; an unregistered
         one raises — emitting a placeholder would silently drop the block
@@ -432,7 +432,7 @@ class _Writer:
             The header text, ready for the caller to append ``:`` to.
 
         Raises:
-            SerializationError: If the block is not a :class:`~qprogram.blocks.Sweep` and its class
+            SerializationError: If the block is not a [`Sweep`][qprogram.blocks.Sweep] and its class
                 has no registered spec.
         """
         if isinstance(block, Sweep):
@@ -461,7 +461,7 @@ class _Writer:
 
         Returns:
             The header text, ready for the caller to append ``:`` to (or to join with ``|`` inside a
-            :class:`Parallel`).
+            [`Parallel`][qprogram.blocks.Parallel]).
         """
         var_ident = self._var_idents[sweep.variable.id]
         return f"for {var_ident} in {self.serialize_sweep_source(sweep.source)}"
@@ -469,16 +469,16 @@ class _Writer:
     def serialize_sweep_source(self, source: SweepSource) -> str:
         """Render a sweep source as ``Name(param=value, ...)``.
 
-        :class:`~qprogram.sweeps.Values` is special-cased to the bracket literal ``[v0, v1, ...]`` —
+        [`Values`][qprogram.Values] is special-cased to the bracket literal ``[v0, v1, ...]`` —
         it is the one source whose sole parameter reads better as the sweep itself. Never truncated:
         the literal must reload to exactly the same sweep.
 
         Args:
             source (SweepSource): Source to render. A combinator's nested sources recurse through
-                :meth:`serialize_value`.
+                `serialize_value`.
 
         Returns:
-            The constructor call, or the bracket literal for :class:`~qprogram.sweeps.Values`.
+            The constructor call, or the bracket literal for [`Values`][qprogram.Values].
         """
         if isinstance(source, Values):
             return self.serialize_value(source.points)
@@ -542,7 +542,7 @@ class _Writer:
     def serialize_value(self, val: object) -> str:
         """Render any AST value as a ``.qp`` token.
 
-        Recognizes the full :class:`~qprogram.Expression` AST (variables,
+        Recognizes the full [`Expression`][qprogram.Expression] AST (variables,
         constants, arithmetic, comparison, logical, math functions,
         conditional ``where``), waveform instances, bus references,
         measurement handles (rendered as their quoted name), sweep sources
@@ -567,7 +567,7 @@ class _Writer:
 
         Raises:
             SerializationError: For any value type the format has no
-                representation for; for a :class:`~qprogram.MeasurementRef`
+                representation for; for a [`MeasurementRef`][qprogram.MeasurementRef]
                 whose handle name carries a character the unquoted
                 ``<name>.<field>`` wire form cannot hold (whitespace, a
                 quote, ``#``, a comma, a dot, or a bracket, brace, or
@@ -666,7 +666,7 @@ class _Writer:
     def serialize_bus(self, bus: object) -> str:
         """Render a bus argument as a path or as a quoted string.
 
-        A :class:`~qprogram.BusRef` carrying an element and a kind, in a program that declares a
+        A [`BusRef`][qprogram.BusRef] carrying an element and a kind, in a program that declares a
         schema, emits as the unquoted ``element[idx].kind`` path the parser promotes back to a bus
         reference. Everything else emits as a quoted string, which is what keeps a raw-string bus
         that happens to look like a path from being promoted on reload.
@@ -738,10 +738,10 @@ class _Writer:
         """Walk a block tree and gather the vendor names its nodes reference.
 
         Covers both vendor operations and vendor **blocks** — either is enough to make a file depend
-        on an extension, and the ``require`` line is what lets :func:`~qprogram.loads` auto-activate
+        on an extension, and the ``require`` line is what lets `loads` auto-activate
         it.
 
-        Uses :meth:`Block.walk` rather than recursing over ``.elements`` — Conditional keeps its
+        Uses `Block.walk` rather than recursing over ``.elements`` — Conditional keeps its
         arm bodies on ``.arms`` / ``.else_body`` (not in ``_elements``), so an elements-only
         recursion would miss vendor ops inside ``if_``/``elif_``/``else_`` arms and emit a file
         with no ``require`` line for them.
@@ -779,8 +779,8 @@ def _major_minor(version: str) -> str:
 
     A string carrying a major component only is padded to ``major.0``. The writer never reaches
     that branch: its argument comes from
-    :func:`~qprogram.serialization.registry.get_vendor_version`, and
-    :func:`~qprogram.serialization.registry.register_vendor_version` refuses a version without
+    `get_vendor_version`, and
+    [`register_vendor_version`][qprogram.serialization.registry.register_vendor_version] refuses a version without
     integer major and minor components.
 
     Args:

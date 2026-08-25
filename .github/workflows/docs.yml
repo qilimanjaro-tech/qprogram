@@ -49,8 +49,10 @@ jobs:
           echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
+      # --strict turns a warning into a failure. The warning that matters is an unresolved
+      # cross-reference, which is a dead link on the published page.
       - name: Build the site
-        run: zensical build
+        run: zensical build --strict
 
       - name: Upload the site
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b  # v4.0.0

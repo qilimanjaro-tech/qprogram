@@ -14,17 +14,17 @@
 """``.qp`` checker and language server — the production parser behind editor squiggles.
 
 A grammar-derived checker could only validate *syntax*; this module instead exposes the real
-toolchain to editors: :func:`check_text` runs :func:`qprogram.loads` (line-tagged ``ParseError``,
-registry and schema-aware) and, when the file parses, :func:`qprogram.validate` against the
-:class:`~qprogram.ReferencePlatform` capabilities — mapping each diagnostic's structural
-:attr:`~qprogram.Diagnostic.path` to its ``.qp`` line through the parser-recorded
-:attr:`~qprogram.QProgram.source_map`.
+toolchain to editors: `check_text` runs `qprogram.loads` (line-tagged ``ParseError``,
+registry and schema-aware) and, when the file parses, [`qprogram.validate`][] against the
+[`ReferencePlatform`][qprogram.ReferencePlatform] capabilities — mapping each diagnostic's structural
+`path` to its ``.qp`` line through the parser-recorded
+[`source_map`][qprogram.QProgram.source_map].
 
 Three front-ends share that core:
 
 - ``python -m qprogram.lsp check [file]`` — one-shot JSON diagnostics (file argument or stdin).
   Zero dependencies beyond qprogram itself, which is what an editor integration spawns it for.
-- ``python -m qprogram.lsp explain [file]`` — the :func:`qprogram.explain` plan tree for a file.
+- ``python -m qprogram.lsp explain [file]`` — the `qprogram.explain` plan tree for a file.
 - ``python -m qprogram.lsp serve`` — a Language Server Protocol server over stdio (requires the
   ``qprogram[lsp]`` extra, i.e. ``pygls``), usable from any LSP-capable editor.
 """
@@ -51,10 +51,10 @@ class FileDiagnostic:
     Attributes:
         line (int): 0-based line the diagnostic points at (``0`` for whole-file diagnostics).
         end_line (int): 0-based line the span ends on, inclusive. The checker reports whole lines,
-            so it equals :attr:`line`; the field is separate so a multi-line span needs no change
+            so it equals `line`; the field is separate so a multi-line span needs no change
             on the editor side.
         severity (Literal["error", "warning", "info"]): Severity tier — the same three tiers as
-            :class:`~qprogram.Diagnostic`.
+            [`Diagnostic`][qprogram.Diagnostic].
         code (str): Machine-readable code (``"parse-error"`` or the validator's diagnostic code).
         message (str): Human-readable message, verbatim from the parser / validator.
     """
@@ -74,10 +74,10 @@ class FileDiagnostic:
 def check_text(text: str, *, validate: bool = True) -> list[FileDiagnostic]:
     """Check ``.qp`` source and return editor-facing diagnostics.
 
-    First the production parser runs (``loads``): a :class:`~qprogram.ParseError` becomes a
+    First the production parser runs (``loads``): a `ParseError` becomes a
     single error diagnostic on its source line. When the file parses and ``validate`` is true,
     capability validation runs against the reference platform; node-bearing diagnostics map to
-    lines via the program's :attr:`~qprogram.QProgram.source_map` (structural-path keyed),
+    lines via the program's [`source_map`][qprogram.QProgram.source_map] (structural-path keyed),
     node-less ones land on line 0. Programs with fragments are validated on their expansion —
     those diagnostics also land on line 0 (the expansion's paths don't exist in the file).
 
@@ -109,7 +109,7 @@ def _validation_diagnostics(program: QProgram) -> list[FileDiagnostic]:
 
     Args:
         program (QProgram): A program straight out of ``loads``, whose
-            :attr:`~qprogram.QProgram.source_map` still relates structural paths to lines.
+            [`source_map`][qprogram.QProgram.source_map] still relates structural paths to lines.
 
     Returns:
         Diagnostics sorted by line, errors first within a line. A diagnostic with no node, or whose
@@ -208,7 +208,7 @@ def _cmd_explain(args: argparse.Namespace) -> int:
 
 
 def create_server():  # ruff: ignore[missing-return-type-undocumented-public-function] — pygls.lsp.server.LanguageServer; annotating would force the import
-    """Build the ``.qp`` LSP server (publishes :func:`check_text` diagnostics on open/change/save).
+    """Build the ``.qp`` LSP server (publishes `check_text` diagnostics on open/change/save).
 
     Returns:
         A ``pygls`` ``LanguageServer`` with the three document handlers registered, ready for
@@ -277,14 +277,14 @@ def main(argv: list[str] | None = None) -> int:
     """Run the ``python -m qprogram.lsp`` command line.
 
     Args:
-        argv (list[str] | None): Argument vector to parse; ``None`` reads :data:`sys.argv`.
+        argv (list[str] | None): Argument vector to parse; ``None`` reads `sys.argv`.
 
     Returns:
         The exit status of the chosen subcommand.
 
     Raises:
         SystemExit: When the arguments are malformed or ``--help`` is requested — raised by
-            :mod:`argparse`.
+            `argparse`.
     """
     cli = argparse.ArgumentParser(prog="qprogram.lsp", description=__doc__)
     sub = cli.add_subparsers(dest="command", required=True)

@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Built-in operations — the AST leaf nodes a :class:`~qprogram.QProgram` is composed of.
+"""Built-in operations — the AST leaf nodes a [`QProgram`][qprogram.QProgram] is composed of.
 
 Operations are typed nodes appended to the program's active block by the builder methods on
-:class:`~qprogram.QProgram`. Each subclass declares which constructor params hold buses (``BUS_ATTRS``)
+[`QProgram`][qprogram.QProgram]. Each subclass declares which constructor params hold buses (``BUS_ATTRS``)
 and waveforms (``WAVEFORM_ATTRS``) so the shared introspection contract works without per-class overrides.
 """
 

@@ -13,13 +13,12 @@
 # limitations under the License.
 """Reference software executor — the in-tree interpreter that actually runs a QProgram.
 
-:class:`ReferencePlatform` is a complete :class:`~qprogram.PlatformProtocol`: it validates against
-a permissive capability descriptor (every core token; orchestration ops host-only, mirroring real
+[`ReferencePlatform`][qprogram.ReferencePlatform] is a complete [`PlatformProtocol`][qprogram.PlatformProtocol]: it
+validates against a permissive capability descriptor (every core token; orchestration ops host-only, mirroring real
 platforms), then walks the AST in pure Python — driving loop variables via
-:meth:`Variable.set_value`, writing measurement outcomes onto the shared
-:class:`~qprogram.MeasurementHandle` (so ``handle.state`` feedback works by construction), and
-assembling a :class:`~qprogram.QProgramResult` of :class:`xarray.DataArray` s with the result-shape
-contract of spec §8:
+[`Variable.set_value`][qprogram.Variable.set_value], writing measurement outcomes onto the shared
+[`MeasurementHandle`][qprogram.MeasurementHandle] (so ``handle.state`` feedback works by construction), and assembling a
+[`QProgramResult`][qprogram.QProgramResult] of `xarray.DataArray` s with the result-shape contract of spec §8:
 
 - dims = enclosing ``Sweep`` blocks, outermost first, named by variable id;
   ``Parallel`` contributes one shared ``"a|b"`` dim carrying every composed variable's coords.
@@ -27,11 +26,11 @@ contract of spec §8:
   averages to the excited-state population.
 - Measurement-field shapes: ``iq`` → ``(*sweeps, "IQ"[2])``; ``state`` → ``(*sweeps)``;
   ``raw`` → ``(*sweeps, "time"[N], "IQ")``.
-- A measurement inside a :class:`Conditional` arm holds NaN at sweep points where the arm never
+- A measurement inside a [`Conditional`][qprogram.blocks.Conditional] arm holds NaN at sweep points where the arm never
   executed (count-based averaging).
 
-Measurement outcomes come from a pluggable :class:`MeasurementModel`; the default
-:class:`MockMeasurementModel` is deterministic (seeded) and lets demos shape the response —
+Measurement outcomes come from a pluggable [`MeasurementModel`][qprogram.MeasurementModel]; the default
+[`MockMeasurementModel`][qprogram.MockMeasurementModel] is deterministic (seeded) and lets demos shape the response —
 ``response=lambda bus, env: ...`` receives the currently bound variables and platform parameters,
 so a simulated Rabi oscillation is one lambda away.
 
@@ -81,14 +80,14 @@ if TYPE_CHECKING:
     #: instance and the mutable ``{"<bus-or-alias>.<parameter>": value}`` store, and stands in for the
     #: interpreter's eager expression evaluation, which is skipped for a handled op — so a get-style
     #: handler's output variable is never force-evaluated, and the handler evaluates any value
-    #: expression itself. Passed to :class:`ReferencePlatform` by platforms whose vendor ops must
+    #: expression itself. Passed to `ReferencePlatform` by platforms whose vendor ops must
     #: read/write the store during simulation (a vendor's ``set_parameter`` /
     #: ``get_parameter``).
     VendorOpHandler = Callable[[Operation, dict[str, float]], None]
 
 
 class ExecutionWarning(UserWarning):
-    """Category for warning-severity diagnostics surfaced during :meth:`ReferencePlatform.execute`."""
+    """Category for warning-severity diagnostics surfaced during [`ReferencePlatform.execute`][qprogram.ReferencePlatform.execute]."""
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +114,7 @@ class MeasurementSample:
 
 @runtime_checkable
 class MeasurementModel(Protocol):
-    """What the executor asks of a measurement back-end — one :meth:`sample` per shot.
+    """What the executor asks of a measurement back-end — one `sample` per shot.
 
     ``env`` carries the currently bound loop variables (by id) and the platform parameters (by
     ``"bus.parameter"``), so a model can shape its response as a function of the sweep.
@@ -156,7 +155,7 @@ class MockMeasurementModel:
         noise (float): Standard deviation of the gaussian noise added per quadrature, per shot.
             Zero skips the noise draws entirely rather than drawing zero-width ones.
         raw_samples (int): Number of time samples in the ``raw`` trace.
-        seed (int): Seed for the model's private :func:`numpy.random.default_rng`.
+        seed (int): Seed for the model's private `numpy.random.default_rng`.
     """
 
     def __init__(
@@ -207,7 +206,7 @@ class _Axis:
     """One result dimension: the loop node that drives it, its dim name, size, and coords.
 
     Attributes:
-        node (Block): The :class:`~qprogram.blocks.Sweep` or :class:`~qprogram.blocks.Parallel` whose
+        node (Block): The [`Sweep`][qprogram.blocks.Sweep] or [`Parallel`][qprogram.blocks.Parallel] whose
             iteration index selects a position along this dimension. Identity-keyed by the
             interpreter, so two structurally identical loops stay distinct.
         dim (str): The xarray dimension name — the swept variable's id, or the ``"a|b"`` join of
@@ -224,13 +223,13 @@ class _Axis:
 
 
 def _axis_for(node: Block) -> _Axis | None:
-    """Build the :class:`_Axis` a block contributes to enclosed measurements, if any.
+    """Build the `_Axis` a block contributes to enclosed measurements, if any.
 
     Args:
         node (Block): Any block encountered during the setup walk.
 
     Returns:
-        The axis for a :class:`~qprogram.blocks.Sweep` or :class:`~qprogram.blocks.Parallel`;
+        The axis for a [`Sweep`][qprogram.blocks.Sweep] or [`Parallel`][qprogram.blocks.Parallel];
         ``None`` for a block that contributes no dimension.
     """
     if isinstance(node, Parallel):
@@ -271,7 +270,7 @@ class _MeasurementSlot:
 
 
 class _Interpreter:
-    """Pure-Python AST evaluator producing :class:`QProgramResult` xarrays.
+    """Pure-Python AST evaluator producing [`QProgramResult`][qprogram.QProgramResult] xarrays.
 
     Two phases: a *setup* walk computes each measurement's sweep axes (the ``Sweep``
     / ``Parallel`` blocks enclosing it, outermost first) and allocates accumulators; the *run*
@@ -314,7 +313,7 @@ class _Interpreter:
     def _setup(self) -> None:
         """Allocate one accumulator slot per measurement, sized from its enclosing loops.
 
-        A :class:`~qprogram.blocks.Conditional` passes its axes straight through to every arm body:
+        A [`Conditional`][qprogram.blocks.Conditional] passes its axes straight through to every arm body:
         an arm adds no dimension of its own; it only leaves some sweep points unvisited.
         """
 
@@ -363,7 +362,7 @@ class _Interpreter:
         """Interpret the program end to end and return its results.
 
         Returns:
-            One :class:`~qprogram.MeasurementResult` per measurement operation, in the order the
+            One [`MeasurementResult`][qprogram.MeasurementResult] per measurement operation, in the order the
             setup walk found them.
 
         Raises:
@@ -605,10 +604,10 @@ def _safe_mean(total: np.ndarray, count: np.ndarray) -> np.ndarray:
 
 
 def _evaluate_op_expressions(value: object) -> None:
-    """Force-evaluate every :class:`Expression` reachable from an op's public attributes.
+    """Force-evaluate every [`Expression`][qprogram.Expression] reachable from an op's public attributes.
 
     Pins the reference semantics that all referenced variables must be bound at execution time —
-    an unassigned variable raises :class:`~qprogram.UnassignedVariableError` here rather than
+    an unassigned variable raises [`UnassignedVariableError`][qprogram.UnassignedVariableError] here rather than
     silently producing nonsense downstream.
 
     Recurses through operations, waveforms, and lists or tuples of either. Private attributes and
@@ -661,7 +660,7 @@ def _swept_parameter_forces_host(
         ctx (ValidationContext): Validation context, used to find the loop that binds the variable.
 
     Yields:
-        One :class:`~qprogram.DomainConstraint` excluding ``"rt"`` from the binding loop, when
+        One [`DomainConstraint`][qprogram.DomainConstraint] excluding ``"rt"`` from the binding loop, when
         ``node`` is a ``set_parameter`` whose value is a bound variable. Nothing otherwise.
     """
     if isinstance(node, SetParameter) and isinstance(node.value, Variable):
@@ -677,13 +676,13 @@ def _swept_parameter_forces_host(
 def reference_capabilities() -> PlatformCapabilities:
     """Build the reference platform's permissive capability descriptor.
 
-    Every token in the live :data:`~qprogram.protocol.CAPABILITY_REGISTRY` is supported — core
+    Every token in the live `CAPABILITY_REGISTRY` is supported — core
     *and* vendor tokens (the reference executor runs vendor operations generically, so importing
     a vendor extension makes its programs executable here). Computed fresh on each call so
     late-registered vendor tokens are picked up. Each bus slot supports everything host-side while its
     **rt half excludes the bus-scoped parameter ops** (``set_parameter`` / ``get_parameter``), so those
     stay host-side-only on every bus — mirroring real platforms, so plans, ``forced-host`` warnings,
-    and :func:`~qprogram.explain` are meaningful against the reference platform too.
+    and `explain` are meaningful against the reference platform too.
 
     Returns:
         A descriptor with an empty per-bus map, a platform slot for blocks and expressions, and a
@@ -719,23 +718,23 @@ def reference_capabilities() -> PlatformCapabilities:
 class ReferencePlatform(PlatformProtocol):
     """The in-tree software platform: validates, interprets, and returns real result xarrays.
 
-    Follows the documented convention exactly: :meth:`execute` raises
-    :class:`~qprogram.UnsupportedOperationError` on any error diagnostic, surfaces warnings via
-    :mod:`warnings` (category :class:`ExecutionWarning`), and passes info through silently.
+    Follows the documented convention exactly: `execute` raises
+    [`UnsupportedOperationError`][qprogram.UnsupportedOperationError] on any error diagnostic, surfaces warnings via
+    `warnings` (category [`ExecutionWarning`][qprogram.ExecutionWarning]), and passes info through silently.
     Fragment calls are expanded before execution. This is the reference semantics vendor
     compilers are tested against.
 
     Args:
-        schema (BusSchema | None): Bus schema reported by :meth:`get_bus_schema`. ``None`` makes that
-            method raise and :meth:`get_buses` return nothing.
+        schema (BusSchema | None): Bus schema reported by `get_bus_schema`. ``None`` makes that
+            method raise and `get_buses` return nothing.
         model (MeasurementModel | None): Measurement model; ``None`` builds a fresh
-            :class:`MockMeasurementModel` (all-zero response, no noise, ground state).
+            [`MockMeasurementModel`][qprogram.MockMeasurementModel] (all-zero response, no noise, ground state).
         parameters (dict[str, float] | None): Initial platform parameter store, keyed
             ``"bus.parameter"``. Copied once, then that copy is read by ``get_parameter``, written by
             ``set_parameter``, and exposed to the model — so a run's writes persist across calls to
-            :meth:`execute` on the same platform.
+            `execute` on the same platform.
         vendor_op_handlers (Mapping[type[Operation], VendorOpHandler] | None): Map of vendor
-            :class:`~qprogram.operations.Operation` class to a :data:`VendorOpHandler` invoked when
+            [`Operation`][qprogram.operations.Operation] class to a `VendorOpHandler` invoked when
             that op executes — the seam a platform uses to give its own vendor ops runtime effects on
             the parameter store (a vendor's ``set_parameter`` / ``get_parameter`` operations,
             which target an alias rather than a bus). Ops without a handler execute generically
@@ -806,7 +805,7 @@ class ReferencePlatform(PlatformProtocol):
 
     @property
     def capabilities(self) -> PlatformCapabilities:
-        """The permissive descriptor built by :func:`reference_capabilities`, recomputed per access.
+        """The permissive descriptor built by [`reference_capabilities`][qprogram.reference_capabilities], recomputed per access.
 
         Recomputing is what lets a vendor extension imported after the platform was constructed have
         its tokens honored.
@@ -814,10 +813,10 @@ class ReferencePlatform(PlatformProtocol):
         return reference_capabilities()
 
     def execute(self, qprogram: QProgram, **kwargs: object) -> QProgramResult:  # ruff: ignore[unused-method-argument]
-        """Validate and run ``qprogram``, returning its :class:`~qprogram.QProgramResult`.
+        """Validate and run ``qprogram``, returning its [`QProgramResult`][qprogram.QProgramResult].
 
-        Warning-severity diagnostics are re-emitted through :mod:`warnings` as
-        :class:`ExecutionWarning` and do not stop the run; info-severity ones are dropped.
+        Warning-severity diagnostics are re-emitted through `warnings` as
+        [`ExecutionWarning`][qprogram.ExecutionWarning] and do not stop the run; info-severity ones are dropped.
 
         Args:
             qprogram (QProgram): Program to run. Fragment calls are expanded first, on a copy.
@@ -853,7 +852,7 @@ def simulate(
     schema: BusSchema | None = None,
     parameters: dict[str, float] | None = None,
 ) -> QProgramResult:
-    """Execute ``program`` on a one-off :class:`ReferencePlatform` — the quickest path to results.
+    """Execute ``program`` on a one-off [`ReferencePlatform`][qprogram.ReferencePlatform] — the quickest path to results.
 
     The program should already be concrete; resolve any string waveform names first with
     ``program.with_waveforms(library)`` (or ``library.apply(program)``).
@@ -861,7 +860,7 @@ def simulate(
     Args:
         program (QProgram): Program to run.
         model (MeasurementModel | None): Measurement model; ``None`` uses a deterministic, all-zero
-            :class:`MockMeasurementModel`.
+            [`MockMeasurementModel`][qprogram.MockMeasurementModel].
         schema (BusSchema | None): Bus schema for the throwaway platform.
         parameters (dict[str, float] | None): Initial parameter store, keyed ``"bus.parameter"``.
             Copied, so the caller's dict is left untouched.

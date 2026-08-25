@@ -16,18 +16,18 @@
 A path is a tuple of segments rooted at ``program.body`` (whose own path is ``()``). Because the
 ``.qp`` round-trip preserves structure exactly, a path computed against one program resolves
 against any structurally-equal copy — notably ``loads(dumps(p))``, whose
-:attr:`~qprogram.QProgram.source_map` then maps the same path to a 1-based ``.qp`` line.
+[`source_map`][qprogram.QProgram.source_map] then maps the same path to a 1-based ``.qp`` line.
 
 Segment vocabulary (matching the validator's child taxonomy):
 
-- ``int i`` — ``elements[i]`` of the current node (plain :class:`~qprogram.blocks.Block`,
+- ``int i`` — ``elements[i]`` of the current node (plain [`Block`][qprogram.blocks.Block],
   ``Sweep``/``Average``, and a ``Parallel``'s body elements).
-- ``"arm:<i>"`` — the body of a :class:`~qprogram.blocks.Conditional`'s i-th arm.
+- ``"arm:<i>"`` — the body of a [`Conditional`][qprogram.blocks.Conditional]'s i-th arm.
 - ``"else"`` — a Conditional's else body.
-- ``"loop:<i>"`` — a :class:`~qprogram.blocks.Parallel`'s i-th composed loop header.
+- ``"loop:<i>"`` — a [`Parallel`][qprogram.blocks.Parallel]'s i-th composed loop header.
 
-:func:`node_path` matches by **object identity** (two structurally identical ops at different
-sites get different paths); :func:`resolve_path` is its inverse.
+[`node_path`][qprogram.node_path] matches by **object identity** (two structurally identical ops at different
+sites get different paths); [`resolve_path`][qprogram.resolve_path] is its inverse.
 """
 
 from __future__ import annotations
@@ -51,9 +51,9 @@ AstPath: TypeAlias = tuple[int | str, ...]
 def iter_child_edges(node: Block | Operation) -> Iterator[tuple[int | str, Block | Operation]]:
     """Yield ``(segment, child)`` for every structural child of ``node``, in document order.
 
-    The single canonical child enumeration behind :func:`node_path` / :func:`resolve_path` —
-    Conditional keeps its arm bodies on ``.arms`` / ``.else_body`` and Parallel its loop headers
-    on ``.loops``, so a plain ``elements`` walk would miss them.
+    The single canonical child enumeration behind [`node_path`][qprogram.node_path] /
+    [`resolve_path`][qprogram.resolve_path] — Conditional keeps its arm bodies on ``.arms`` / ``.else_body`` and
+    Parallel its loop headers on ``.loops``, so a plain ``elements`` walk would miss them.
 
     Args:
         node (Block | Operation): The node whose children to enumerate. An operation is a leaf and
@@ -84,8 +84,8 @@ def node_path(root: QProgram | Block, node: Block | Operation) -> AstPath | None
     ``Diagnostic.node``), not a structural twin.
 
     Args:
-        root (QProgram | Block): A :class:`~qprogram.QProgram` (paths root at its body) or a
-            :class:`~qprogram.blocks.Block`.
+        root (QProgram | Block): A [`QProgram`][qprogram.QProgram] (paths root at its body) or a
+            [`Block`][qprogram.blocks.Block].
         node (Block | Operation): The node instance to locate.
 
     Returns:
@@ -110,11 +110,11 @@ def node_path(root: QProgram | Block, node: Block | Operation) -> AstPath | None
 
 
 def resolve_path(root: QProgram | Block, path: AstPath) -> Block | Operation:
-    """Return the node addressed by ``path`` under ``root`` — the inverse of :func:`node_path`.
+    """Return the node addressed by ``path`` under ``root`` — the inverse of [`node_path`][qprogram.node_path].
 
     Args:
-        root (QProgram | Block): A :class:`~qprogram.QProgram` (paths root at its body) or a
-            :class:`~qprogram.blocks.Block`.
+        root (QProgram | Block): A [`QProgram`][qprogram.QProgram] (paths root at its body) or a
+            [`Block`][qprogram.blocks.Block].
         path (AstPath): The structural address to follow.
 
     Returns:

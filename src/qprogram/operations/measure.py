@@ -32,20 +32,20 @@ class Measure(MeasurementOperation):
     Args:
         bus (str): Readout bus (must have ``acquires=True``).
         waveform (IQWaveform | str): Readout pulse — concrete
-            :class:`~qprogram.waveforms.IQWaveform` or a string alias.
+            [`IQWaveform`][qprogram.waveforms.IQWaveform] or a string alias.
         weights (IQWaveform | str): Integration weights — concrete
-            :class:`~qprogram.waveforms.IQWaveform` or a string alias.
-        handle (MeasurementHandle): The canonical :class:`~qprogram.MeasurementHandle` for this
+            [`IQWaveform`][qprogram.waveforms.IQWaveform] or a string alias.
+        handle (MeasurementHandle): The canonical [`MeasurementHandle`][qprogram.MeasurementHandle] for this
             measurement. The same Python instance is returned to user code, referenced by any
-            :class:`~qprogram.MeasurementRef` in conditionals, and listed by
-            :meth:`QProgram.measurement_handles` — the runtime writes per-measurement values onto
+            [`MeasurementRef`][qprogram.MeasurementRef] in conditionals, and listed by
+            [`QProgram.measurement_handles`][qprogram.QProgram.measurement_handles] — the runtime writes per-measurement values onto
             this single object and every reader sees them.
         fields (Iterable[MeasurementField], optional): Which measurement fields to produce, as an
-            iterable of :class:`~qprogram.MeasurementField` members. Default
-            ``(MeasurementField.IQ,)``. :attr:`~qprogram.MeasurementField.RAW` requests the raw ADC
-            trace; :attr:`~qprogram.MeasurementField.STATE` requests a classified outcome (required
+            iterable of `MeasurementField` members. Default
+            ``(MeasurementField.IQ,)``. `RAW` requests the raw ADC
+            trace; `STATE` requests a classified outcome (required
             when the program references ``handle.state`` in a conditional). Stored canonically
-            ordered and deduplicated — see :func:`~qprogram.operations.operation.normalize_fields`.
+            ordered and deduplicated — see [`normalize_fields`][qprogram.operations.operation.normalize_fields].
 
     Raises:
         ValidationError: If ``fields`` is a bare string, is not iterable, requests no field at all,
@@ -73,9 +73,9 @@ class Measure(MeasurementOperation):
 
         ``waveform.iq`` is always required — a readout drives an IQ bus. The pulse and the
         integration weights each contribute ``waveform.alias`` when given as a string alias, and a
-        concrete one contributes the per-class token from :func:`qprogram.protocol.waveform_token`
+        concrete one contributes the per-class token from [`qprogram.protocol.waveform_token`][]
         when its class is registered. The ``measure.fields.<name>`` tokens come from
-        :meth:`~qprogram.operations.operation.MeasurementOperation.required_capabilities`.
+        [`required_capabilities`][qprogram.operations.operation.MeasurementOperation.required_capabilities].
         """
         from qprogram.protocol import waveform_token  # ruff: ignore[import-outside-top-level]
 

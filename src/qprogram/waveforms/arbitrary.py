@@ -28,15 +28,15 @@ if TYPE_CHECKING:
 class Arbitrary(Waveform):
     """Waveform defined by a user-provided 1-D sample array.
 
-    The ``resolution`` argument to :meth:`envelope` is ignored — the samples are taken as-is, one per ns.
+    The ``resolution`` argument to `envelope` is ignored — the samples are taken as-is, one per ns.
 
-    An array that is already an :class:`numpy.ndarray` is adopted rather than copied, so a caller holding
+    An array that is already an `numpy.ndarray` is adopted rather than copied, so a caller holding
     a reference to it must not mutate it: waveforms are values, compared and hashed structurally.
-    :meth:`envelope` hands back a copy for the same reason.
+    `envelope` hands back a copy for the same reason.
 
     Args:
         samples (Sequence[float] | np.ndarray): 1-D sequence (list, tuple, or ``np.ndarray``) of sample
-            values. Converted with :func:`numpy.asarray`, so the stored dtype follows the input.
+            values. Converted with `numpy.asarray`, so the stored dtype follows the input.
     """
 
     def __init__(self, samples: Sequence[float] | np.ndarray) -> None:
@@ -46,7 +46,7 @@ class Arbitrary(Waveform):
         """Return a copy of the stored samples.
 
         Args:
-            resolution (int, optional): Ignored. Accepted so the signature matches :meth:`Waveform.envelope`; the
+            resolution (int, optional): Ignored. Accepted so the signature matches `Waveform.envelope`; the
                 stored samples are the envelope already, one per nanosecond.
 
         Returns:

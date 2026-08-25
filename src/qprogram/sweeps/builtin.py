@@ -13,12 +13,13 @@
 # limitations under the License.
 """The built-in sweep sources.
 
-:class:`Range`, :class:`Values`, :class:`Linspace`, :class:`Logspace`, :class:`File`.
+[`Range`][qprogram.Range], [`Values`][qprogram.Values], [`Linspace`][qprogram.Linspace],
+[`Logspace`][qprogram.Logspace], [`File`][qprogram.File].
 
 Grouped in one module rather than one file per class (the convention
-:mod:`qprogram.waveforms` follows) because these are parameter-only value objects of a dozen lines
+[`qprogram.waveforms`][] follows) because these are parameter-only value objects of a dozen lines
 each with no per-class algorithm to house — the sweep math is a single expression in every case.
-:mod:`qprogram.sweeps.combinators` holds the sources that wrap other sources.
+`qprogram.sweeps.combinators` holds the sources that wrap other sources.
 """
 # Every source declares a ``TOKEN`` class attribute, which ruff reads as a hardcoded credential.
 # ruff: file-ignore[hardcoded-password-string]
@@ -91,13 +92,13 @@ class Range(SweepSource):
     """A linear ramp from ``start`` toward ``stop`` in increments of ``step``.
 
     The source a hardware sequencer can usually run without a value table: one loop register plus an
-    increment. Prefer :class:`Linspace` when you know the number of points rather than the spacing.
+    increment. Prefer [`Linspace`][qprogram.Linspace] when you know the number of points rather than the spacing.
 
     The ramp always begins at ``start`` and holds ``round((stop - start) / step) + 1`` points, so it
     lands on ``stop`` only when ``step`` divides ``stop - start`` evenly. Otherwise the last point
     stops short of ``stop`` — ``Range(0, 1, 0.3)`` ends at ``0.9``, ``Range(0, 0.4, 1)`` is the single
     point ``0.0`` — or steps past it, as ``Range(0, 1, 0.6)`` does by ending at ``1.2``. Reach for
-    :class:`Linspace` when the last point has to land exactly on ``stop``.
+    [`Linspace`][qprogram.Linspace] when the last point has to land exactly on ``stop``.
 
     Args:
         start (float): First value, always produced.
@@ -147,7 +148,7 @@ class Range(SweepSource):
         """Return the ramp's points, in iteration order.
 
         Returns:
-            ``start + step * arange(length())`` — consistent with :meth:`length` by construction.
+            ``start + step * arange(length())`` — consistent with `length` by construction.
         """
         return self.start + self.step * np.arange(self.length())
 
@@ -155,16 +156,16 @@ class Range(SweepSource):
 class Values(SweepSource):
     """An explicit list of sweep points.
 
-    Use it when the points don't fit a regular pattern: calibrated values, a measured table, the
-    output of a computation you ran yourself. Note that it is :attr:`~SweepSource.KIND`
-    ``"arbitrary"`` even when the values happen to be evenly spaced — the source proves nothing about
-    their regularity to a compiler, so reach for :class:`Range` or :class:`Linspace` when the sweep
-    really is a ramp and you want a platform to be able to compile it as one.
+    Use it when the points don't fit a regular pattern: calibrated values, a measured table, the output of a computation
+    you ran yourself. Note that it is `KIND` ``"arbitrary"`` even when the values happen to be evenly spaced — the
+    source proves nothing about their regularity to a compiler, so reach for [`Range`][qprogram.Range] or
+    [`Linspace`][qprogram.Linspace] when the sweep really is a ramp and you want a platform to be able to compile it as
+    one.
 
     Args:
-        points (ArrayLike): Sequence of values to iterate through. Anything :func:`numpy.asarray`
+        points (ArrayLike): Sequence of values to iterate through. Anything `numpy.asarray`
             accepts. Named ``points`` rather than ``values`` so it doesn't collide with
-            :meth:`~qprogram.sweeps.SweepSource.values`; on the wire it is almost always written as
+            [`values`][qprogram.SweepSource.values]; on the wire it is almost always written as
             the bracket literal ``[...]`` anyway.
 
     Raises:
@@ -239,7 +240,7 @@ class Linspace(SweepSource):
         """Return the evenly spaced points.
 
         Returns:
-            :func:`numpy.linspace` over the closed interval ``[start, stop]``.
+            `numpy.linspace` over the closed interval ``[start, stop]``.
         """
         return np.linspace(self.start, self.stop, self.num)
 
@@ -259,7 +260,7 @@ class Logspace(SweepSource):
     """``num`` points spaced evenly on a log scale between ``start`` and ``stop`` (both linear values).
 
     Note the argument convention: ``start`` and ``stop`` are the actual first and last values, not the
-    exponents :func:`numpy.logspace` takes — a frequency sweep reads ``Logspace(1e6, 1e9, num=50)``
+    exponents `numpy.logspace` takes — a frequency sweep reads ``Logspace(1e6, 1e9, num=50)``
     rather than ``Logspace(6, 9, num=50)``.
 
     Args:
@@ -300,7 +301,7 @@ class Logspace(SweepSource):
         """Return the log-spaced points.
 
         Returns:
-            :func:`numpy.geomspace` over ``[start, stop]`` — evenly spaced in log space, inclusive of
+            `numpy.geomspace` over ``[start, stop]`` — evenly spaced in log space, inclusive of
             both bounds.
         """
         return np.geomspace(self.start, self.stop, self.num)
@@ -311,7 +312,7 @@ class File(SweepSource):
 
     The path is what the AST stores, so a ``.qp`` file records *where the points came from* rather
     than inlining them — which keeps the file small and the intent legible. The cost is that the file
-    must be readable wherever the program is validated or run: :meth:`length` and :meth:`values` both
+    must be readable wherever the program is validated or run: `length` and `values` both
     load it, and neither caches (caching would put the loaded array into the structural equality of
     the source, so an already-loaded instance would stop comparing equal to a fresh one).
 

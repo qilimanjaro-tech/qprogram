@@ -13,12 +13,12 @@
 # limitations under the License.
 """Symbolic expression system for QProgram.
 
-Anywhere QProgram accepts a numeric value, it also accepts an :class:`Expression` — a literal, a
-variable bound at runtime, or any composition of them. :meth:`Expression.evaluate` takes no
-arguments: each :class:`Variable` carries its own current value, set by the runtime per loop
-iteration. The :data:`UNASSIGNED` sentinel propagates upward when any variable is unbound.
+Anywhere QProgram accepts a numeric value, it also accepts an [`Expression`][qprogram.Expression] — a literal, a
+variable bound at runtime, or any composition of them. [`Expression.evaluate`][qprogram.Expression.evaluate] takes no
+arguments: each [`Variable`][qprogram.Variable] carries its own current value, set by the runtime per loop
+iteration. The `UNASSIGNED` sentinel propagates upward when any variable is unbound.
 
-Equality across the AST is structural. For :class:`Variable` this means by ``id`` — two variables
+Equality across the AST is structural. For [`Variable`][qprogram.Variable] this means by ``id`` — two variables
 compare equal iff their ``id`` matches, which is what lets a program survive ``deepcopy`` /
 ``qp.loads(qp.dumps(...))`` and still compare equal to the original.
 """
@@ -62,7 +62,7 @@ _MATH_FUNCTIONS: Final[frozenset[str]] = frozenset(
 class _UnassignedType:
     """Type of the ``UNASSIGNED`` sentinel.
 
-    A singleton: constructing the class returns the shared :data:`UNASSIGNED` instance rather than a
+    A singleton: constructing the class returns the shared `UNASSIGNED` instance rather than a
     new object, so ``is`` comparisons against the sentinel are sound.
     """
 
@@ -96,19 +96,21 @@ class Expression(ABC):
 
     Subclasses split into four families:
 
-    - **Leaves** — :class:`Variable`, :class:`Constant`, :class:`MeasurementRef`.
-    - **Arithmetic** — :class:`BinaryOp` (``+ - * /``), :class:`UnaryOp` (``- +``).
-    - **Comparison & logical** — :class:`Comparison`, :class:`LogicalBinaryOp`, :class:`LogicalNot`.
-    - **Math & conditional** — :class:`MathFunc`, :class:`Where`.
+    - **Leaves** — [`Variable`][qprogram.Variable], [`Constant`][qprogram.Constant],
+      [`MeasurementRef`][qprogram.MeasurementRef].
+    - **Arithmetic** — [`BinaryOp`][qprogram.BinaryOp] (``+ - * /``), [`UnaryOp`][qprogram.UnaryOp] (``- +``).
+    - **Comparison & logical** — [`Comparison`][qprogram.Comparison], [`LogicalBinaryOp`][qprogram.LogicalBinaryOp],
+      [`LogicalNot`][qprogram.LogicalNot].
+    - **Math & conditional** — [`MathFunc`][qprogram.MathFunc], [`Where`][qprogram.Where].
 
     Operators that map cleanly onto Python syntax build the corresponding AST nodes uniformly across
-    every subclass. The exceptions are ``==`` / ``!=`` (use :func:`eq` / :func:`ne` so :class:`Variable`
+    every subclass. The exceptions are ``==`` / ``!=`` (use `eq` / `ne` so [`Variable`][qprogram.Variable]
     can keep a plain-bool ``__eq__`` for set / dict-key use) and ``and`` / ``or`` / ``not`` (Python
-    keywords, unoverloadable — use ``& | ~`` or the named helpers :func:`and_` / :func:`or_` /
-    :func:`not_`).
+    keywords, unoverloadable — use ``& | ~`` or the named helpers `and_` / `or_` /
+    `not_`).
 
     Why ``__bool__`` raises: ``if freq < 5e9:`` would otherwise silently test the truthiness of the
-    :class:`Comparison` instance (always true) instead of building the conditional the user almost
+    [`Comparison`][qprogram.Comparison] instance (always true) instead of building the conditional the user almost
     certainly meant. Mirrors SymPy.
     """
 
@@ -118,13 +120,13 @@ class Expression(ABC):
 
         Returns:
             A numeric result for arithmetic / math expressions, a ``bool`` for comparisons and logical
-            expressions (``bool`` is an ``int`` subclass), or :data:`UNASSIGNED` when any referenced
+            expressions (``bool`` is an ``int`` subclass), or `UNASSIGNED` when any referenced
             variable is currently unassigned.
         """
         ...
 
     def evaluate_or_raise(self) -> int | float:
-        """Compute the value of the expression, raising instead of returning :data:`UNASSIGNED`.
+        """Compute the value of the expression, raising instead of returning `UNASSIGNED`.
 
         Returns:
             The numeric value.
@@ -141,7 +143,7 @@ class Expression(ABC):
 
     @abstractmethod
     def variables(self) -> set[Variable]:
-        """Return the free :class:`Variable` s appearing in this expression.
+        """Return the free [`Variable`][qprogram.Variable] s appearing in this expression.
 
         Every node unions the sets reported by its children, so one call covers the whole subtree.
 
@@ -239,15 +241,15 @@ class Expression(ABC):
 class Variable(Expression):
     """A symbolic variable.
 
-    Leaf node of the expression AST, holding a value that starts out :data:`UNASSIGNED`.
+    Leaf node of the expression AST, holding a value that starts out `UNASSIGNED`.
 
-    Equality and hashing are structural over ``id``: two variables compare equal when their ``id``
-    matches. Within one program ids are unique (:meth:`QProgram.variable` rejects duplicates), so
-    id-equality coincides with identity there; across programs it is what lets a program survive
-    ``deepcopy`` / ``qp.loads(qp.dumps(...))`` and still compare equal to the original.
+    Equality and hashing are structural over ``id``: two variables compare equal when their ``id`` matches. Within one
+    program ids are unique ([`QProgram.variable`][qprogram.QProgram.variable] rejects duplicates), so id-equality
+    coincides with identity there; across programs it is what lets a program survive ``deepcopy`` /
+    ``qp.loads(qp.dumps(...))`` and still compare equal to the original.
 
-    The runtime sets the value via :meth:`set_value` per loop iteration; reading :attr:`value` (or
-    calling :meth:`evaluate`) returns the current value or :data:`UNASSIGNED`.
+    The runtime sets the value via `set_value` per loop iteration; reading `value` (or
+    calling `evaluate`) returns the current value or `UNASSIGNED`.
 
     Args:
         id (str): Short name matching ``[A-Za-z_][A-Za-z0-9_]*``. Doubles as the identifier in the
@@ -258,7 +260,7 @@ class Variable(Expression):
 
     Raises:
         InvalidVariableIdError: If ``id`` violates the pattern or is reserved
-            (see :data:`~qprogram.RESERVED_KEYWORDS`).
+            (see [`RESERVED_KEYWORDS`][qprogram.RESERVED_KEYWORDS]).
     """
 
     def __init__(
@@ -301,7 +303,7 @@ class Variable(Expression):
 
     @property
     def value(self) -> int | float | _UnassignedType:
-        """The current value, or :data:`UNASSIGNED` if no value has been set."""
+        """The current value, or `UNASSIGNED` if no value has been set."""
         return self._value
 
     def set_value(self, value: float) -> None:
@@ -313,14 +315,14 @@ class Variable(Expression):
         self._value = value
 
     def reset(self) -> None:
-        """Clear the variable's value, returning it to :data:`UNASSIGNED`."""
+        """Clear the variable's value, returning it to `UNASSIGNED`."""
         self._value = UNASSIGNED
 
     def evaluate(self) -> int | float | _UnassignedType:
         """Return the variable's current value.
 
         Returns:
-            The bound value, or :data:`UNASSIGNED` while nothing is bound.
+            The bound value, or `UNASSIGNED` while nothing is bound.
         """
         return self._value
 
@@ -349,26 +351,26 @@ class Variable(Expression):
 class MeasurementRef(Expression):
     """Reference to a field of a measurement result, used inside conditional expressions.
 
-    Built implicitly by the proxy that :attr:`MeasurementHandle.state` returns when the user writes
+    Built implicitly by the proxy that `MeasurementHandle.state` returns when the user writes
     ``handle.state == 0``; direct construction is rarely needed.
 
     Equality is structural over ``(handle.name, field)``: distinct instances built at different sites
-    refer to the same logical reference whenever their names match. Mirrors :class:`Variable`'s
+    refer to the same logical reference whenever their names match. Mirrors [`Variable`][qprogram.Variable]'s
     cross-program equality story so programs survive ``deepcopy`` / ``qp.loads(qp.dumps(...))``.
 
     Args:
         handle (MeasurementHandle): The producing measurement's
-            :class:`~qprogram.MeasurementHandle`.
+            [`MeasurementHandle`][qprogram.MeasurementHandle].
         field (str): Field name. ``"state"`` is the only accepted value.
 
     Raises:
         ValueError: If ``field`` is not in the allowed set.
     """
 
-    # A deliberately narrower set than :class:`~qprogram.MeasurementField`: that enum is what a
+    # A deliberately narrower set than `MeasurementField`: that enum is what a
     # measurement may *produce*, this is what a condition may *branch on*. Only a classified scalar
     # qualifies, so ``"raw"`` and ``"iq"`` are excluded by design, not by omission. Spelled as a
-    # plain string because :mod:`qprogram.operations.operation` (where the enum lives) imports this
+    # plain string because `qprogram.operations.operation` (where the enum lives) imports this
     # module — the dependency only runs one way.
     _ALLOWED_FIELDS: ClassVar[frozenset[str]] = frozenset({"state"})
 
@@ -383,7 +385,7 @@ class MeasurementRef(Expression):
         """Return the current value of the referenced measurement field.
 
         Returns:
-            The value the runtime recorded on the handle for this field, or :data:`UNASSIGNED` before
+            The value the runtime recorded on the handle for this field, or `UNASSIGNED` before
             the measurement has produced one.
         """
         return self.handle._value_for(self.field)  # ruff: ignore[private-member-access]
@@ -391,7 +393,7 @@ class MeasurementRef(Expression):
     def variables(self) -> set[Variable]:
         """Return the free variables in this expression.
 
-        A measurement reference is its own binding kind, distinct from :class:`Variable`, so it takes
+        A measurement reference is its own binding kind, distinct from [`Variable`][qprogram.Variable], so it takes
         no part in the loop-counter variable walk the rest of the AST feeds.
 
         Returns:
@@ -410,25 +412,25 @@ class MeasurementRef(Expression):
 
 
 class _HandleFieldAccess:
-    """Throwaway proxy returned by :attr:`MeasurementHandle.state`.
+    """Throwaway proxy returned by `MeasurementHandle.state`.
 
-    Why it exists: ``handle.state == 0`` needs to build a :class:`Comparison`, but overloading ``==``
-    on :class:`MeasurementRef` itself would clash with the AST's structural equality walk (which would
-    try to evaluate ``bool(Comparison)`` and trip :meth:`Expression.__bool__`). The proxy is consumed
-    immediately by the comparison and never stored on the AST.
+    Why it exists: ``handle.state == 0`` needs to build a [`Comparison`][qprogram.Comparison], but overloading ``==`` on
+    [`MeasurementRef`][qprogram.MeasurementRef] itself would clash with the AST's structural equality walk (which would
+    try to evaluate ``bool(Comparison)`` and trip `Expression.__bool__`). The proxy is consumed immediately by the
+    comparison and never stored on the AST.
 
     ``==`` and ``!=`` accept ``int`` literals, another ``_HandleFieldAccess`` (for
-    ``m1.state == m2.state``), or a concrete :class:`MeasurementRef`.
+    ``m1.state == m2.state``), or a concrete [`MeasurementRef`][qprogram.MeasurementRef].
 
-    Hashing is disabled because ``==`` builds a :class:`Comparison` rather than returning a ``bool``,
+    Hashing is disabled because ``==`` builds a [`Comparison`][qprogram.Comparison] rather than returning a ``bool``,
     which is not the equality a hash-based container needs; the proxy therefore cannot be a set member
     or a dict key. Holding one instead of consuming it fails just as loudly:
-    ``s = handle.state; s == s`` yields a :class:`Comparison` whose ``bool`` raises.
+    ``s = handle.state; s == s`` yields a [`Comparison`][qprogram.Comparison] whose ``bool`` raises.
 
     Args:
         handle (MeasurementHandle): The measurement whose field the comparison refers to.
         field (str): Name of the field being accessed, in practice ``"state"``. The proxy stores it
-            as given; it is validated when the comparison resolves it to a :class:`MeasurementRef`.
+            as given; it is validated when the comparison resolves it to a [`MeasurementRef`][qprogram.MeasurementRef].
     """
 
     __slots__ = ("_field", "_handle")
@@ -477,8 +479,8 @@ class _HandleFieldAccess:
 class Constant(Expression):
     """Concrete numeric leaf with structural equality (``Constant(5) == Constant(5)``).
 
-    Numeric literals appearing in expressions are auto-wrapped to :class:`Constant` by the operator
-    methods on :class:`Expression`.
+    Numeric literals appearing in expressions are auto-wrapped to [`Constant`][qprogram.Constant] by the operator
+    methods on [`Expression`][qprogram.Expression].
 
     Args:
         value (float): The number to hold; an ``int`` is kept as an ``int``. ``bool`` is rejected —
@@ -498,7 +500,7 @@ class Constant(Expression):
         """Return the constant's value.
 
         Returns:
-            The stored number. A constant is always bound, so this is never :data:`UNASSIGNED`.
+            The stored number. A constant is always bound, so this is never `UNASSIGNED`.
         """
         return self.value
 
@@ -528,8 +530,8 @@ class Constant(Expression):
 class BinaryOp(Expression):
     """Binary arithmetic node — ``left op right`` for one of ``+ - * /``.
 
-    Constructed by the arithmetic operators on :class:`Expression`. Numeric literals are auto-wrapped
-    to :class:`Constant`, so both operands are always :class:`Expression` instances.
+    Constructed by the arithmetic operators on [`Expression`][qprogram.Expression]. Numeric literals are auto-wrapped
+    to [`Constant`][qprogram.Constant], so both operands are always [`Expression`][qprogram.Expression] instances.
 
     Args:
         op (BinaryOperator): Operator symbol — one of ``+``, ``-``, ``*``, ``/``.
@@ -546,7 +548,7 @@ class BinaryOp(Expression):
         """Apply the arithmetic operator to both operands.
 
         Returns:
-            The numeric result, or :data:`UNASSIGNED` when either operand is unassigned.
+            The numeric result, or `UNASSIGNED` when either operand is unassigned.
 
         Raises:
             ZeroDivisionError: If the operator is ``/`` and the right operand evaluates to zero.
@@ -604,7 +606,7 @@ class UnaryOp(Expression):
         """Apply the sign operator to the operand.
 
         Returns:
-            The negated value for ``-`` and the operand's own value for ``+``, or :data:`UNASSIGNED`
+            The negated value for ``-`` and the operand's own value for ``+``, or `UNASSIGNED`
             when the operand is unassigned.
         """
         operand_value = self.operand.evaluate()
@@ -638,11 +640,11 @@ class UnaryOp(Expression):
 class Comparison(Expression):
     """Binary comparison node — ``left op right`` for one of ``== != < <= > >=``.
 
-    Constructed by the comparison operators on :class:`Expression` (``< <= > >=``) and by the helper
-    functions :func:`eq` / :func:`ne` (``== !=``; see :class:`Expression` for why these are not
+    Constructed by the comparison operators on [`Expression`][qprogram.Expression] (``< <= > >=``) and by the helper
+    functions `eq` / `ne` (``== !=``; see [`Expression`][qprogram.Expression] for why these are not
     overloaded directly).
 
-    :meth:`evaluate` returns ``bool`` (an ``int`` subclass) or :data:`UNASSIGNED` if either operand is
+    `evaluate` returns ``bool`` (an ``int`` subclass) or `UNASSIGNED` if either operand is
     unassigned.
 
     Args:
@@ -669,7 +671,7 @@ class Comparison(Expression):
         """Compare the two operands.
 
         Returns:
-            The boolean outcome of the comparison, or :data:`UNASSIGNED` when either operand is
+            The boolean outcome of the comparison, or `UNASSIGNED` when either operand is
             unassigned.
         """
         left_value = self.left.evaluate()
@@ -716,10 +718,10 @@ class Comparison(Expression):
 class LogicalBinaryOp(Expression):
     """Binary logical node — ``left op right`` for ``and`` or ``or``.
 
-    Constructed by ``&`` and ``|`` on :class:`Expression`, or by the named helpers :func:`and_` /
-    :func:`or_`.
+    Constructed by ``&`` and ``|`` on [`Expression`][qprogram.Expression], or by the named helpers `and_` /
+    `or_`.
 
-    Why this never short-circuits: any :data:`UNASSIGNED` operand propagates upwards. Matches the rest
+    Why this never short-circuits: any `UNASSIGNED` operand propagates upwards. Matches the rest
     of the evaluator and makes unbound-variable diagnostics deterministic rather than position-dependent.
 
     Args:
@@ -729,7 +731,7 @@ class LogicalBinaryOp(Expression):
 
     Raises:
         ValueError: If ``op`` is not a recognized logical operator (defensive).
-        TypeError: If either operand is not an :class:`Expression`.
+        TypeError: If either operand is not an [`Expression`][qprogram.Expression].
     """
 
     _OPS: ClassVar[frozenset[str]] = frozenset({"and", "or"})
@@ -748,7 +750,7 @@ class LogicalBinaryOp(Expression):
         """Combine the truthiness of both operands.
 
         Returns:
-            The boolean outcome of ``and`` / ``or``, or :data:`UNASSIGNED` when either operand is
+            The boolean outcome of ``and`` / ``or``, or `UNASSIGNED` when either operand is
             unassigned. Both operands are always evaluated.
         """
         left_value = self.left.evaluate()
@@ -787,13 +789,13 @@ class LogicalBinaryOp(Expression):
 class LogicalNot(Expression):
     """Logical negation node — ``not operand``.
 
-    Constructed by ``~`` on :class:`Expression` or by :func:`not_`.
+    Constructed by ``~`` on [`Expression`][qprogram.Expression] or by `not_`.
 
     Args:
         operand (Expression): The expression to negate.
 
     Raises:
-        TypeError: If ``operand`` is not an :class:`Expression`.
+        TypeError: If ``operand`` is not an [`Expression`][qprogram.Expression].
     """
 
     def __init__(self, operand: Expression) -> None:
@@ -804,7 +806,7 @@ class LogicalNot(Expression):
         """Negate the truthiness of the operand.
 
         Returns:
-            ``True`` when the operand is falsy and ``False`` when it is truthy, or :data:`UNASSIGNED`
+            ``True`` when the operand is falsy and ``False`` when it is truthy, or `UNASSIGNED`
             when the operand is unassigned.
         """
         operand_value = self.operand.evaluate()
@@ -839,12 +841,12 @@ class MathFunc(Expression):
     """Math-function application — ``name(arg1, arg2, ...)``.
 
     The function name selects the numeric implementation. Recognized names are listed in
-    :data:`_MATH_FUNCTIONS`. Each is dispatched via the lazy lookup in :func:`_math_eval`, keeping
+    `_MATH_FUNCTIONS`. Each is dispatched via the lazy lookup in `_math_eval`, keeping
     this module free of a direct ``numpy``/``math`` import at the AST layer.
 
     Arity is not enforced beyond requiring at least one operand: ``minimum`` and ``maximum`` fold
     every operand, and every other function reads the first and ignores the rest. The module-level
-    builders (:func:`sin`, :func:`minimum`, ...) are the arity-checked way in.
+    builders (`sin`, `minimum`, ...) are the arity-checked way in.
 
     Args:
         name (str): Function name, such as ``"sin"`` or ``"minimum"``.
@@ -868,7 +870,7 @@ class MathFunc(Expression):
         """Evaluate every operand and apply the named function.
 
         Returns:
-            The numeric result, or :data:`UNASSIGNED` as soon as any operand is unassigned.
+            The numeric result, or `UNASSIGNED` as soon as any operand is unassigned.
         """
         values: list[int | float] = []
         for op in self.operands:
@@ -905,9 +907,9 @@ class Where(Expression):
 
     Short-circuits: the unchosen branch is not evaluated, so it may safely reference unassigned
     variables. If ``condition`` itself is unassigned the whole expression evaluates to
-    :data:`UNASSIGNED`.
+    `UNASSIGNED`.
 
-    Users normally construct via the :func:`where` helper.
+    Users normally construct via the `where` helper.
 
     Args:
         condition (Expression): The predicate expression.
@@ -915,7 +917,7 @@ class Where(Expression):
         else_ (Expression): Returned when ``condition`` evaluates to falsy.
 
     Raises:
-        TypeError: If any argument is not an :class:`Expression`.
+        TypeError: If any argument is not an [`Expression`][qprogram.Expression].
     """
 
     def __init__(self, condition: Expression, then: Expression, else_: Expression) -> None:
@@ -930,7 +932,7 @@ class Where(Expression):
         """Evaluate the condition, then the one branch it selects.
 
         Returns:
-            The chosen branch's value. :data:`UNASSIGNED` when the condition is unassigned, or when
+            The chosen branch's value. `UNASSIGNED` when the condition is unassigned, or when
             the chosen branch is; the branch that is not taken is never evaluated.
         """
         cond_value = self.condition.evaluate()
@@ -971,12 +973,12 @@ class Where(Expression):
 def _math_eval(name: str, values: list[int | float]) -> int | float:
     """Apply the named math function to already-evaluated operands.
 
-    The numeric half of :meth:`MathFunc.evaluate`. :mod:`numpy` is imported lazily so AST construction
-    stays free of the cost. ``abs`` preserves the int/float distinction; transcendental functions
-    return Python floats.
+    The numeric half of [`MathFunc.evaluate`][qprogram.MathFunc.evaluate]. `numpy` is imported lazily so AST
+    construction stays free of the cost. ``abs`` preserves the int/float distinction; transcendental functions return
+    Python floats.
 
     Args:
-        name (str): One of the names in :data:`_MATH_FUNCTIONS`.
+        name (str): One of the names in `_MATH_FUNCTIONS`.
         values (list[int | float]): The already-evaluated operands. ``minimum`` and ``maximum`` read
             all of them; every other function reads the first.
 
@@ -1011,13 +1013,13 @@ def eq(
     left: Expression | float | _HandleFieldAccess,
     right: Expression | float | _HandleFieldAccess,
 ) -> Comparison:
-    """Build an equality :class:`Comparison`.
+    """Build an equality [`Comparison`][qprogram.Comparison].
 
-    Why this exists rather than overloading ``==`` on :class:`Variable`: ``Variable.__eq__`` compares
+    Why this exists rather than overloading ``==`` on [`Variable`][qprogram.Variable]: ``Variable.__eq__`` compares
     ids and must keep returning a plain ``bool``, so that variables stay usable in sets (notably the
     ``expression.variables()`` walk) and as dict keys — which rules out building a
-    :class:`Comparison` from ``==``. Numeric operands are wrapped as :class:`Constant`;
-    ``handle.<field>`` proxies resolve to :class:`MeasurementRef`. Equivalent to
+    [`Comparison`][qprogram.Comparison] from ``==``. Numeric operands are wrapped as [`Constant`][qprogram.Constant];
+    ``handle.<field>`` proxies resolve to [`MeasurementRef`][qprogram.MeasurementRef]. Equivalent to
     ``handle.state == 0`` when one operand is a field-access proxy.
 
     Args:
@@ -1026,7 +1028,7 @@ def eq(
         right (Expression | float | _HandleFieldAccess): Right operand, same forms as ``left``.
 
     Returns:
-        A :class:`Comparison` node for ``left == right``.
+        A [`Comparison`][qprogram.Comparison] node for ``left == right``.
 
     Raises:
         TypeError: If either operand is a ``bool`` or any other type with no expression form.
@@ -1038,7 +1040,7 @@ def ne(
     left: Expression | float | _HandleFieldAccess,
     right: Expression | float | _HandleFieldAccess,
 ) -> Comparison:
-    """Build an inequality :class:`Comparison` — counterpart of :func:`eq`.
+    """Build an inequality [`Comparison`][qprogram.Comparison] — counterpart of `eq`.
 
     Args:
         left (Expression | float | _HandleFieldAccess): Left operand — an expression, a number, or a
@@ -1046,7 +1048,7 @@ def ne(
         right (Expression | float | _HandleFieldAccess): Right operand, same forms as ``left``.
 
     Returns:
-        A :class:`Comparison` node for ``left != right``.
+        A [`Comparison`][qprogram.Comparison] node for ``left != right``.
 
     Raises:
         TypeError: If either operand is a ``bool`` or any other type with no expression form.
@@ -1066,10 +1068,10 @@ def and_(left: Expression, right: Expression) -> LogicalBinaryOp:
         right (Expression): Right operand.
 
     Returns:
-        A :class:`LogicalBinaryOp` node for ``left and right``.
+        A [`LogicalBinaryOp`][qprogram.LogicalBinaryOp] node for ``left and right``.
 
     Raises:
-        TypeError: If either operand is not an :class:`Expression`. Numbers are not coerced here —
+        TypeError: If either operand is not an [`Expression`][qprogram.Expression]. Numbers are not coerced here —
             a logical operand must already be an expression.
     """
     return LogicalBinaryOp("and", left, right)
@@ -1083,10 +1085,10 @@ def or_(left: Expression, right: Expression) -> LogicalBinaryOp:
         right (Expression): Right operand.
 
     Returns:
-        A :class:`LogicalBinaryOp` node for ``left or right``.
+        A [`LogicalBinaryOp`][qprogram.LogicalBinaryOp] node for ``left or right``.
 
     Raises:
-        TypeError: If either operand is not an :class:`Expression`.
+        TypeError: If either operand is not an [`Expression`][qprogram.Expression].
     """
     return LogicalBinaryOp("or", left, right)
 
@@ -1098,10 +1100,10 @@ def not_(operand: Expression) -> LogicalNot:
         operand (Expression): The expression to negate.
 
     Returns:
-        A :class:`LogicalNot` node wrapping ``operand``.
+        A [`LogicalNot`][qprogram.LogicalNot] node wrapping ``operand``.
 
     Raises:
-        TypeError: If ``operand`` is not an :class:`Expression`.
+        TypeError: If ``operand`` is not an [`Expression`][qprogram.Expression].
     """
     return LogicalNot(operand)
 
@@ -1110,10 +1112,10 @@ def sin(x: Expression | float) -> MathFunc:
     """Build a symbolic ``sin(x)``.
 
     Args:
-        x (Expression | float): The operand. A number is wrapped as a :class:`Constant`.
+        x (Expression | float): The operand. A number is wrapped as a [`Constant`][qprogram.Constant].
 
     Returns:
-        A :class:`MathFunc` node for ``sin(x)``.
+        A [`MathFunc`][qprogram.MathFunc] node for ``sin(x)``.
 
     Raises:
         TypeError: If ``x`` is a ``bool`` or any other type with no expression form.
@@ -1125,10 +1127,10 @@ def cos(x: Expression | float) -> MathFunc:
     """Build a symbolic ``cos(x)``.
 
     Args:
-        x (Expression | float): The operand. A number is wrapped as a :class:`Constant`.
+        x (Expression | float): The operand. A number is wrapped as a [`Constant`][qprogram.Constant].
 
     Returns:
-        A :class:`MathFunc` node for ``cos(x)``.
+        A [`MathFunc`][qprogram.MathFunc] node for ``cos(x)``.
 
     Raises:
         TypeError: If ``x`` is a ``bool`` or any other type with no expression form.
@@ -1140,10 +1142,10 @@ def tan(x: Expression | float) -> MathFunc:
     """Build a symbolic ``tan(x)``.
 
     Args:
-        x (Expression | float): The operand. A number is wrapped as a :class:`Constant`.
+        x (Expression | float): The operand. A number is wrapped as a [`Constant`][qprogram.Constant].
 
     Returns:
-        A :class:`MathFunc` node for ``tan(x)``.
+        A [`MathFunc`][qprogram.MathFunc] node for ``tan(x)``.
 
     Raises:
         TypeError: If ``x`` is a ``bool`` or any other type with no expression form.
@@ -1155,10 +1157,10 @@ def exp(x: Expression | float) -> MathFunc:
     """Build a symbolic ``exp(x)``.
 
     Args:
-        x (Expression | float): The operand. A number is wrapped as a :class:`Constant`.
+        x (Expression | float): The operand. A number is wrapped as a [`Constant`][qprogram.Constant].
 
     Returns:
-        A :class:`MathFunc` node for ``exp(x)``.
+        A [`MathFunc`][qprogram.MathFunc] node for ``exp(x)``.
 
     Raises:
         TypeError: If ``x`` is a ``bool`` or any other type with no expression form.
@@ -1170,10 +1172,10 @@ def log(x: Expression | float) -> MathFunc:
     """Build a symbolic natural log ``log(x)``.
 
     Args:
-        x (Expression | float): The operand. A number is wrapped as a :class:`Constant`.
+        x (Expression | float): The operand. A number is wrapped as a [`Constant`][qprogram.Constant].
 
     Returns:
-        A :class:`MathFunc` node for the natural logarithm ``log(x)``.
+        A [`MathFunc`][qprogram.MathFunc] node for the natural logarithm ``log(x)``.
 
     Raises:
         TypeError: If ``x`` is a ``bool`` or any other type with no expression form.
@@ -1185,10 +1187,10 @@ def sqrt(x: Expression | float) -> MathFunc:
     """Build a symbolic ``sqrt(x)``.
 
     Args:
-        x (Expression | float): The operand. A number is wrapped as a :class:`Constant`.
+        x (Expression | float): The operand. A number is wrapped as a [`Constant`][qprogram.Constant].
 
     Returns:
-        A :class:`MathFunc` node for ``sqrt(x)``.
+        A [`MathFunc`][qprogram.MathFunc] node for ``sqrt(x)``.
 
     Raises:
         TypeError: If ``x`` is a ``bool`` or any other type with no expression form.
@@ -1199,16 +1201,16 @@ def sqrt(x: Expression | float) -> MathFunc:
 def minimum(*args: Expression | float) -> MathFunc:
     """Build a symbolic ``minimum(a, b, ...)``.
 
-    Why this exists separately from :func:`min`: the built-in compares with ``<``, which on an
-    :class:`Expression` builds a :class:`Comparison` node instead of a ``bool``, so
-    ``min(var_a, var_b)`` raises :class:`TypeError` from :meth:`Expression.__bool__` rather than
+    Why this exists separately from `min`: the built-in compares with ``<``, which on an
+    [`Expression`][qprogram.Expression] builds a [`Comparison`][qprogram.Comparison] node instead of a ``bool``, so
+    ``min(var_a, var_b)`` raises `TypeError` from `Expression.__bool__` rather than
     building the symbolic minimum.
 
     Args:
-        *args (Expression | float): At least two operands. Numbers are wrapped as :class:`Constant`.
+        *args (Expression | float): At least two operands. Numbers are wrapped as [`Constant`][qprogram.Constant].
 
     Returns:
-        A :class:`MathFunc` node for ``minimum(a, b, ...)``.
+        A [`MathFunc`][qprogram.MathFunc] node for ``minimum(a, b, ...)``.
 
     Raises:
         TypeError: If fewer than two arguments are passed, or if an argument is a ``bool`` or any
@@ -1221,13 +1223,13 @@ def minimum(*args: Expression | float) -> MathFunc:
 
 
 def maximum(*args: Expression | float) -> MathFunc:
-    """Build a symbolic ``maximum(a, b, ...)`` — same rationale as :func:`minimum`.
+    """Build a symbolic ``maximum(a, b, ...)`` — same rationale as `minimum`.
 
     Args:
-        *args (Expression | float): At least two operands. Numbers are wrapped as :class:`Constant`.
+        *args (Expression | float): At least two operands. Numbers are wrapped as [`Constant`][qprogram.Constant].
 
     Returns:
-        A :class:`MathFunc` node for ``maximum(a, b, ...)``.
+        A [`MathFunc`][qprogram.MathFunc] node for ``maximum(a, b, ...)``.
 
     Raises:
         TypeError: If fewer than two arguments are passed, or if an argument is a ``bool`` or any
@@ -1240,23 +1242,23 @@ def maximum(*args: Expression | float) -> MathFunc:
 
 
 def where(condition: Expression, then: Expression | float, else_: Expression | float) -> Where:
-    """Build a ternary :class:`Where` expression — ``where(condition, then, else_)``.
+    """Build a ternary [`Where`][qprogram.Where] expression — ``where(condition, then, else_)``.
 
     Only the chosen branch is evaluated, so the unchosen branch may reference variables that happen to
     be unassigned at evaluation time.
 
     Args:
-        condition (Expression): Boolean expression, typically a :class:`Comparison` or a
-            :class:`LogicalBinaryOp`.
+        condition (Expression): Boolean expression, typically a [`Comparison`][qprogram.Comparison] or a
+            [`LogicalBinaryOp`][qprogram.LogicalBinaryOp].
         then (Expression | float): Returned when ``condition`` is truthy. Numeric literals are wrapped
-            as :class:`Constant`.
+            as [`Constant`][qprogram.Constant].
         else_ (Expression | float): Returned when ``condition`` is falsy, wrapped the same way.
 
     Returns:
-        A :class:`Where` node over the condition and the two branches.
+        A [`Where`][qprogram.Where] node over the condition and the two branches.
 
     Raises:
-        TypeError: If ``condition`` is not an :class:`Expression`, or if a branch is a ``bool`` or any
+        TypeError: If ``condition`` is not an [`Expression`][qprogram.Expression], or if a branch is a ``bool`` or any
             other type with no expression form.
     """
     return Where(condition, _wrap(then), _wrap(else_))
@@ -1268,14 +1270,14 @@ def where(condition: Expression, then: Expression | float, else_: Expression | f
 
 
 def _wrap(x: Expression | float | _HandleFieldAccess) -> Expression:
-    """Coerce a literal, proxy, or :class:`Expression` into a concrete :class:`Expression`.
+    """Coerce a literal, proxy, or [`Expression`][qprogram.Expression] into a concrete [`Expression`][qprogram.Expression].
 
-    Numeric literals become :class:`Constant`; ``handle.<field>`` proxies become
-    :class:`MeasurementRef`. ``bool`` is rejected: it is an ``int`` subclass but means a different
+    Numeric literals become [`Constant`][qprogram.Constant]; ``handle.<field>`` proxies become
+    [`MeasurementRef`][qprogram.MeasurementRef]. ``bool`` is rejected: it is an ``int`` subclass but means a different
     thing here.
 
     Args:
-        x (Expression | float | _HandleFieldAccess): The value to coerce. An :class:`Expression` is
+        x (Expression | float | _HandleFieldAccess): The value to coerce. An [`Expression`][qprogram.Expression] is
             returned unchanged.
 
     Returns:
@@ -1295,18 +1297,18 @@ def _wrap(x: Expression | float | _HandleFieldAccess) -> Expression:
 
 
 def _require_expression(value: object, *, where: str) -> None:
-    """Raise :class:`TypeError` if ``value`` is not an :class:`Expression`.
+    """Raise `TypeError` if ``value`` is not an [`Expression`][qprogram.Expression].
 
-    Used by constructors that take an :class:`Expression`-typed operand without numeric coercion
-    (logical operators, :class:`Where` condition). The error message points the user at
-    :func:`eq` / :func:`ne` for the common ``var == literal`` pitfall.
+    Used by constructors that take an [`Expression`][qprogram.Expression]-typed operand without numeric coercion
+    (logical operators, [`Where`][qprogram.Where] condition). The error message points the user at
+    `eq` / `ne` for the common ``var == literal`` pitfall.
 
     Args:
         value (object): The operand to check.
         where (str): Description of the operand position; it opens the error message.
 
     Raises:
-        TypeError: If ``value`` is not an :class:`Expression`.
+        TypeError: If ``value`` is not an [`Expression`][qprogram.Expression].
     """
     if isinstance(value, Expression):
         return

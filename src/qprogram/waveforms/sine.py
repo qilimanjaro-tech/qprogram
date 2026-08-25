@@ -26,7 +26,7 @@ class Sine(Waveform):
 
     Useful for parametric drives, sideband cooling tones, and as a building block for amplitude-modulated
     waveforms. The envelope does not taper to zero at the endpoints; pair with a window function
-    (e.g. :class:`Tukey`) when continuous-wave artifacts matter.
+    (e.g. [`Tukey`][qprogram.waveforms.Tukey]) when continuous-wave artifacts matter.
 
     Args:
         amplitude (float | Expression): Peak amplitude.
@@ -59,7 +59,7 @@ class Sine(Waveform):
             A 1-D float array of length ``duration / resolution``.
 
         Raises:
-            UnassignedVariableError: If a parameter is an :class:`~qprogram.Expression` whose variables
+            UnassignedVariableError: If a parameter is an [`Expression`][qprogram.Expression] whose variables
                 have no value.
         """
         amplitude = self.amplitude.evaluate_or_raise() if isinstance(self.amplitude, Expression) else self.amplitude
@@ -77,7 +77,7 @@ class Sine(Waveform):
             The duration truncated to a whole number of nanoseconds.
 
         Raises:
-            UnassignedVariableError: If ``duration`` is an :class:`~qprogram.Expression` whose variables
+            UnassignedVariableError: If ``duration`` is an [`Expression`][qprogram.Expression] whose variables
                 have no value.
         """
         duration = self.duration.evaluate_or_raise() if isinstance(self.duration, Expression) else self.duration

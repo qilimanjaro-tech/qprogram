@@ -71,11 +71,25 @@ Say so in the PR description, and name the guide pages you touched.
    relevant guide page. New operations and waveforms also need a mention in
    [`docs/reference/qp-format.md`](../reference/qp-format.md).
 
-9. **Open the PR.** The workflows under `.github/workflows/` run on it:
-   `tests.yml` runs the suite across the supported Python versions and
-   uploads coverage; `code_quality.yml` runs `ruff check` and
-   `ruff format --diff` once on Python 3.13, then `ty check` once per
-   supported version (3.11 through 3.14); and `docs.yml` builds this site.
+9. **Add a changelog entry.** Anything a user would notice gets one news
+   fragment under `changelog.d/`, named `<pr-number>.<type>.md`, where the type
+   is `added`, `changed`, `fixed`, or `removed`.
+
+   ```bash
+   uv run towncrier create 123.added.md
+   ```
+
+   Write one or two sentences about what changed for somebody using the
+   library. A fragment written before the pull request has a number takes a `+`
+   prefix and any name, as in `+lazy-waveform-binding.added.md`; rename it once
+   the number exists so the entry carries a link. Internal refactors, test-only
+   changes, and docs corrections do not need one.
+
+10. **Open the PR.** The workflows under `.github/workflows/` run on it:
+    `tests.yml` runs the suite across the supported Python versions and
+    uploads coverage; `code_quality.yml` runs `ruff check` and
+    `ruff format --diff` once on Python 3.13, then `ty check` once per
+    supported version (3.11 through 3.14); and `docs.yml` builds this site.
 
 ## What "small PR" means
 
@@ -141,6 +155,43 @@ Use this when you are not sure which file to touch.
 | New vendor operation                                        | The vendor's own package. See [Building a vendor extension](vendor-extensions.md). |
 | New vendor package                                          | A separate package depending on `qprogram`. Same guide.                        |
 | Docs                                                        | `docs/` (this site); the nav lives in `zensical.toml`.                         |
+| Changelog entry                                             | One fragment in `changelog.d/`. Never edit `CHANGELOG.md` by hand.             |
+
+## Releasing
+
+`CHANGELOG.md` is assembled from the fragments in `changelog.d/`, so it is
+written once per release rather than edited per PR. A release goes out from its
+own pull request:
+
+1. Branch from an up-to-date `main`.
+2. Set the new version. This writes both `pyproject.toml` and `uv.lock`; nothing
+   else holds the literal, since `qprogram.__version__` is read from the
+   installed metadata.
+
+   ```bash
+   uv version 0.2.0
+   uv sync
+   ```
+
+3. Assemble the changelog. Pass the version explicitly. Left to guess, towncrier
+   reads the *installed* metadata and can render a stale number into a heading
+   that is never regenerated.
+
+   ```bash
+   uv run towncrier build --draft --version "$(uv version --short)"   # preview
+   uv run towncrier build --version "$(uv version --short)" --yes
+   ```
+
+   The second command writes the new section into `CHANGELOG.md` under the
+   `<!-- towncrier release notes start -->` marker and deletes the fragments it
+   consumed.
+
+4. Read the rendered section and edit it. Fragments are written weeks apart by
+   different people and rarely read as one voice when they land together.
+5. Open the release PR, and merge it once CI is green.
+6. Create the GitHub Release on the merge commit, with a tag matching the
+   version now in `pyproject.toml`, and use the new changelog section as the
+   release body.
 
 ## Commit messages
 

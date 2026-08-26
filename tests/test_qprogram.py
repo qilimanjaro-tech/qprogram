@@ -269,8 +269,9 @@ def test_play_iq_waveform_on_iq_bus_ok(schema_program, iq_pulse):
 
 def test_play_iq_waveform_on_single_bus_raises(flux_tunable_schema):
     p = QProgram(schema=flux_tunable_schema)
+    single_channel = Square(0.5, 100)
     with pytest.raises(ValidationError, match="IQ channel"):
-        p.play(flux_tunable_schema.q[0].drive, Square(0.5, 100))
+        p.play(flux_tunable_schema.q[0].drive, single_channel)
 
 
 def test_play_single_waveform_on_single_bus_ok(flux_tunable_schema):
@@ -280,8 +281,9 @@ def test_play_single_waveform_on_single_bus_ok(flux_tunable_schema):
 
 def test_play_iq_waveform_on_flux_raises(flux_tunable_schema):
     p = QProgram(schema=flux_tunable_schema)
+    iq = IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
     with pytest.raises(ValidationError, match="single channel"):
-        p.play(flux_tunable_schema.q[0].flux, IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1))
+        p.play(flux_tunable_schema.q[0].flux, iq)
 
 
 def test_play_with_string_waveform_skips_channel_validation(schema_program):
@@ -522,8 +524,9 @@ def test_rebind_absent_kind_raises(transmon_schema):
     q = transmon_schema.q
     p = QProgram(schema=transmon_schema)
     p.play(q[0].drive, "pi")
+    coupled = BusSchema.transmon_coupled()
     with pytest.raises(AttributeError):
-        p.rebind(schema=BusSchema.transmon_coupled(), elements={("q", 0): ("c", 0)})
+        p.rebind(schema=coupled, elements={("q", 0): ("c", 0)})
 
 
 def test_rebind_naming_reconciles_cross_platform(transmon_schema):
@@ -697,8 +700,9 @@ def test_with_waveforms_nested_inside_block():
 
 def test_waveform_library_invalid_combination_raises():
     library = WaveformLibrary()
+    wf = Gaussian(0.5, 40, 8)
     with pytest.raises(ValidationError, match="exact entry"):
-        library.set("pi", Gaussian(0.5, 40, 8), element="q", idx=0)  # missing kind
+        library.set("pi", wf, element="q", idx=0)  # missing kind
 
 
 def test_waveform_library_apply_equals_with_waveforms(transmon_schema):

@@ -62,7 +62,8 @@ def parser() -> Lark:
 
     class _QpIndenter(Indenter):
         NL_type = "_NL"
-        OPEN_PAREN_types: tuple[str, ...] = ()  # .qp is strictly line-based
+        # .qp is strictly line-based
+        OPEN_PAREN_types: tuple[str, ...] = ()
         CLOSE_PAREN_types: tuple[str, ...] = ()
         INDENT_type = "_INDENT"
         DEDENT_type = "_DEDENT"

@@ -43,9 +43,13 @@ jobs:
       # mkdocstrings imports the package to render the API reference, so the
       # project and its optional extras have to be installed, not just the docs
       # tooling.
+      # --no-build keeps every dependency to its pre-built wheel, so no third-party
+      # build backend runs here. The project itself has no wheel to install from, so
+      # it is built in a second step that resolves nothing.
       - name: Install the project and the docs tooling
         run: |
-          uv sync --frozen --group docs --all-extras
+          uv sync --frozen --group docs --all-extras --no-build --no-install-project
+          uv pip install --no-deps -e .
           echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 

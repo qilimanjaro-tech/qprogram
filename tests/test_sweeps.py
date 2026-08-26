@@ -244,15 +244,17 @@ def test_file_rejects_empty_path():
 def test_file_rejects_2d_contents(tmp_path):
     path = tmp_path / "bad.npy"
     np.save(path, np.zeros((2, 2)))
+    source = File(str(path))
     with pytest.raises(ValidationError, match="1-D"):
-        File(str(path)).values()
+        source.values()
 
 
 def test_file_rejects_empty_contents(tmp_path):
     path = tmp_path / "empty.npy"
     np.save(path, np.array([]))
+    source = File(str(path))
     with pytest.raises(ValidationError, match="empty array"):
-        File(str(path)).length()
+        source.length()
 
 
 # ---------------------------------------------------------------------------
@@ -274,8 +276,9 @@ def test_repeat_of_a_linear_source_is_conservatively_arbitrary():
 
 
 def test_repeat_rejects_bad_times():
+    source = Values([0.0])
     with pytest.raises(ValidationError, match=">= 1"):
-        Repeat(Values([0.0]), times=0)
+        Repeat(source, times=0)
 
 
 def test_rotate_shifts_left_and_preserves_length():
@@ -308,8 +311,9 @@ def test_concat_accepts_a_generator_expression():
 
 
 def test_concat_rejects_a_single_source_not_in_a_list():
+    source = Values([0.0])
     with pytest.raises(ValidationError, match="iterable of sources"):
-        Concat(Values([0.0]))  # ty:ignore[invalid-argument-type]
+        Concat(source)  # ty:ignore[invalid-argument-type]
 
 
 def test_concat_rejects_empty():

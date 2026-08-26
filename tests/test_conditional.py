@@ -265,8 +265,9 @@ def test_expression_tokens_comparison_with_measurement_ref() -> None:
 
 def test_conditional_append_raises() -> None:
     cond = Conditional()
+    body = Block()
     with pytest.raises(ValidationError, match="Cannot append directly to a Conditional"):
-        cond.append(Block())
+        cond.append(body)
 
 
 def test_conditional_required_capabilities_includes_expression_tokens() -> None:

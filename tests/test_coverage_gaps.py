@@ -125,8 +125,9 @@ def test_writer_unregistered_block_class_raises():
     p = qp.QProgram(label="x")
     w = _Writer(p)
     w._allocate_var_idents()
+    ghost = _GhostBlock()
     with pytest.raises(qp.SerializationError, match="not registered"):
-        w._serialize_block_header(_GhostBlock())
+        w._serialize_block_header(ghost)
 
 
 # ---------------------------------------------------------------------------
@@ -320,8 +321,7 @@ def test_operation_variables_skips_private_attrs():
 def test_typed_element_factory_base_getitem_via_subclass():
     """Indexing any preset factory goes through the base ``_TypedElementFactory.__getitem__``."""
 
-    _ = BusSchema.transmon().q[0]
-    assert True
+    assert BusSchema.transmon().q[0].drive == "q0/drive"
 
 
 def test_parser_blank_line_inside_block():
@@ -412,8 +412,9 @@ def test_parallel_rejects_fewer_than_two_loops():
     member is not a reachable shape.
     """
     v = qp.Variable("x")
+    loop = Sweep(v, Range(0.0, 1.0, 0.5))
     with pytest.raises(qp.ValidationError, match="at least two loops"):
-        Parallel(loops=[Sweep(v, Range(0.0, 1.0, 0.5))])
+        Parallel(loops=[loop])
 
 
 def test_parse_var_decl_with_only_var_token_raises():

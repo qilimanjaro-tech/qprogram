@@ -136,71 +136,163 @@ def _render_rows(
         One ``(tree text, domain column, annotations)`` triple per rendered node, in document
         order. A node missing from ``plan`` gets an empty domain column.
     """
-    # Imported here rather than at module load, which would be a cycle.
-    from qprogram.operations.call import Call  # ruff: ignore[import-outside-top-level]
+    renderer = _RowRenderer(program, plan, by_node)
+    renderer.render_children(program.body, "")
+    return renderer.rows
 
-    writer = _Writer(program)
-    writer._allocate_var_idents()  # ruff: ignore[private-member-access] — explain deliberately reuses the writer's row renderers
-    rows: list[tuple[str, str, list[str]]] = []
 
-    def domain_text(node: Block | Operation) -> str:
-        support = plan.get(node)
+class _RowRenderer:
+    """Renders one program body into `explain`'s rows, holding the walk's shared state.
+
+    One instance renders one body once: `rows` accumulates as the walk descends, so a second
+    walk on the same instance would append to the first walk's output.
+
+    Args:
+        program (QProgram): The program being rendered, which is also the writer's context.
+        plan (Mapping[Block | Operation, frozenset[str]]): Identity-keyed execution plan, read
+            for each node's domain column.
+        by_node (Mapping[int, list[Diagnostic]]): Diagnostics grouped by the ``id()`` of the node
+            they point at.
+    """
+
+    def __init__(
+        self,
+        program: QProgram,
+        plan: Mapping[Block | Operation, frozenset[str]],
+        by_node: Mapping[int, list[Diagnostic]],
+    ) -> None:
+        self._plan = plan
+        self._by_node = by_node
+        self._writer = _Writer(program)
+        # explain deliberately reuses the writer's row renderers
+        self._writer._allocate_var_idents()  # ruff: ignore[private-member-access]
+        self.rows: list[tuple[str, str, list[str]]] = []
+
+    def render_children(self, parent: Block, prefix: str) -> None:
+        """Render every element of ``parent``, drawing the tree connectors.
+
+        Args:
+            parent (Block): The block whose elements are rendered.
+            prefix (str): The indentation the children hang under.
+        """
+        children = list(parent.elements)
+        for i, child in enumerate(children):
+            last = i == len(children) - 1
+            self.render(child, prefix + ("└─ " if last else "├─ "), prefix + ("   " if last else "│  "))
+
+    def render(self, node: Block | Operation, branch_prefix: str, cont_prefix: str) -> None:
+        """Render one node, and its children when it has any.
+
+        Args:
+            node (Block | Operation): The node to render.
+            branch_prefix (str): Indentation for the node's own row, ending in its connector.
+            cont_prefix (str): Indentation for anything nested under the node.
+        """
+        if isinstance(node, Conditional):
+            self._render_conditional(node, branch_prefix, cont_prefix)
+        elif isinstance(node, Parallel):
+            # Loop-header diagnostics (the headers live in the row's label) attach to this row.
+            self._add_row(branch_prefix, self._label(node), node, tuple(node.loops))
+            self.render_children(node, cont_prefix)
+        elif isinstance(node, Block):
+            self._add_row(branch_prefix, self._label(node), node)
+            self.render_children(node, cont_prefix)
+        else:
+            self._add_row(branch_prefix, self._label(node), node)
+
+    def _render_conditional(self, node: Conditional, branch_prefix: str, cont_prefix: str) -> None:
+        """Render a conditional as a chain row with one row per arm.
+
+        Args:
+            node (Conditional): The conditional to render.
+            branch_prefix (str): Indentation for the chain row.
+            cont_prefix (str): Indentation the arms hang under.
+        """
+        self._add_row(branch_prefix, "if/elif/else chain", node)
+        arms = self._arms(node)
+        for i, (arm_label, body) in enumerate(arms):
+            last = i == len(arms) - 1
+            self._add_row(cont_prefix + ("└─ " if last else "├─ "), arm_label, body)
+            self.render_children(body, cont_prefix + ("   " if last else "│  "))
+
+    def _arms(self, node: Conditional) -> list[tuple[str, Block]]:
+        """Label each arm of a conditional with the header it would be written under.
+
+        Args:
+            node (Conditional): The conditional whose arms are labelled.
+
+        Returns:
+            One ``(header text, body)`` pair per arm, in source order, with the ``else`` body
+            last when there is one.
+        """
+        arms: list[tuple[str, Block]] = []
+        for i, (condition, body) in enumerate(node.arms):
+            keyword = "if" if i == 0 else "elif"
+            arms.append((f"{keyword} {self._writer._serialize_condition(condition)}:", body))  # ruff: ignore[private-member-access]
+        if node.else_body is not None:
+            arms.append(("else:", node.else_body))
+        return arms
+
+    def _add_row(
+        self,
+        prefix: str,
+        text: str,
+        node: Block | Operation,
+        extra: tuple[Block | Operation, ...] = (),
+    ) -> None:
+        """Append one row, collecting the annotations of ``node`` and of any ``extra`` nodes.
+
+        Args:
+            prefix (str): Indentation for the row.
+            text (str): The row's rendered node text.
+            node (Block | Operation): The node the row stands for, which supplies its domain
+                column.
+            extra (tuple[Block | Operation, ...]): Further nodes whose diagnostics belong on this
+                row, for a label that covers more than one node.
+        """
+        anns = [_annotation(diag) for n in (node, *extra) for diag in self._by_node.get(id(n), ())]
+        self.rows.append((f"{prefix}{text}", self._domain_text(node), anns))
+
+    def _domain_text(self, node: Block | Operation) -> str:
+        """Return the aligned domain column for ``node``.
+
+        Args:
+            node (Block | Operation): The node to look up in the plan.
+
+        Returns:
+            The bracketed domain set, or an empty string when the plan does not cover the node.
+        """
+        support = self._plan.get(node)
         if support is None:
             return ""
         return _DOMAIN_TEXT.get(frozenset(support), "[--]")
 
-    def label(node: Block | Operation) -> str:
+    def _label(self, node: Block | Operation) -> str:
+        """Render ``node`` as the ``.qp`` text it would be written as.
+
+        Args:
+            node (Block | Operation): The node to render.
+
+        Returns:
+            The node's ``.qp`` line — a block header carrying its trailing colon — or ``repr(node)``
+            when the writer has no serializer for it.
+        """
+        # Imported here rather than at module load, which would be a cycle.
+        from qprogram.operations.call import Call  # ruff: ignore[import-outside-top-level]
+
         try:
             if isinstance(node, Call):
-                return writer._serialize_call(node)  # ruff: ignore[private-member-access]
+                return self._writer._serialize_call(node)  # ruff: ignore[private-member-access]
             if isinstance(node, Operation):
-                return writer._serialize_operation(node)  # ruff: ignore[private-member-access]
+                return self._writer._serialize_operation(node)  # ruff: ignore[private-member-access]
             if isinstance(node, Parallel):
-                headers = " | ".join(writer._serialize_sweep_header(lp) for lp in node.loops)  # ruff: ignore[private-member-access]
+                headers = " | ".join(self._writer._serialize_sweep_header(lp) for lp in node.loops)  # ruff: ignore[private-member-access]
                 return f"{headers}:"
             if isinstance(node, Block):
-                return f"{writer._serialize_block_header(node)}:"  # ruff: ignore[private-member-access]
+                return f"{self._writer._serialize_block_header(node)}:"  # ruff: ignore[private-member-access]
         except SerializationError:
             pass
         return repr(node)
-
-    def add_row(prefix: str, text: str, node: Block | Operation, extra: tuple[Block | Operation, ...] = ()) -> None:
-        anns = [_annotation(diag) for n in (node, *extra) for diag in by_node.get(id(n), ())]
-        rows.append((f"{prefix}{text}", domain_text(node), anns))
-
-    def render_children(parent: Block, prefix: str) -> None:
-        children = list(parent.elements)
-        for i, child in enumerate(children):
-            last = i == len(children) - 1
-            render(child, prefix + ("└─ " if last else "├─ "), prefix + ("   " if last else "│  "))
-
-    def render(node: Block | Operation, branch_prefix: str, cont_prefix: str) -> None:
-        if isinstance(node, Conditional):
-            add_row(branch_prefix, "if/elif/else chain", node)
-            arms: list[tuple[str, Block]] = []
-            for i, (condition, body) in enumerate(node.arms):
-                keyword = "if" if i == 0 else "elif"
-                arms.append((f"{keyword} {writer._serialize_condition(condition)}:", body))  # ruff: ignore[private-member-access]
-            if node.else_body is not None:
-                arms.append(("else:", node.else_body))
-            for i, (arm_label, body) in enumerate(arms):
-                last = i == len(arms) - 1
-                add_row(cont_prefix + ("└─ " if last else "├─ "), arm_label, body)
-                render_children(body, cont_prefix + ("   " if last else "│  "))
-            return
-        if isinstance(node, Parallel):
-            # Loop-header diagnostics (the headers live in the row's label) attach to this row.
-            add_row(branch_prefix, label(node), node, tuple(node.loops))
-            render_children(node, cont_prefix)
-            return
-        if isinstance(node, Block):
-            add_row(branch_prefix, label(node), node)
-            render_children(node, cont_prefix)
-            return
-        add_row(branch_prefix, label(node), node)
-
-    render_children(program.body, "")
-    return rows
 
 
 def _annotation(diag: Diagnostic) -> str:

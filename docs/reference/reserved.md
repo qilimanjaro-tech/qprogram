@@ -1,173 +1,232 @@
 # Reserved keywords
 
-QProgram reserves a set of identifier-shaped names. Some are keywords the
-`.qp` format spells out; the rest are held for syntax still to come. None of
-them can be used as a `Variable` id, and none can be used as a vendor
-namespace name. Holding the unused ones back keeps existing programs from
-breaking the day a new keyword lands.
+QProgram refuses a set of identifier-shaped names as variable ids, fragment
+names, and vendor namespaces. Fourteen of them are keywords the `.qp` format
+already spells; the other fifteen are held back, so that giving one of them a
+meaning later cannot change what a program that parses today means. The whole
+set is `qp.RESERVED_KEYWORDS`, a `frozenset[str]` of 29 names, and it lives in
+`src/qprogram/_reserved.py`.
 
-## The list
+## Where the reservation applies
 
-The complete set is exposed at runtime as `qprogram.RESERVED_KEYWORDS`. It
-holds 29 names:
+Three construction sites check a name against the set, and each reports the
+rejection in its own way.
 
-| Category                             | Keywords                                                              |
-|--------------------------------------|-----------------------------------------------------------------------|
-| Statement keywords in use            | `var`, `for`, `in`                                                     |
-| Expression keywords in use           | `and`, `or`, `not`                                                     |
-| Conditionals and iteration           | `if`, `else`, `elif`, `while`, `until`, `break`, `continue`, `return` |
-| Definitions and reusable fragments   | `fragment`, `def`, `gate`                                              |
-| Pattern matching                     | `case`, `match`                                                        |
-| Timing and scheduling                | `repeat`                                                               |
-| Conditional expression               | `where`                                                                |
-| Bindings                             | `let`, `const`                                                         |
-| Module system                        | `import`, `from`, `as`                                                 |
-| Literals                             | `true`, `false`, `null`                                                |
+A `qp.Variable` id, whether written as `program.variable("...")`, as a
+`fragment.variable(...)` local, as a `fragment.parameter(...)`, or as a `var`
+declaration in a `.qp` file, raises `qp.InvalidVariableIdError` with
+`reserved=True`. A `qp.Fragment` name raises `qp.ValidationError`, since the
+name is not a variable id and carries no `reserved` flag to set. A vendor
+namespace name raises `ValueError`, from whichever registration function saw
+it.
 
-Several of these are load-bearing: `var freq`, `for freq in Range(...)`,
-`(a and b)`, `if` / `elif` / `else` block headers, and `fragment` sections are
-all real `.qp` syntax. The rest are held against syntax the format does not
-spell.
+Operation, block, and sweep-source keywords are not checked. Those names are
+the syntax the reservations are held for, so a variable and an operation may
+share a name without ambiguity: the parser knows an operation keyword by its
+position at the head of a statement.
 
-`where` is reserved even though `qprogram.where(cond, a, b)` already exists
-as a helper. The bare keyword is held against the day it grows into syntax.
+## The keywords in use
 
-`barrier`, `align`, `align_left`, `align_right`, and `parallel` are **not**
-reserved, even though neighboring pulse-level DSLs use them as keywords. In
-QProgram's model, [`sync`](../guide/operations.md) plus
-[`wait`](../guide/operations.md) cover every alignment case, and parallel
-loops are spelled with the `|` operator rather than a `parallel` block. So
-those five names are free to use as variable ids or vendor namespaces.
+Each of these already means something in a `.qp` file, so a variable named
+after one would collide with the grammar rather than with a hypothetical
+future version of it.
+
+| Keyword | Where it appears |
+|---|---|
+| `var` | Variable declaration: `var freq units="Hz"` |
+| `for` | Loop header: `for freq in Range(start=4e9, stop=6e9, step=1e6):` |
+| `in` | The same header |
+| `and` | Logical expression: `(hot and ready)` |
+| `or` | Logical expression: `(hot or ready)` |
+| `not` | Logical expression: `(not hot)` |
+| `if` | Conditional header: `if m0.state == 0:` |
+| `elif` | Continuation arm of a conditional chain |
+| `else` | Terminal arm: `else:` |
+| `fragment` | Fragment definition: `fragment x_pulse(drive, amp):` |
+| `true` | Boolean literal |
+| `false` | Boolean literal |
+| `null` | The literal for Python `None` |
+| `where` | Conditional expression: `where((amp > 0.5), amp, 0.0)` |
+
+The first thirteen are hard keyword terminals in the canonical grammar
+(`src/qprogram/grammar/qp.lark`), and `tests/test_grammar.py` asserts that
+each one is in `RESERVED_KEYWORDS`, so the two cannot drift apart. `where` is
+the exception: the grammar lexes `where(` as an ordinary call, and it is the
+production parser that gives the name its meaning when it resolves the call.
+It is reserved anyway, because `qp.where(cond, a, b)` already exists on the
+Python side and the bare keyword is held against the day it grows into syntax
+of its own.
+
+## The keywords held back
+
+The remaining fifteen have no meaning in the format today. The categories are
+the ones the source file groups them under.
+
+| Category | Keywords |
+|---|---|
+| Conditional and iteration control flow | `while`, `until`, `break`, `continue`, `return` |
+| Definitions and reusable fragments | `def`, `gate` |
+| Pattern matching | `case`, `match` |
+| Timing and scheduling | `repeat` |
+| Bindings | `let`, `const` |
+| Imports and aliases | `import`, `from`, `as` |
+
+Two scenarios motivate holding them. A program carrying a `Variable("while")`
+would go ambiguous the moment a `while` block entered the grammar: the parser
+could not tell a statement about the variable from the head of a loop. That is
+the collision `var`, `for`, `in`, and `if` already have with the syntax in
+use. And a vendor named `if` would produce `.qp` lines like
+`if.play "drive_q0" "pi"`, which read as pseudo-keywords rather than as vendor
+operations.
+
+Future syntax would arrive through the same registries a vendor uses today. A
+`while` block would land as a single
+`qprogram.serialization.registry.register_block` call, and no existing file
+could break, because no variable can be named `while` and the parser therefore
+never faces the ambiguity.
+
+## What is not reserved
+
+The structural words that head a section are not keywords in the identifier
+sense. `metadata`, `schema`, `body`, `require`, `element`, `naming`, and
+`info` are soft keywords: the grammar admits each of them in an identifier
+position, so `var body` declares a variable named `body`, and both the
+production parser and the canonical grammar accept it.
+
+`barrier`, `align`, `align_left`, `align_right`, and `parallel` are not
+reserved either, even though neighboring pulse-level DSLs use them as
+keywords. `sync` and `wait` cover that ground in QProgram's model, and
+parallel loops are spelled with the `|` operator rather than a `parallel`
+block, so those five names stay available as variable ids and vendor
+namespaces.
+
+Reservation is case-sensitive. `if` is reserved; `If` and `IF` are not, and
+neither is a name that merely contains a keyword, such as `if_active` or
+`returns_value`.
 
 ## Vendor namespaces
 
-Vendor namespaces cannot use any of the keywords above, plus one more:
-`"core"`. That set, `qprogram.RESERVED_KEYWORDS | {"core"}`, is exposed as
-`qprogram._reserved.RESERVED_VENDOR_NAMES` and is what
-`register_vendor_operation` and `register_vendor_version` check.
-
-`"core"` is the sentinel for "no vendor". Core operations have
-`vendor=None` on the wire; reserving `"core"` keeps a vendor from registering
-operations that would look like `core.foo`.
-
-`QProgram.register_vendor` applies a second rule on top of that set: it also
-rejects a name that collides with a `QProgram` attribute. `program.<vendor>`
-dispatch runs only after normal attribute lookup fails, so such a namespace
-would be unreachable. That rules out `play`, `measure`, `sweep`, `body`,
-`schema`, `variables`, and every other public attribute of the class:
+A vendor namespace may not be any of the 29 keywords, and may not be `"core"`
+either. That set, `RESERVED_KEYWORDS | {"core"}`, is
+`qprogram._reserved.RESERVED_VENDOR_NAMES`, and it is what
+`qp.register_vendor_operation`, `qp.register_vendor_block`, and
+`qp.register_vendor_version` check:
 
 ```python
+import qprogram as qp
+
+qp.register_vendor_version("if", "1.0")
+# ValueError: vendor name 'if' is reserved (see qprogram.RESERVED_KEYWORDS
+# plus the 'core' sentinel); pick a different namespace for this vendor
+# extension
+```
+
+`"core"` is the sentinel for "no vendor". Core operations carry `vendor=None`
+on the wire, and reserving the name keeps a vendor from registering operations
+that would be written `core.foo`.
+
+`qp.QProgram.register_vendor` applies a second rule on top of that set: it
+also rejects a name that collides with a `QProgram` attribute. Vendor dispatch
+happens in `__getattr__`, which runs only after normal attribute lookup fails,
+so such a namespace would be unreachable on every instance:
+
+```python
+import qprogram as qp
+
 qp.QProgram.register_vendor("play", MyNamespace)
 # ValueError: vendor name 'play' collides with a QProgram attribute; the
 # namespace would be unreachable because normal attribute lookup wins over
 # vendor dispatch
 ```
 
-The forbidden set is therefore not enumerable from `RESERVED_VENDOR_NAMES`
-alone, and `is_reserved_vendor` reports only the keyword half:
-`is_reserved_vendor("play")` is `False` while
-`QProgram.register_vendor("play", ...)` raises. The attribute rule lives only
-in `register_vendor`, so `register_vendor_operation("play", "foo", FooOp)` is
-accepted on its own. Pick a vendor name that is neither reserved nor a
-`QProgram` attribute and the question does not come up.
+The test is `hasattr(QProgram, name)` plus the two public instance attributes
+assigned in `__init__`, `label` and `description`, which are invisible on the
+class but shadow dispatch on every instance. That rules out `play`, `measure`,
+`sweep`, `average`, `body`, `schema`, `variables`, `buses`, `source_map`, and
+the rest of the public surface, along with every inherited dunder. The
+forbidden set is therefore computed rather than enumerable, and it is wider
+than the keyword half: `register_vendor_version("play", "1.0")` is accepted on
+its own, while `register_vendor("play", ...)` raises. Pick a vendor name that
+is neither reserved nor a `QProgram` attribute and the difference never comes
+up.
 
-## What is **not** reserved
+## Checking at runtime
 
-The keyword reservations apply to identifiers (variable ids) and vendor
-namespace names. They do not apply to:
-
-- Operation names (`play`, `measure`, `wait`, ...).
-- Block keyword names (`average`, `block`, ...).
-- Sweep source names (`Range`, `Values`, `File`, ...).
-
-So `program.variable("play")` and `var measure` are legal. As *vendor*
-namespace names those two are still refused, by the attribute rule in the
-section above rather than by the keyword list.
-
-These are the registration sites future syntax will use. A `while` block
-would land via
-`qprogram.serialization.registry.register_block("while", WhileBlock)` without
-breaking any existing `.qp` file: no variable can be named `while`, so the
-parser will never see an ambiguity.
-
-## Case sensitivity
-
-The reserved list is case-sensitive. `if` is reserved; `If` and `IF` are
-not. Variable ids and vendor names follow the same convention.
-
-## What happens if you try
-
-`Variable` ids:
+Membership in the exported set is the public test:
 
 ```python
-program.variable("if")
-# qprogram.InvalidVariableIdError: Variable id 'if' is reserved for future
-# QProgram syntax (see qprogram.RESERVED_KEYWORDS). Pick a non-reserved id
-# such as 'if_var', or carry the original name in the optional `label`
-# argument.
+import qprogram as qp
+
+"if" in qp.RESERVED_KEYWORDS  # True
+"If" in qp.RESERVED_KEYWORDS  # False
+sorted(qp.RESERVED_KEYWORDS)[:3]  # ['and', 'as', 'break']
 ```
 
-`InvalidVariableIdError.reserved` distinguishes the two failure modes:
+The private module `qprogram._reserved` also carries `is_reserved_keyword`
+and `is_reserved_vendor`, which wrap the two sets. Neither is re-exported at
+the top level, and `is_reserved_vendor` reports only the keyword half of the
+vendor rule, so `is_reserved_vendor("play")` is `False` even though
+`register_vendor("play", ...)` raises.
+
+## What the errors say
+
+A reserved variable id and a malformed one raise the same class, and
+`InvalidVariableIdError.reserved` separates them:
 
 ```python
+import qprogram as qp
+
+program = qp.QProgram()
+
 try:
     program.variable("if")
 except qp.InvalidVariableIdError as e:
-    e.id  # "if"
+    e.id  # 'if'
     e.reserved  # True
 
 try:
     program.variable("1freq")
 except qp.InvalidVariableIdError as e:
-    e.id  # "1freq"
+    e.id  # '1freq'
     e.reserved  # False
 ```
 
-Vendor registration:
+The reserved message names a way out:
 
-```python
-from qprogram.serialization.registry import register_vendor_operation
-
-register_vendor_operation("if", "foo", FooOp)
-# ValueError: vendor name 'if' is reserved (see qprogram.RESERVED_KEYWORDS
-# plus the 'core' sentinel); pick a different namespace for this vendor
-# extension
+```
+Variable id 'if' is reserved for future QProgram syntax (see
+qprogram.RESERVED_KEYWORDS). Pick a non-reserved id such as 'if_var', or carry
+the original name in the optional `label` argument.
 ```
 
-## Runtime helpers
-
-If you need to check programmatically:
-
-```python
-from qprogram import RESERVED_KEYWORDS
-from qprogram._reserved import is_reserved_keyword, is_reserved_vendor
-
-is_reserved_keyword("if")  # True
-is_reserved_keyword("If")  # False
-is_reserved_vendor("core")  # True
-is_reserved_vendor("myvendor")  # False
-is_reserved_vendor("play")  # False — but register_vendor("play", ...) raises
-```
-
-`RESERVED_KEYWORDS` is a `frozenset[str]`, so it is hashable and stable.
-
-## Why pre-reserve
-
-Two scenarios motivate the list.
-
-1. **Block keywords.** A program holding a `Variable("while")` would go
-   ambiguous the moment a `while` block enters the grammar: the parser could
-   not tell a statement about the variable from the head of a loop. That is
-   exactly the collision `var`, `for`, `in`, and `if` already have with the
-   syntax in use. Reserving the rest up front keeps that future open.
-2. **Vendor namespace shadowing.** A vendor named `if` would produce
-   `.qp` lines like `if.play "drive_q0" pulse` that read as pseudo-keywords.
-   Reserving the keyword set as forbidden vendor names keeps the namespace
-   surface predictable.
-
-If a keyword you care about is on this list, use a different `id` and carry
-the original name in `label`:
+Taking that advice keeps the name a reader sees while giving the format an
+identifier it accepts, since `label` is free text and is written to the `.qp`
+file as a quoted string:
 
 ```python
-program.variable("if_var", label="if")  # works
+import qprogram as qp
+
+program = qp.QProgram()
+program.variable("if_var", label="if")
 ```
+
+A fragment takes a `label` too, but a `.qp` fragment section is headed by the
+name and the parameter list alone, so the label does not survive
+serialization and cannot carry the original name into the file. The rejection
+is reported directly:
+
+```python
+import qprogram as qp
+
+qp.Fragment("while")
+# qprogram.ValidationError: fragment name 'while' is a reserved keyword
+# (see qprogram.RESERVED_KEYWORDS)
+```
+
+## Related pages
+
+[Variables and expressions](../guide/variables.md) covers the rest of the
+identifier rules, [Errors](errors.md#invalidvariableiderror) places
+`InvalidVariableIdError` in the hierarchy, and
+[Vendor extensions](../developer/vendor-extensions.md) walks
+through picking a namespace name.

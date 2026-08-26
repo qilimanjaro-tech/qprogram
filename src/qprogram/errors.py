@@ -131,8 +131,11 @@ class SerializationError(QProgramError):
     Raised instead of emitting lossy or unparseable output — e.g. an operation or block class that
     was never registered with the serialization registry, a vendor operation whose extension forgot
     to call `register_vendor_version`, or an attribute value of a type the format
-    has no representation for. The write-side counterpart of ``ParseError``: a ``.qp`` file that was
-    produced without error is guaranteed to parse back into an equal program.
+    has no representation for. The write-side counterpart of ``ParseError``, but not a guarantee
+    against one: the writer only refuses what it can see is unrepresentable, so a program can
+    serialize cleanly and still fail to load. An inline waveform argument holding a math function
+    is the known case, since ``Gaussian(amplitude=sin(phi), ...)`` writes as-is and the grammar
+    accepts no function call in a constructor argument.
     """
 
 

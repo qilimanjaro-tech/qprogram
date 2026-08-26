@@ -84,8 +84,10 @@ class SweepSource(ABC):
 
         Must be answerable statically — without running the program, and without side effects beyond
         reading this source's own parameters. It must also be at least one: a sweep with no points
-        never executes its body, so every built-in source rejects an empty parameterization at
-        construction, and `validate_source` holds a subclass to the same rule.
+        never executes its body, so a built-in source rejects an empty parameterization as soon as
+        it can see one, at construction for the sources that carry their values and on first read
+        for [`File`][qprogram.File], which learns the length only when it loads the array.
+        `validate_source` holds a subclass to the same rule.
 
         Returns:
             The number of points the sweep iterates through.

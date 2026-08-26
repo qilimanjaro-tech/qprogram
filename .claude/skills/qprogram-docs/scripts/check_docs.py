@@ -17,7 +17,9 @@ Three groups of checks:
 
   code    Python fences must parse. `.qp` fences that carry a `#!QProgram` header must
           load through the real parser. Attributes read off the `qprogram` module or off
-          a `QProgram` instance must exist on the installed package.
+          a `QProgram` instance must exist on the installed package. A dotted read such
+          as `qp.waveforms.Gaussian` is resolved one attribute at a time, descending
+          while each hop is a module, so a typo at any depth is reported.
   links   Relative `.md` links and their anchors must resolve. Every page under docs_dir
           must appear in the zensical nav.
   style   House writing rules: no em dashes, no filler vocabulary, sentence-case
@@ -44,6 +46,7 @@ import json
 import re
 import sys
 import tomllib
+import types
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -319,8 +322,10 @@ def check_style(doc: Doc) -> Iterator[Finding]:
                 yield finding(i, "filler", f"{m.group(0)!r}: {advice}")
 
         in_table = raw.lstrip().startswith("|")
-        # A line holding nothing but one link cannot be wrapped: the URL is one token.
-        is_link_only = bool(re.fullmatch(r"\s*(?:[-*]|\d+\.)?\s*\[[^\]]*\]\([^)]*\)[.,;:]?\s*", raw))
+        # A line holding nothing but links cannot be wrapped: each URL is one token. The
+        # label may itself be an image, which is what a row of README badges is, and a
+        # badge row puts several of them on one line.
+        is_link_only = bool(re.fullmatch(r"\s*(?:[-*]|\d+\.)?\s*(?:!?\[(?:!?\[[^\]]*\]\([^)]*\)|[^\]])*\]\([^)]*\)\s*)+[.,;:]?\s*", raw))
         if len(raw) > MAX_LINE and not in_table and not is_link_only:
             yield finding(i, "long-line", f"{len(raw)} chars; wrap prose near 80")
 
@@ -558,20 +563,93 @@ def check_python_fence(
     if not api.available:
         return
 
+    # An attribute node that is itself the base of a longer chain is covered by the outermost
+    # node of that chain, so checking it again would report the same prefix twice.
+    nested = {
+        id(n.value) for n in ast.walk(tree) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Attribute)
+    }
+
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Name):
+        if not isinstance(node, ast.Attribute) or id(node) in nested:
             continue
-        kind = aliases.get(node.value.id)
-        attr = node.attr
-        if kind is None or attr in local_defs or attr.startswith("_"):
+        base, chain = dotted_chain(node)
+        kind = aliases.get(base) if base else None
+        if kind is None:
             continue
-        line = fence.line + node.lineno - 1
-        if kind == "module":
-            if not api.has_module_attr(attr):
-                yield Finding(doc.path, line, "warning", "stale-api", f"the qprogram package has no {attr!r}")
-        elif not api.has_attr(kind, attr):
-            owner = "QProgram" if kind == "program" else "Fragment"
-            yield Finding(doc.path, line, "warning", "stale-api", f"{owner} has no attribute {attr!r}")
+        for step, message in resolve_chain(api, local_defs, chain, kind):
+            line = fence.line + step.lineno - 1
+            yield Finding(doc.path, line, "warning", "stale-api", message)
+
+
+def dotted_chain(node: ast.Attribute) -> tuple[str | None, list[ast.Attribute]]:
+    """Split an attribute node into the name it starts from and the attributes read off it.
+
+    Args:
+        node (ast.Attribute): The outermost attribute node of the chain.
+
+    Returns:
+        tuple[str | None, list[ast.Attribute]]: The base name, or None when the chain does
+            not start from a plain name, and the attribute nodes in source order.
+    """
+    chain: list[ast.Attribute] = []
+    current: ast.expr = node
+    while isinstance(current, ast.Attribute):
+        chain.append(current)
+        current = current.value
+    if not isinstance(current, ast.Name):
+        return None, []
+    chain.reverse()
+    return current.id, chain
+
+
+def resolve_chain(
+    api: ApiIndex,
+    local_defs: set[str],
+    chain: list[ast.Attribute],
+    kind: str,
+) -> Iterator[tuple[ast.Attribute, str]]:
+    """Resolve ``qp.a.b.c`` attribute by attribute and report the first hop that is missing.
+
+    Args:
+        api (ApiIndex): The installed package surface.
+        local_defs (set[str]): Names the page defines itself.
+        chain (list[ast.Attribute]): The attribute nodes of one dotted read, outermost last.
+        kind (str): What the base name is bound to: ``"module"``, ``"program"`` or ``"fragment"``.
+
+    Yields:
+        tuple[ast.Attribute, str]: The node the missing attribute was read on, and the message.
+
+    Only a module is descended into. Once a hop resolves to a class or a function the rest of
+    the chain is left alone, because a dataclass field and an instance attribute are both
+    unreachable from the class object, and reporting them would be wrong.
+    """
+    attr = chain[0].attr
+    if attr in local_defs or attr.startswith("_"):
+        return
+
+    if kind != "module":
+        if not api.has_attr(kind, attr):
+            owner_name = "QProgram" if kind == "program" else "Fragment"
+            yield chain[0], f"{owner_name} has no attribute {attr!r}"
+        return
+
+    owner: Any = api.module
+    path = chain[0].value.id if isinstance(chain[0].value, ast.Name) else "qp"
+    for step in chain:
+        attr = step.attr
+        if attr in local_defs or attr.startswith("_"):
+            return
+        found = api.has_module_attr(attr) if owner is api.module else hasattr(owner, attr)
+        if not found:
+            if owner is api.module:
+                yield step, f"the qprogram package has no {attr!r}"
+            else:
+                yield step, f"{path} has no attribute {attr!r}"
+            return
+        owner = getattr(owner, attr)
+        path = f"{path}.{attr}"
+        if not isinstance(owner, types.ModuleType):
+            return
 
 
 def check_qp_fence(doc: Doc, fence: Fence, api: ApiIndex) -> Iterator[Finding]:

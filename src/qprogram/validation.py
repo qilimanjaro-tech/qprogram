@@ -95,7 +95,7 @@ from qprogram.variable import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
 
     from qprogram.protocol import CompilerCapabilities, ExecutionPlan, PlatformCapabilities
     from qprogram.qprogram import QProgram
@@ -465,42 +465,95 @@ def _classify_block(  # ruff: ignore[too-many-arguments]
 
     # 7. Empty-domain error if support is empty.
     if not sup:
-        if avail:
-            reasons = "; ".join(f"{dc.reason}" for dc in constraints_by_block.get(id(block), ()))
-            msg = f"Block '{type(block).__name__}' has no executable domain after DomainConstraints" + (
-                f": {reasons}" if reasons else "."
-            )
-        elif not own_avail:
-            msg = (
-                f"Block '{type(block).__name__}' has no executable domain — the platform slot "
-                f"supports none of {sorted(_ALL_DOMAINS)} for the block's required tokens."
-            )
-        else:
-            msg = (
-                f"Block '{type(block).__name__}' has no executable domain: own slot supports "
-                f"{sorted(own_avail)} but op-children consensus is {sorted(natural_from_ops)}."
-            )
         diagnostics.append(
-            Diagnostic(severity="error", code="empty-domain", message=msg, node=block),
+            Diagnostic(
+                severity="error",
+                code="empty-domain",
+                message=_empty_domain_message(
+                    block,
+                    avail,
+                    own_avail,
+                    natural_from_ops,
+                    constraints_by_block.get(id(block), ()),
+                ),
+                node=block,
+            ),
         )
 
     # 8. (e1) nesting check: real-time-only parent can only contain real-time-capable block-children.
     if sup == _RT_ONLY:
-        for child in block_children:
-            child_sup = support.get(child, _ALL_DOMAINS)
-            if "rt" not in child_sup:
-                diagnostics.append(
-                    Diagnostic(
-                        severity="error",
-                        code="host-in-rt",
-                        message=(
-                            f"Host-side block '{type(child).__name__}' nested inside real-time "
-                            f"block '{type(block).__name__}' — the FPGA cannot host a host-side "
-                            f"sub-block (only rt-in-host is allowed by spec (e1))."
-                        ),
-                        node=child,
-                    ),
-                )
+        diagnostics.extend(_host_in_rt_diagnostics(block, block_children, support))
+
+
+def _empty_domain_message(
+    block: Block,
+    avail: frozenset[Domain],
+    own_avail: frozenset[Domain],
+    natural_from_ops: frozenset[Domain],
+    block_constraints: Sequence[DomainConstraint],
+) -> str:
+    """Say which of the three ways a block ended up with no executable domain applies.
+
+    Args:
+        block (Block): The block with no executable domain.
+        avail (frozenset[Domain]): The block's domains before its constraints were applied.
+        own_avail (frozenset[Domain]): The domains the block's own platform slot allows.
+        natural_from_ops (frozenset[Domain]): The consensus of the op-children that gate the
+            block's domain.
+        block_constraints (Sequence[DomainConstraint]): The constraints targeting this block,
+            whose reasons name the cause when they are what emptied the domain.
+
+    Returns:
+        The diagnostic message: the constraints closed off a domain the block otherwise had, or
+        its own slot never offered one, or its slot and its op-children disagree.
+    """
+    if avail:
+        reasons = "; ".join(f"{dc.reason}" for dc in block_constraints)
+        return f"Block '{type(block).__name__}' has no executable domain after DomainConstraints" + (
+            f": {reasons}" if reasons else "."
+        )
+    if not own_avail:
+        return (
+            f"Block '{type(block).__name__}' has no executable domain — the platform slot "
+            f"supports none of {sorted(_ALL_DOMAINS)} for the block's required tokens."
+        )
+    return (
+        f"Block '{type(block).__name__}' has no executable domain: own slot supports "
+        f"{sorted(own_avail)} but op-children consensus is {sorted(natural_from_ops)}."
+    )
+
+
+def _host_in_rt_diagnostics(
+    block: Block,
+    block_children: Sequence[Block],
+    support: _IdentityNodeMap[frozenset[Domain]],
+) -> list[Diagnostic]:
+    """Report every host-side block-child of a real-time-only parent — spec (e1).
+
+    Args:
+        block (Block): The real-time-only parent.
+        block_children (Sequence[Block]): Its immediate block-children.
+        support (_IdentityNodeMap[frozenset[Domain]]): Per-node executable domains. A child
+            missing from the map is treated as unconstrained.
+
+    Returns:
+        One ``host-in-rt`` diagnostic per block-child that cannot run real-time. The reverse
+        nesting, a real-time block inside a host-side one, is always allowed and reports nothing.
+    """
+    return [
+        Diagnostic(
+            severity="error",
+            code="host-in-rt",
+            message=(
+                f"Host-side block '{type(child).__name__}' nested inside real-time "
+                f"block '{type(block).__name__}' — the FPGA cannot host a host-side "
+                f"sub-block (only rt-in-host is allowed by spec (e1))."
+            ),
+            node=child,
+        )
+        for child in block_children
+        if "rt" not in support.get(child, _ALL_DOMAINS)
+    ]
 
 
 def _constraint_seen(dc: DomainConstraint, existing: list[DomainConstraint]) -> bool:
@@ -1086,61 +1139,87 @@ def _build_context(qprogram: QProgram) -> ValidationContext:
     Returns:
         The context the predicates and the whole-program limit checks read.
     """
-    variable_bindings: dict[Variable, Block] = {}
-    sweep_kinds: dict[Variable, SweepKind] = {}
-    measurement_count = 0
-    measurement_fields: dict[str, tuple[str, ...]] = {}
-    max_parallel_arity = 0
-    max_depth = 0
+    walk = _ContextWalk()
+    walk.visit_all(qprogram.body.elements, 0)
 
-    def visit(node: Block | Operation, depth: int) -> None:
-        nonlocal measurement_count, max_parallel_arity, max_depth
-        max_depth = max(max_depth, depth)
+    return ValidationContext(
+        variable_bindings=walk.variable_bindings,
+        sweep_kinds=walk.sweep_kinds,
+        max_loop_nesting=walk.max_depth,
+        max_parallel_arity=walk.max_parallel_arity,
+        measurement_count=walk.measurement_count,
+        measurement_fields=walk.measurement_fields,
+        program_buses=frozenset(qprogram.buses),
+    )
+
+
+class _ContextWalk:
+    """Accumulates the facts `_build_context` reports, one visited node at a time.
+
+    One instance walks one program body: every attribute is that walk's running total, so a
+    second walk on the same instance would fold into the first walk's figures.
+    """
+
+    def __init__(self) -> None:
+        self.variable_bindings: dict[Variable, Block] = {}
+        self.sweep_kinds: dict[Variable, SweepKind] = {}
+        self.measurement_count = 0
+        self.measurement_fields: dict[str, tuple[str, ...]] = {}
+        self.max_parallel_arity = 0
+        self.max_depth = 0
+
+    def visit_all(self, nodes: Iterable[Block | Operation], depth: int) -> None:
+        """Visit every node in one body at the same repetition depth.
+
+        Args:
+            nodes (Iterable[Block | Operation]): The body's elements, in document order.
+            depth (int): The number of repetition levels already wrapping them.
+        """
+        for node in nodes:
+            self.visit(node, depth)
+
+    def visit(self, node: Block | Operation, depth: int) -> None:
+        """Fold one node into the running totals, then descend into its children.
+
+        Args:
+            node (Block | Operation): The node to account for.
+            depth (int): The number of repetition levels wrapping ``node`` itself.
+        """
+        self.max_depth = max(self.max_depth, depth)
         # One source of truth for "does this block add a repetition level": the block says so.
         # Operations have no children, so the depth is irrelevant for them.
         child_depth = depth + 1 if isinstance(node, Block) and node.REPEATS else depth
         if isinstance(node, Sweep):
-            variable_bindings[node.variable] = node
-            sweep_kinds[node.variable] = node.source.KIND
-            for child in node.elements:
-                visit(child, child_depth)
+            self._bind(node)
+            self.visit_all(node.elements, child_depth)
         elif isinstance(node, Parallel):
-            max_parallel_arity = max(max_parallel_arity, len(node.loops))
+            self.max_parallel_arity = max(self.max_parallel_arity, len(node.loops))
             for header in node.loops:
-                variable_bindings[header.variable] = header
-                sweep_kinds[header.variable] = header.source.KIND
-            for child in node.elements:
-                visit(child, child_depth)
+                self._bind(header)
+            self.visit_all(node.elements, child_depth)
         elif isinstance(node, Conditional):
             # Branching selects a body; it doesn't iterate — no extra loop level. The arm bodies
             # hang off `.arms` / `.else_body`, so they need their own traversal.
             for _, body in node.arms:
-                for child in body.elements:
-                    visit(child, child_depth)
+                self.visit_all(body.elements, child_depth)
             if node.else_body is not None:
-                for child in node.else_body.elements:
-                    visit(child, child_depth)
+                self.visit_all(node.else_body.elements, child_depth)
         elif isinstance(node, Block):
             # Every other block — the plain grouping, `average`, and any vendor-contributed block.
             # Whether it adds a level is already decided by `child_depth`.
-            for child in node.elements:
-                visit(child, child_depth)
+            self.visit_all(node.elements, child_depth)
         elif isinstance(node, MeasurementOperation):
-            measurement_count += 1
-            measurement_fields[node.name] = node.fields
+            self.measurement_count += 1
+            self.measurement_fields[node.name] = node.fields
 
-    for child in qprogram.body.elements:
-        visit(child, 0)
+    def _bind(self, header: Sweep) -> None:
+        """Record which loop binds a swept variable, and what kind of source it sweeps.
 
-    return ValidationContext(
-        variable_bindings=variable_bindings,
-        sweep_kinds=sweep_kinds,
-        max_loop_nesting=max_depth,
-        max_parallel_arity=max_parallel_arity,
-        measurement_count=measurement_count,
-        measurement_fields=measurement_fields,
-        program_buses=frozenset(qprogram.buses),
-    )
+        Args:
+            header (Sweep): The loop header carrying the variable and its source.
+        """
+        self.variable_bindings[header.variable] = header
+        self.sweep_kinds[header.variable] = header.source.KIND
 
 
 # ---------------------------------------------------------------------------

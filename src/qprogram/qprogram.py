@@ -66,7 +66,7 @@ from qprogram.waveform_library import WaveformLibrary
 from qprogram.waveforms.waveform import IQWaveform, Waveform
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping
+    from collections.abc import Callable, Iterable, Iterator, Mapping
 
     import numpy.typing as npt
 
@@ -1546,19 +1546,10 @@ class QProgram:
         # swap in lockstep; None stays None for raw-string programs
         program._schema = target_schema
 
-        for op in program._body.walk():
-            if not isinstance(op, Operation):
-                continue
-            for attr_name in op.BUS_ATTRS:
-                value = getattr(op, attr_name, None)
-                if isinstance(value, list):
-                    setattr(
-                        op,
-                        attr_name,
-                        [_rebind_bus(b, target_schema, element_map, string_map, unported) for b in value],
-                    )
-                elif value is not None:
-                    setattr(op, attr_name, _rebind_bus(value, target_schema, element_map, string_map, unported))
+        _map_bus_attrs(
+            program._body,
+            lambda bus: _rebind_bus(bus, target_schema, element_map, string_map, unported),
+        )
 
         if unported and not allow_unported_strings:
             names = ", ".join(repr(b) for b in sorted(unported))
@@ -1571,16 +1562,8 @@ class QProgram:
 
         program._rederive_auto_measurement_names()
 
-        for op in program._body.walk():
-            if not isinstance(op, Operation):
-                continue
-            for attr_name in op.BUS_ATTRS:
-                value = getattr(op, attr_name, None)
-                if isinstance(value, list):
-                    for bus in value:
-                        program._validate_bus(bus)
-                elif value is not None:
-                    program._validate_bus(value)
+        for bus in _iter_bus_attrs(program._body):
+            program._validate_bus(bus)
 
         return program
 
@@ -1633,6 +1616,53 @@ class QProgram:
                 n += 1
             handle.name = f"{prefix}{n}"
             used.add(handle.name)
+
+
+def _iter_bus_attrs(block: Block) -> Iterator[str]:
+    """Yield every bus value held by the operations in ``block``.
+
+    An operation declares which of its attributes hold buses through ``BUS_ATTRS``; an attribute
+    may hold one bus or a list of them (``sync``), and an absent or ``None`` attribute contributes
+    nothing.
+
+    Args:
+        block (Block): The body to walk.
+
+    Yields:
+        Each bus value, in document order — the ``BUS_ATTRS`` order within one operation, and for
+        a list-valued attribute the list's own order.
+    """
+    for op in block.walk():
+        if not isinstance(op, Operation):
+            continue
+        for attr_name in op.BUS_ATTRS:
+            value = getattr(op, attr_name, None)
+            if isinstance(value, list):
+                yield from value
+            elif value is not None:
+                yield value
+
+
+def _map_bus_attrs(block: Block, rebind_one: Callable[[str], str]) -> None:
+    """Replace every bus value held by the operations in ``block``, in place.
+
+    The read side of `_iter_bus_attrs`, writing each attribute back through ``setattr`` so a
+    list-valued attribute keeps its list shape.
+
+    Args:
+        block (Block): The body to rewrite.
+        rebind_one (Callable[[str], str]): Called once per bus value; its return value replaces
+            that bus.
+    """
+    for op in block.walk():
+        if not isinstance(op, Operation):
+            continue
+        for attr_name in op.BUS_ATTRS:
+            value = getattr(op, attr_name, None)
+            if isinstance(value, list):
+                setattr(op, attr_name, [rebind_one(b) for b in value])
+            elif value is not None:
+                setattr(op, attr_name, rebind_one(value))
 
 
 def _rebind_bus(

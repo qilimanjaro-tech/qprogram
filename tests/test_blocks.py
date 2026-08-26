@@ -199,13 +199,15 @@ def test_sweep_accepts_a_bare_sequence_as_values_shorthand():
 
 def test_sweep_rejects_a_callable_source():
     """The AST holds descriptions of values, never producers of them."""
+    v = Variable("x")
     with pytest.raises(ValidationError, match="not a callable"):
-        Sweep(Variable("x"), lambda i: i)  # ty:ignore[invalid-argument-type]
+        Sweep(v, lambda i: i)  # ty:ignore[invalid-argument-type]
 
 
 def test_sweep_rejects_a_non_source_non_sequence():
+    v = Variable("x")
     with pytest.raises(ValidationError, match="SweepSource or a 1-D sequence"):
-        Sweep(Variable("x"), object())  # ty:ignore[invalid-argument-type]
+        Sweep(v, object())  # ty:ignore[invalid-argument-type]
 
 
 def test_sweep_equality_is_structural_over_variable_source_and_children():
@@ -308,15 +310,18 @@ def test_parallel_structural_equality():
 
 def test_parallel_rejects_single_loop():
     v = Variable("x")
+    loop = Sweep(v, Range(0.0, 1.0, 0.1))
     with pytest.raises(ValidationError, match="at least two loops"):
-        Parallel([Sweep(v, Range(0.0, 1.0, 0.1))])
+        Parallel([loop])
 
 
 def test_parallel_rejects_mismatched_iteration_counts():
     v = Variable("x")
     w = Variable("y")
+    eleven_points = Sweep(v, Range(0.0, 1.0, 0.1))
+    three_points = Sweep(w, Range(0.0, 1.0, 0.5))
     with pytest.raises(ValidationError, match="same number of iterations"):
-        Parallel([Sweep(v, Range(0.0, 1.0, 0.1)), Sweep(w, Range(0.0, 1.0, 0.5))])
+        Parallel([eleven_points, three_points])
 
 
 def test_parallel_accepts_mixed_loop_kinds_with_equal_counts():

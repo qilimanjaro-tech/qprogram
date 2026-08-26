@@ -113,13 +113,15 @@ def test_measure_fields_canonical_order_is_argument_order_independent():
 
 
 def test_measure_fields_rejects_bare_string():
+    handle = MeasurementHandle("m0")
     with pytest.raises(ValidationError, match=r'fields=\("iq", "raw"\)'):
-        Measure("readout", "wf", "w", handle=MeasurementHandle("m0"), fields="iq,raw")
+        Measure("readout", "wf", "w", handle=handle, fields="iq,raw")
 
 
 def test_measure_fields_rejects_unknown_field():
+    handle = MeasurementHandle("m0")
     with pytest.raises(ValidationError, match="unknown measurement field"):
-        Measure("readout", "wf", "w", handle=MeasurementHandle("m0"), fields=("iqq",))
+        Measure("readout", "wf", "w", handle=handle, fields=("iqq",))
 
 
 def test_measure_is_measurement_operation():

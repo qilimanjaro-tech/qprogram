@@ -165,12 +165,13 @@ def test_expression_tokens_returns_empty_for_plain_numeric() -> None:
 
 
 def test_profile_post_init_rejects_unknown_capability() -> None:
+    capabilities = frozenset({"this.does.not.exist"})
     with pytest.raises(ValueError, match="Unknown capability token"):
         Profile(
             name="test-bad",
             version=(1, 0, 0),
             extends=None,
-            capabilities=frozenset({"this.does.not.exist"}),
+            capabilities=capabilities,
         )
 
 

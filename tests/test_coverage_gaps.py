@@ -125,8 +125,9 @@ def test_writer_unregistered_block_class_raises():
     p = qp.QProgram(label="x")
     w = _Writer(p)
     w._allocate_var_idents()
+    ghost = _GhostBlock()
     with pytest.raises(qp.SerializationError, match="not registered"):
-        w._serialize_block_header(_GhostBlock())
+        w._serialize_block_header(ghost)
 
 
 # ---------------------------------------------------------------------------
@@ -411,8 +412,9 @@ def test_parallel_rejects_fewer_than_two_loops():
     member is not a reachable shape.
     """
     v = qp.Variable("x")
+    loop = Sweep(v, Range(0.0, 1.0, 0.5))
     with pytest.raises(qp.ValidationError, match="at least two loops"):
-        Parallel(loops=[Sweep(v, Range(0.0, 1.0, 0.5))])
+        Parallel(loops=[loop])
 
 
 def test_parse_var_decl_with_only_var_token_raises():

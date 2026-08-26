@@ -82,8 +82,9 @@ def test_handle_empty_name_raises():
 def test_handle_non_string_name_raises():
     # The literal ``42`` is intentionally the wrong type to exercise the
     # runtime check; ``cast`` smuggles it past the static signature.
+    name = cast("str", 42)
     with pytest.raises(ValidationError):
-        MeasurementHandle(cast("str", 42))
+        MeasurementHandle(name)
 
 
 def test_handle_uses_slots():
@@ -172,8 +173,9 @@ def test_result_get_by_name_not_found_raises_keyerror():
 def test_result_get_by_handle_not_found_raises_keyerror():
     r = QProgramResult()
     r.append_measurement(bus="q0/readout", name="q0_m0", data=_fake_data())
+    missing = MeasurementHandle("nonexistent")
     with pytest.raises(KeyError):
-        r.get(MeasurementHandle("nonexistent"))
+        r.get(missing)
 
 
 def test_result_get_index_out_of_range_raises():
@@ -285,5 +287,6 @@ def test_result_get_field_none_is_rejected():
     r.append_measurement(bus="q0/readout", name="m0", data=_fake_data())
     # ``field=None`` is rejected outright: ``get()`` names a field, and the record's primary
     # array is reached through ``MeasurementResult.data``.
+    field = cast("str", None)
     with pytest.raises(ValidationError, match=r"field=None is not a valid field"):
-        r.get("m0", field=cast("str", None))
+        r.get("m0", field=field)

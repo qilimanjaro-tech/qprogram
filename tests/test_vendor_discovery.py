@@ -180,14 +180,16 @@ def test_loads_auto_activate_false_does_not_discover(monkeypatch, dummy_inactive
         raise AssertionError(msg)
 
     monkeypatch.setattr(registry, "_vendor_entry_points", boom)
+    doc = _require_doc("dummy")
     with pytest.raises(qp.ParseError, match="auto-activation is disabled"):
-        qp.loads(_require_doc("dummy"), auto_activate=False)
+        qp.loads(doc, auto_activate=False)
 
 
 def test_loads_missing_vendor_without_entry_point_raises(monkeypatch, dummy_inactive):  # ruff: ignore[unused-function-argument]
     monkeypatch.setattr(registry, "_vendor_entry_points", dict)
+    doc = _require_doc("ghostvendor", "0.1")
     with pytest.raises(qp.ParseError, match=r"qprogram\.vendors' entry point"):
-        qp.loads(_require_doc("ghostvendor", "0.1"))
+        qp.loads(doc)
 
 
 def test_loads_broken_extension_wrapped_as_parse_error(monkeypatch, dummy_inactive):  # ruff: ignore[unused-function-argument]
@@ -200,8 +202,9 @@ def test_loads_broken_extension_wrapped_as_parse_error(monkeypatch, dummy_inacti
         "_vendor_entry_points",
         lambda: {"broken": _FakeEntryPoint("broken", "broken_pkg", loader)},
     )
+    doc = _require_doc("broken", "0.1")
     with pytest.raises(qp.ParseError, match="failed to import"):
-        qp.loads(_require_doc("broken", "0.1"))
+        qp.loads(doc)
 
 
 def test_loads_already_imported_vendor_needs_no_discovery(monkeypatch, dummy_vendor):  # ruff: ignore[unused-function-argument]

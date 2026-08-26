@@ -115,8 +115,9 @@ def test_from_values_accepts_a_numpy_array(empty_program: QProgram):
 
 def test_source_validation_still_happens_at_the_call_site(empty_program: QProgram):
     """The builder forwards to the constructor, so the source's own errors surface unchanged."""
+    builder = empty_program.sweep(empty_program.variable("v"))
     with pytest.raises(ValidationError, match="step must be non-zero"):
-        empty_program.sweep(empty_program.variable("v")).from_range(0.0, 1.0, 0.0)
+        builder.from_range(0.0, 1.0, 0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -138,8 +139,9 @@ def test_a_builder_that_is_never_used_appends_nothing(empty_program: QProgram):
 
 def test_explicit_none_source_is_rejected_rather_than_returning_a_builder(empty_program: QProgram):
     """``None`` is a failed source, not an omitted one — the sentinel keeps the two apart."""
+    v = empty_program.variable("v")
     with pytest.raises(ValidationError, match="must be a SweepSource"):
-        empty_program.sweep(empty_program.variable("v"), None)
+        empty_program.sweep(v, None)
 
 
 # ---------------------------------------------------------------------------
@@ -222,8 +224,9 @@ def test_combinator_shortcuts_refuse_a_parallel_composition(method, empty_progra
     composed = empty_program.sweep(empty_program.variable("a")).from_range(0.0, 1.0) | empty_program.sweep(
         empty_program.variable("b")
     ).from_range(0.0, 1.0)
+    shortcut = getattr(composed, method)
     with pytest.raises(ValidationError, match=rf"{method}\(\) shapes one sweep's source"):
-        getattr(composed, method)(2)
+        shortcut(2)
 
 
 # ---------------------------------------------------------------------------

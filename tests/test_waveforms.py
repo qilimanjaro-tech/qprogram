@@ -349,8 +349,9 @@ def test_iq_pair_rejects_non_waveform_args(i, q):
 
 
 def test_iq_pair_rejects_mismatched_durations():
+    i, q = Square(1.0, 100), Square(0.0, 999)
     with pytest.raises(ValidationError, match="equal durations"):
-        IQPair(Square(1.0, 100), Square(0.0, 999))
+        IQPair(i, q)
 
 
 def test_iq_pair_defers_duration_check_for_symbolic_durations():
@@ -479,8 +480,9 @@ def test_sine_with_expression_params():
 
 
 def test_sine_unassigned_raises():
+    wave = Sine(amplitude=Variable("a"), duration=10, frequency=1e8)
     with pytest.raises(UnassignedVariableError):
-        Sine(amplitude=Variable("a"), duration=10, frequency=1e8).envelope()
+        wave.envelope()
 
 
 def test_cosine_envelope_one_at_origin():
@@ -592,8 +594,9 @@ def test_modulated_phase_shift_rotates_iq():
 
 
 def test_modulated_rejects_non_waveform_envelope():
+    envelope = cast("Waveform", "not a waveform")
     with pytest.raises(TypeError, match="must be a Waveform"):
-        Modulated(envelope=cast("Waveform", "not a waveform"), frequency=1e8)
+        Modulated(envelope=envelope, frequency=1e8)
 
 
 def test_modulated_get_duration_matches_envelope():
@@ -629,8 +632,9 @@ def test_iq_rotation_with_expression():
 
 
 def test_iq_rotation_rejects_non_iqwaveform():
+    base = cast("IQWaveform", Square(1.0, 10))
     with pytest.raises(TypeError, match="must be an IQWaveform"):
-        IQRotation(base=cast("IQWaveform", Square(1.0, 10)), phase=0.0)
+        IQRotation(base=base, phase=0.0)
 
 
 def test_iq_rotation_duration_passthrough():
@@ -655,8 +659,9 @@ def test_iq_zero_i_channel_is_envelope():
 
 
 def test_iq_zero_rejects_non_waveform():
+    envelope = cast("Waveform", "bad")
     with pytest.raises(TypeError, match="must be a Waveform"):
-        IQZero(envelope=cast("Waveform", "bad"))
+        IQZero(envelope=envelope)
 
 
 def test_iq_zero_duration():
@@ -697,8 +702,10 @@ def test_add_flattens_right_chain():
 
 def test_add_with_non_waveform_returns_notimplemented():
     # Triggered indirectly: Python falls back to TypeError when both sides return NotImplemented.
+    square = Square(0.5, 10)
+    other = cast("Waveform", "not a waveform")
     with pytest.raises(TypeError):
-        _ = Square(0.5, 10) + cast("Waveform", "not a waveform")
+        _ = square + other
 
 
 # ---------------------------------------------------------------------------

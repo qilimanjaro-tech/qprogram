@@ -398,8 +398,9 @@ def test_comparison_variables():
 
 def test_comparison_invalid_op_raises():
     v = Variable("x")
+    one = Constant(1)
     with pytest.raises(ValueError, match="Comparison op must be"):
-        Comparison("??", v, Constant(1))  # ty:ignore[invalid-argument-type]
+        Comparison("??", v, one)  # ty:ignore[invalid-argument-type]
 
 
 def test_comparison_structural_equality():
@@ -519,14 +520,16 @@ def test_logical_binary_op_invalid_op():
 
 
 def test_logical_binary_op_rejects_non_expression():
+    v = Variable("x")
     with pytest.raises(TypeError, match="must be an Expression"):
-        LogicalBinaryOp("and", 1, Variable("x"))  # ty:ignore[invalid-argument-type]
+        LogicalBinaryOp("and", 1, v)  # ty:ignore[invalid-argument-type]
 
 
 def test_logical_binary_op_message_mentions_eq_helper_for_bool():
     # The error message specifically helps users who wrote ``var == lit``.
+    v = Variable("x")
     with pytest.raises(TypeError, match=r"qprogram\.eq"):
-        LogicalBinaryOp("and", True, Variable("x"))  # ty:ignore[invalid-argument-type]  # ruff: ignore[boolean-positional-value-in-call]
+        LogicalBinaryOp("and", True, v)  # ty:ignore[invalid-argument-type]  # ruff: ignore[boolean-positional-value-in-call]
 
 
 def test_logical_not_rejects_non_expression():
@@ -644,8 +647,9 @@ def test_minimum_three_args():
 
 
 def test_minimum_requires_at_least_two_args():
+    v = Variable("x")
     with pytest.raises(TypeError, match="at least two"):
-        minimum(Variable("x"))
+        minimum(v)
 
 
 def test_maximum_two_args():
@@ -655,13 +659,15 @@ def test_maximum_two_args():
 
 
 def test_maximum_requires_at_least_two_args():
+    v = Variable("x")
     with pytest.raises(TypeError, match="at least two"):
-        maximum(Variable("x"))
+        maximum(v)
 
 
 def test_math_func_unknown_name():
+    args = (Constant(1),)
     with pytest.raises(ValueError, match="Unknown math function"):
-        MathFunc("nonsense", (Constant(1),))
+        MathFunc("nonsense", args)
 
 
 def test_math_func_requires_operands():
@@ -733,8 +739,9 @@ def test_where_chosen_branch_only_evaluated():
 
 
 def test_where_rejects_non_expression_condition():
+    then, otherwise = Constant(1), Constant(2)
     with pytest.raises(TypeError, match="must be an Expression"):
-        Where(True, Constant(1), Constant(2))  # ty:ignore[invalid-argument-type]  # ruff: ignore[boolean-positional-value-in-call]
+        Where(True, then, otherwise)  # ty:ignore[invalid-argument-type]  # ruff: ignore[boolean-positional-value-in-call]
 
 
 def test_where_helper_wraps_literal_branches():

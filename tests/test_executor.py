@@ -156,8 +156,9 @@ def test_get_defaults_to_iq_and_never_substitutes_another_field():
 def test_get_field_miss_names_available_fields():
     p = QProgram()
     p.measure("readout_q0", _ro(), "w", fields=("iq",))
+    result = simulate(p)
     with pytest.raises(KeyError, match=r"no field 'raw'.*available: iq"):
-        simulate(p).get("m0", field="raw")
+        result.get("m0", field="raw")
 
 
 def test_multiple_measurements_in_declaration_order():

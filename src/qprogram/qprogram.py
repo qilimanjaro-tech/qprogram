@@ -837,7 +837,8 @@ class QProgram:
         """
         existing = cls._vendor_registry.get(name)
         if existing is namespace_cls:
-            return  # idempotent re-registration
+            # idempotent re-registration
+            return
         if is_reserved_vendor(name):
             msg = (
                 f"vendor name {name!r} is reserved (see qprogram.RESERVED_KEYWORDS plus the "
@@ -910,9 +911,11 @@ class QProgram:
         if not isinstance(bus, BusRef):
             return
         if not bus.element or not bus.kind:
-            return  # opaque/manually-constructed BusRef with no schema metadata
+            # opaque/manually-constructed BusRef with no schema metadata
+            return
         if bus.schema is None:
-            return  # no producer recorded — defer to other validators
+            # no producer recorded — defer to other validators
+            return
         if self._schema is None:
             self._schema = bus.schema
             return
@@ -1540,7 +1543,8 @@ class QProgram:
         string_map = dict(strings or {})
         unported: set[str] = set()
 
-        program._schema = target_schema  # swap in lockstep; None stays None for raw-string programs
+        # swap in lockstep; None stays None for raw-string programs
+        program._schema = target_schema
 
         for op in program._body.walk():
             if not isinstance(op, Operation):

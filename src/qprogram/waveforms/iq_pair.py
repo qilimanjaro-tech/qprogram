@@ -43,7 +43,8 @@ class IQPair(IQWaveform):
         try:
             i_duration, q_duration = I.get_duration(), Q.get_duration()
         except UnassignedVariableError:
-            i_duration = q_duration = None  # symbolic durations — defer the check
+            # symbolic durations — defer the check
+            i_duration = q_duration = None
         if i_duration != q_duration:
             msg = f"IQPair channels must have equal durations; got I={i_duration} ns, Q={q_duration} ns"
             raise ValidationError(msg)

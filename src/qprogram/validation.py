@@ -619,7 +619,8 @@ def reorderable_average_split(
         return None
     body = children[0].elements
     if any(isinstance(el, Block) for el in body):
-        return None  # only the flat-body case is handled
+        # only the flat-body case is handled
+        return None
     prefix = 0
     while prefix < len(body) and support.get(body[prefix]) == _HOST_ONLY:
         prefix += 1

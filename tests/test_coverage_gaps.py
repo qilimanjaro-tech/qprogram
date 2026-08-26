@@ -320,8 +320,7 @@ def test_operation_variables_skips_private_attrs():
 def test_typed_element_factory_base_getitem_via_subclass():
     """Indexing any preset factory goes through the base ``_TypedElementFactory.__getitem__``."""
 
-    _ = BusSchema.transmon().q[0]
-    assert True
+    assert BusSchema.transmon().q[0].drive == "q0/drive"
 
 
 def test_parser_blank_line_inside_block():

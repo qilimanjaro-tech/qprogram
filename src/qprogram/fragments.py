@@ -518,7 +518,8 @@ def _substitute_node_attrs(node: Block | Operation, mapping: dict[str, object], 
     """
     for attr, value in vars(node).items():
         if attr.startswith("_"):
-            continue  # children are covered by walk(); private state is not user data
+            # children are covered by walk(); private state is not user data
+            continue
         setattr(node, attr, _subst_value(value, mapping, frag))
 
 
@@ -605,7 +606,8 @@ def _subst_expr(expr: Expression, mapping: dict[str, object], frag: Fragment) ->
         expr.then = _subst_expr(expr.then, mapping, frag)
         expr.else_ = _subst_expr(expr.else_, mapping, frag)
         return expr
-    return expr  # unknown Expression subclass — leave untouched
+    # unknown Expression subclass — leave untouched
+    return expr
 
 
 def _revalidate_op(op: Operation, frag: Fragment) -> None:

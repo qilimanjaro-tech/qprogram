@@ -206,12 +206,16 @@ def test_constant_repr():
 
 
 def test_constant_equality():
-    assert Constant(5) == Constant(5)
-    assert Constant(5) != Constant(6)
+    a = Constant(5)
+    b = Constant(5)
+    assert a == b
+    assert a != Constant(6)
 
 
 def test_constant_hash_consistent():
-    assert hash(Constant(5)) == hash(Constant(5))
+    a = Constant(5)
+    b = Constant(5)
+    assert hash(a) == hash(b)
 
 
 def test_constant_unequal_other_types():
@@ -304,19 +308,22 @@ def test_binary_op_structural_equality():
 
 
 def test_binary_op_hash():
-    v = Variable("x")
-    assert hash(v + 5) == hash(v + 5)
+    v1 = Variable("x")
+    v2 = Variable("x")
+    assert hash(v1 + 5) == hash(v2 + 5)
 
 
 def test_unary_op_structural_equality():
-    v = Variable("x")
-    assert -v == -v
-    assert -v != +v
+    v1 = Variable("x")
+    v2 = Variable("x")
+    assert -v1 == -v2
+    assert -v1 != +v1
 
 
 def test_unary_op_hash():
-    v = Variable("x")
-    assert hash(-v) == hash(-v)
+    v1 = Variable("x")
+    v2 = Variable("x")
+    assert hash(-v1) == hash(-v2)
 
 
 def test_binary_op_repr():
@@ -404,8 +411,9 @@ def test_comparison_structural_equality():
 
 
 def test_comparison_hash_consistent():
-    v = Variable("x")
-    assert hash(v < 5) == hash(v < 5)
+    v1 = Variable("x")
+    v2 = Variable("x")
+    assert hash(v1 < 5) == hash(v2 < 5)
 
 
 def test_comparison_repr():
@@ -547,8 +555,10 @@ def test_logical_binary_op_structural_equality():
 
 def test_logical_not_structural_equality():
     v = Variable("x")
-    assert not_(v < 5) == not_(v < 5)
-    assert hash(not_(v < 5)) == hash(not_(v < 5))
+    a = not_(v < 5)
+    b = not_(v < 5)
+    assert a == b
+    assert hash(a) == hash(b)
 
 
 def test_logical_binary_op_repr():
@@ -674,8 +684,9 @@ def test_math_func_structural_equality():
 
 
 def test_math_func_hash():
-    v = Variable("x")
-    assert hash(sin(v)) == hash(sin(v))
+    v1 = Variable("x")
+    v2 = Variable("x")
+    assert hash(sin(v1)) == hash(sin(v2))
 
 
 def test_math_func_repr():

@@ -632,7 +632,8 @@ def try_activate_vendor(vendor: str) -> bool:
         return False
     try:
         ep.load()
-    except Exception as e:  # collapse any import-time failure into one clear error
+    except Exception as e:
+        # collapse any import-time failure into one clear error
         msg = (
             f"vendor extension for {vendor!r} is installed (entry point {ep.value!r}) but failed "
             f"to import: {type(e).__name__}: {e}"

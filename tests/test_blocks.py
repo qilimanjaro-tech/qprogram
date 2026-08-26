@@ -118,7 +118,9 @@ def test_block_waveforms_union():
 
 
 def test_block_structural_equality_empty():
-    assert Block() == Block()
+    a = Block()
+    b = Block()
+    assert a == b
 
 
 def test_block_inequality_different_children():

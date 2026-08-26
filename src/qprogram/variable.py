@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 # Variable ids are Python-style identifiers — they're used verbatim as tokens in the .qp file format
 # and must be safe to embed without quoting.
-_ID_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_ID_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z_]\w*$", re.ASCII)
 
 BinaryOperator: TypeAlias = Literal["+", "-", "*", "/"]
 UnaryOperator: TypeAlias = Literal["-", "+"]
@@ -660,7 +660,8 @@ class Comparison(Expression):
     _OPS: ClassVar[frozenset[str]] = frozenset({"==", "!=", "<", "<=", ">", ">="})
 
     def __init__(self, op: ComparisonOperator, left: Expression, right: Expression) -> None:
-        if op not in self._OPS:  # defensive: callers should pass a Literal
+        # defensive: callers should pass a Literal
+        if op not in self._OPS:
             msg = f"Comparison op must be one of {sorted(self._OPS)}, got {op!r}"
             raise ValueError(msg)
         self.op: ComparisonOperator = op

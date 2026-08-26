@@ -90,7 +90,9 @@ def test_fragment_structural_equality():
         frag.play(b, Square(0.5, 100))
         return frag
 
-    assert build() == build()
+    a = build()
+    b = build()
+    assert a == b
     other = build()
     other.wait("x", 4)
     assert build() != other

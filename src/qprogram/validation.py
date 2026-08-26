@@ -97,7 +97,7 @@ from qprogram.variable import (
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
-    from qprogram.protocol import ExecutionPlan, PlatformCapabilities
+    from qprogram.protocol import CompilerCapabilities, ExecutionPlan, PlatformCapabilities
     from qprogram.qprogram import QProgram
     from qprogram.variable import Variable
 
@@ -731,61 +731,124 @@ def _check_node_self(
         platform_cc = caps.platform.get(d)
         if expr_required and platform_cc is None:
             continue
-        domain_failed = False
-        for cc in bus_ccs:
-            if cc is None:  # pragma: no cover — already filtered above; pleases the type checker
-                continue
-            for token in sorted(other_required - cc.capabilities):
-                missing_by_token.setdefault(token, []).append((d, cc.profile, False))
-                domain_failed = True
-            for predicate in cc.predicates:
-                for output in predicate(node, ctx):
-                    if isinstance(output, Diagnostic):
-                        if output not in predicate_diags:
-                            predicate_diags.append(output)
-                        domain_failed = True
-                    elif not _constraint_seen(output, constraints):
-                        constraints.append(output)
-        if expr_required and platform_cc is not None:
-            for token in sorted(expr_required - platform_cc.capabilities):
-                missing_by_token.setdefault(token, []).append((d, platform_cc.profile, True))
-                domain_failed = True
-        if not domain_failed:
+        missing, diags, dcs = _probe_domain(
+            node,
+            ctx,
+            [cc for cc in bus_ccs if cc is not None],
+            platform_cc,
+            other_required,
+            expr_required,
+        )
+        for token, profile, is_expr in missing:
+            missing_by_token.setdefault(token, []).append((d, profile, is_expr))
+        # Both dedups reach across domains: one profile filling the rt and the host half of a slot
+        # runs its predicates twice, and the second run repeats the first run's outputs.
+        predicate_diags.extend(diag for diag in diags if diag not in predicate_diags)
+        for output in dcs:
+            if not _constraint_seen(output, constraints):
+                constraints.append(output)
+        if not missing and not diags:
             available.add(d)
 
     available_set: frozenset[Domain] = frozenset(available)
+    if available_set:
+        return available_set, [], constraints
+    return available_set, _no_domain_diagnostics(node, missing_by_token, predicate_diags), constraints
 
+
+def _probe_domain(  # ruff: ignore[too-many-arguments]
+    node: Operation | Block,
+    ctx: ValidationContext,
+    bus_ccs: list[CompilerCapabilities],
+    platform_cc: CompilerCapabilities | None,
+    other_required: set[str],
+    expr_required: set[str],
+) -> tuple[list[tuple[str, str, bool]], list[Diagnostic], list[DomainConstraint]]:
+    """Check one execution domain's engines against what ``node`` requires.
+
+    Args:
+        node (Operation | Block): The node being checked.
+        ctx (ValidationContext): Program-wide data-flow facts, passed on to the predicates.
+        bus_ccs (list[CompilerCapabilities]): This domain's engine for each slot ``node`` routes
+            to. The caller has already established that every slot fills this domain.
+        platform_cc (CompilerCapabilities | None): This domain's platform-wide engine, which is
+            what the ``expr.*`` tokens check against. ``None`` when the platform leaves the domain
+            empty, which the caller only reaches here when no ``expr.*`` token is required.
+        other_required (set[str]): The required tokens outside the ``expr.*`` namespace.
+        expr_required (set[str]): The required ``expr.*`` tokens.
+
+    Returns:
+        A ``(missing, diagnostics, domain_constraints)`` triple in reporting order, none of it
+        deduplicated — the caller merges across domains and dedupes there. ``missing`` carries one
+        ``(token, profile_name, is_expr)`` entry per unsupported token. The domain supports
+        ``node`` exactly when ``missing`` and ``diagnostics`` are both empty.
+    """
+    missing: list[tuple[str, str, bool]] = []
+    diagnostics: list[Diagnostic] = []
+    constraints: list[DomainConstraint] = []
+    for cc in bus_ccs:
+        missing.extend((token, cc.profile, False) for token in sorted(other_required - cc.capabilities))
+        for predicate in cc.predicates:
+            for output in predicate(node, ctx):
+                if isinstance(output, Diagnostic):
+                    diagnostics.append(output)
+                else:
+                    constraints.append(output)
+    if expr_required and platform_cc is not None:
+        missing.extend((token, platform_cc.profile, True) for token in sorted(expr_required - platform_cc.capabilities))
+    return missing, diagnostics, constraints
+
+
+def _no_domain_diagnostics(
+    node: Operation | Block,
+    missing_by_token: dict[str, list[tuple[Domain, str, bool]]],
+    predicate_diags: list[Diagnostic],
+) -> list[Diagnostic]:
+    """Explain why no execution domain supports ``node``.
+
+    Reached only once `_check_node_self` has established that the node's domain set came out
+    empty, which is what keeps per-domain noise suppressed whenever at least one domain works.
+
+    Args:
+        node (Operation | Block): The node with no executable domain.
+        missing_by_token (dict[str, list[tuple[Domain, str, bool]]]): Each unsupported token
+            mapped to the ``(domain, profile_name, is_expr)`` sites that reject it.
+        predicate_diags (list[Diagnostic]): The diagnostics the slot predicates emitted.
+
+    Returns:
+        One diagnostic per missing token — naming every rejecting site, rather than one
+        diagnostic per domain — followed by the predicate diagnostics. When neither has anything
+        to say, the routed slots held no engine in either domain, which is its own
+        ``empty-domain`` diagnostic.
+    """
     diagnostics_out: list[Diagnostic] = []
-    if not available_set:
-        # Surface the failure reasons — one diagnostic per missing token (not per domain).
-        for token in sorted(missing_by_token):
-            sites = missing_by_token[token]
-            domains = sorted({d for d, _, _ in sites})
-            where = " / ".join(f"{profile!r} ({d})" for d, profile, _ in sites)
-            kind = "expression capability" if sites[0][2] else "capability"
-            diagnostics_out.append(
-                Diagnostic(
-                    severity="error",
-                    code="missing-capability",
-                    message=(f"'{type(node).__name__}' requires {kind} {token!r} which is not supported by {where}"),
-                    node=node,
-                    capability=token,
-                    domain=domains[0] if len(domains) == 1 else None,
-                ),
-            )
-        diagnostics_out.extend(predicate_diags)
-        if not diagnostics_out:
-            # No predicate or token complaints — the slot(s) had ``None`` engines in every domain.
-            diagnostics_out.append(
-                Diagnostic(
-                    severity="error",
-                    code="empty-domain",
-                    message=(f"'{type(node).__name__}' has no executable domain on its routed slot."),
-                    node=node,
-                ),
-            )
-
-    return available_set, diagnostics_out, constraints
+    for token in sorted(missing_by_token):
+        sites = missing_by_token[token]
+        domains = sorted({d for d, _, _ in sites})
+        where = " / ".join(f"{profile!r} ({d})" for d, profile, _ in sites)
+        kind = "expression capability" if sites[0][2] else "capability"
+        diagnostics_out.append(
+            Diagnostic(
+                severity="error",
+                code="missing-capability",
+                message=(f"'{type(node).__name__}' requires {kind} {token!r} which is not supported by {where}"),
+                node=node,
+                capability=token,
+                domain=domains[0] if len(domains) == 1 else None,
+            ),
+        )
+    diagnostics_out.extend(predicate_diags)
+    if not diagnostics_out:
+        # No predicate or token complaints — the slot(s) had ``None`` engines in every domain.
+        diagnostics_out.append(
+            Diagnostic(
+                severity="error",
+                code="empty-domain",
+                message=(f"'{type(node).__name__}' has no executable domain on its routed slot."),
+                node=node,
+            ),
+        )
+    return diagnostics_out
 
 
 def _route(

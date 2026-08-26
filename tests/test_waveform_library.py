@@ -19,6 +19,7 @@ Covers per-bus resolution and the portable ``.wfl`` text format.
 from __future__ import annotations
 
 import pytest
+from test_round_trip import UNICODE_LINE_BREAKS
 
 from qprogram import BusSchema, ParseError, QProgram, ValidationError, WaveformLibrary
 from qprogram.errors import SerializationError
@@ -165,3 +166,13 @@ def test_non_concrete_waveform_rejected_on_dump():
     library.set("x", Gaussian(amp, 40, 8))  # Symbolic amplitude.
     with pytest.raises(SerializationError, match="concrete waveforms"):
         library.dumps()
+
+
+@pytest.mark.parametrize("char", UNICODE_LINE_BREAKS)
+def test_wfl_round_trip_name_holding_a_unicode_line_break(char):
+    """``.wfl`` splits its lines by the same rule, so a name may hold one of these too."""
+    library = WaveformLibrary()
+    library.set(f"pi{char}2", Gaussian(0.5, 40, 8))
+    reloaded = WaveformLibrary.loads(library.dumps())
+    assert reloaded.dumps() == library.dumps()
+    assert reloaded.get("drive", f"pi{char}2") == Gaussian(0.5, 40, 8)

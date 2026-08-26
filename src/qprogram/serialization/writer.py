@@ -834,11 +834,16 @@ def _major_minor(version: str) -> str:
 
 
 def _escape_str(s: str) -> str:
-    """Escape a string for embedding in double quotes inside a ``.qp`` file.
+    r"""Escape a string for embedding in double quotes inside a ``.qp`` file.
 
     Backslash and double-quote get the usual escapes; newline, carriage return, and tab are
     escaped too — the format is line-based, so a raw newline inside a quoted string would split
     the statement across two lines and break the parse.
+
+    The other characters ``str.splitlines`` treats as line breaks (``\v``, ``\f``, ``\x1c``,
+    ``\x1d``, ``\x1e``, ``\x85``, ``\u2028``, ``\u2029``) are deliberately left alone: the format
+    has no escape for them, the grammar's ``STRING`` terminal admits them raw, and the parser
+    splits lines on ``\r?\n`` alone, so they survive verbatim. See `_split_lines`.
 
     Args:
         s (str): Raw text to escape. The surrounding quotes are the caller's to add.

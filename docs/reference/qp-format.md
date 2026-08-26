@@ -206,6 +206,13 @@ quote, newline, carriage return, and tab are escaped as `\\`, `\"`, `\n`, `\r`,
 and `\t`, and unescaped on the way back in, so a label holding a quote or a
 newline survives the round trip.
 
+Every other character is carried literally, including the ones some languages
+treat as line breaks (`\v`, `\f`, `\x1c`, `\x1d`, `\x1e`, `\x85`, `\u2028`, and
+`\u2029`). A line ends at a newline, optionally preceded by a carriage return,
+and nowhere else, so a value holding one of those stays on its line. Anything
+that reads the format has to split lines on that terminator alone. Python's
+`str.splitlines` does not: it breaks on all eight of those characters too.
+
 The two defaults differ, which is why the writer's output differs. `label`
 defaults to `""` and is omitted when empty; `description` defaults to `None`,
 so an explicit empty description is a distinct value and is emitted as

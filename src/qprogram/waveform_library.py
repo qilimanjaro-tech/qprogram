@@ -261,12 +261,13 @@ class WaveformLibrary:
         from qprogram.serialization.parser import (  # ruff: ignore[import-outside-top-level]
             ParseError,
             _parse_waveform_expr,
+            _split_lines,
             _tokenize,
             _unescape_str,
         )
 
         library = cls()
-        lines = text.splitlines()
+        lines = _split_lines(text)
         pos = 0
         while pos < len(lines) and not lines[pos].strip():
             pos += 1

@@ -152,6 +152,10 @@ def load(path: str, *, auto_activate: bool = True) -> QProgram:
 # ---------------------------------------------------------------------------
 
 
+# The format's only line terminator, matching the ``_NL`` terminal in ``qp.lark``. Deliberately
+# narrower than what `str.splitlines` breaks on — see `_split_lines`.
+_LINE_BREAK_RE = re.compile(r"\r?\n")
+
 _BUS_PATH_RE = re.compile(r"^(\w+)\[(\d+(?:,\d+)*)\]\.(\w+)$")
 _ELEMENT_HEADER_RE = re.compile(r"^element\s+(\w+)\s*:\s*$")
 _BUS_LINE_RE = re.compile(r"^(\w+)\s+info=(\S+)\s*$")
@@ -197,7 +201,7 @@ class _Parser:
     """
 
     def __init__(self, text: str, *, auto_activate: bool = True) -> None:
-        self._lines = text.splitlines()
+        self._lines = _split_lines(text)
         self._pos = 0
         self._program = QProgram()
         self._variables: dict[str, Variable] = {}
@@ -1740,6 +1744,29 @@ def _to_expression(value: object) -> Expression:
         return Constant(value)
     msg = f"cannot use {value!r} ({type(value).__name__}) as an expression operand"
     raise ParseError(msg)
+
+
+def _split_lines(text: str) -> list[str]:
+    r"""Split a document into lines on the format's own line terminator.
+
+    ``str.splitlines`` cannot be used here. It breaks on ten characters — it adds ``\v``, ``\f``,
+    ``\x1c``, ``\x1d``, ``\x1e``, ``\x85``, ``\u2028``, and ``\u2029`` to the three line endings —
+    whereas the format's ``_NL`` terminal is ``\r?\n`` and its ``STRING`` terminal admits every one
+    of those eight characters raw. A label or a units string holding one would therefore be split
+    across two lines on reload, breaking a document the reference grammar accepts.
+
+    Args:
+        text (str): The whole document.
+
+    Returns:
+        The document's lines, without their terminators, and with no trailing empty entry for a
+        document that ends in a newline. A lone ``\r`` is not a terminator, exactly as in the
+        grammar, so it stays inside its line.
+    """
+    lines = _LINE_BREAK_RE.split(text)
+    if lines and not lines[-1]:
+        lines.pop()
+    return lines
 
 
 def _tokenize(line: str) -> list[str]:

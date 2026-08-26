@@ -39,6 +39,7 @@ from qprogram.serialization.parser import (
     _parse_number,
     _Parser,
     _split_args,
+    _split_lines,
     _to_expression,
     _tokenize,
     _unescape_str,
@@ -83,6 +84,39 @@ def test_unescape_str(raw, expected):
 
 def test_unescape_str_trailing_backslash():
     assert _unescape_str("a\\") == "a\\"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("a\nb", ["a", "b"]),
+        ("a\r\nb", ["a", "b"]),  # the CR belongs to the terminator
+        ("a\n", ["a"]),  # no trailing empty line, as `splitlines` gives
+        ("a\n\n", ["a", ""]),
+        ("", []),
+        ("\n", [""]),
+        ("a", ["a"]),
+        ("a\rb", ["a\rb"]),  # `_NL` is `\r?\n`, so a lone CR is content
+        # The eight characters `splitlines` breaks on that the format does not.
+        ("a\vb", ["a\vb"]),
+        ("a\fb", ["a\fb"]),
+        ("a\x1cb", ["a\x1cb"]),
+        ("a\x1db", ["a\x1db"]),
+        ("a\x1eb", ["a\x1eb"]),
+        ("a\x85b", ["a\x85b"]),
+        ("a\u2028b", ["a\u2028b"]),
+        ("a\u2029b", ["a\u2029b"]),
+    ],
+)
+def test_split_lines(text, expected):
+    assert _split_lines(text) == expected
+
+
+@pytest.mark.parametrize("char", ["\n", "\r\n"])
+def test_split_lines_agrees_with_splitlines_on_real_terminators(char):
+    """For the terminators the format does have, `_split_lines` is `str.splitlines`."""
+    text = char.join(["#!QProgram 1.0", "", "body:", "  sync", ""])
+    assert _split_lines(text) == text.splitlines()
 
 
 @pytest.mark.parametrize(

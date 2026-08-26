@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from qprogram import (
     QProgram,
@@ -30,6 +31,11 @@ from qprogram import (
 )
 from qprogram.sweeps import Range, Values
 from qprogram.waveforms import Arbitrary, Gaussian, IQDrag, IQPair, Square
+
+# The characters `str.splitlines` breaks a document on that the format's own `_NL` terminator
+# (``\r?\n``) does not. The `STRING` terminal admits every one of them raw, so a metadata or
+# variable string may hold one and the writer emits it unescaped.
+UNICODE_LINE_BREAKS = ("\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
 
 
 def _assert_byte_stable(program: QProgram) -> None:
@@ -381,3 +387,38 @@ def test_round_trip_conditional_full_chain(transmon_schema):
         p.sync()
     _assert_byte_stable(p)
     assert loads(dumps(p)).body == p.body
+
+
+# ---------------------------------------------------------------------------
+# Round-trip integrity: strings holding a Unicode line break
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("char", UNICODE_LINE_BREAKS)
+def test_round_trip_metadata_holding_a_unicode_line_break(char):
+    """A label or description may hold a character `str.splitlines` would break on."""
+    p = QProgram(label=f"a{char}b", description=f"c{char}d")
+    reloaded = loads(dumps(p))
+    assert reloaded.label == f"a{char}b"
+    assert reloaded.description == f"c{char}d"
+    _assert_byte_stable(p)
+
+
+@pytest.mark.parametrize("char", UNICODE_LINE_BREAKS)
+def test_round_trip_variable_attrs_holding_a_unicode_line_break(char):
+    """The same for the three ``var`` attributes, which is where the writer emits them raw."""
+    p = QProgram()
+    p.variable("v", label=f"L{char}1", units=char, description=f"D{char}2")
+    p.play("drive", "pi")
+    reloaded = loads(dumps(p))
+    declared = reloaded.variables[0]
+    assert (declared.label, declared.units, declared.description) == (f"L{char}1", char, f"D{char}2")
+    _assert_byte_stable(p)
+
+
+def test_round_trip_lone_carriage_return_is_not_a_line_break():
+    """``_NL`` is ``\r?\n``, so a lone ``\r`` is content — and the writer escapes it anyway."""
+    p = QProgram(label="a\rb")
+    text = dumps(p)
+    assert "\\r" in text
+    assert loads(text).label == "a\rb"

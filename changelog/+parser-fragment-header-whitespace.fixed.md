@@ -1,0 +1,1 @@
+`loads` no longer accepts a non-breaking space as the separator in a `fragment` header. Only ASCII whitespace separates a header's tokens, which is what the reference `qp.lark` grammar has always required, so the two now agree on the same set of documents.

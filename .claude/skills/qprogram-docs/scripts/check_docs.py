@@ -325,7 +325,9 @@ def check_style(doc: Doc) -> Iterator[Finding]:
         # A line holding nothing but links cannot be wrapped: each URL is one token. The
         # label may itself be an image, which is what a row of README badges is, and a
         # badge row puts several of them on one line.
-        is_link_only = bool(re.fullmatch(r"\s*(?:[-*]|\d+\.)?\s*(?:!?\[(?:!?\[[^\]]*\]\([^)]*\)|[^\]])*\]\([^)]*\)\s*)+[.,;:]?\s*", raw))
+        is_link_only = bool(
+            re.fullmatch(r"\s*(?:[-*]|\d+\.)?\s*(?:!?\[(?:!?\[[^\]]*\]\([^)]*\)|[^\]])*\]\([^)]*\)\s*)+[.,;:]?\s*", raw)
+        )
         if len(raw) > MAX_LINE and not in_table and not is_link_only:
             yield finding(i, "long-line", f"{len(raw)} chars; wrap prose near 80")
 

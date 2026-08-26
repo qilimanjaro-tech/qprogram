@@ -90,7 +90,9 @@ def test_fragment_structural_equality():
         frag.play(b, Square(0.5, 100))
         return frag
 
-    assert build() == build()
+    a = build()
+    b = build()
+    assert a == b
     other = build()
     other.wait("x", 4)
     assert build() != other
@@ -208,34 +210,39 @@ def test_call_rejects_non_fragment():
 
 def test_call_too_many_positionals():
     p = QProgram()
+    frag = _two_param_fragment()
     with pytest.raises(ValidationError, match="takes 2 argument"):
-        p.call(_two_param_fragment(), 1, 2, 3)
+        p.call(frag, 1, 2, 3)
 
 
 def test_call_unknown_keyword():
     p = QProgram()
+    frag = _two_param_fragment()
     with pytest.raises(ValidationError, match="no parameter 'c'"):
-        p.call(_two_param_fragment(), 1, 2, c=3)
+        p.call(frag, 1, 2, c=3)
 
 
 def test_call_duplicate_binding():
     p = QProgram()
+    frag = _two_param_fragment()
     with pytest.raises(ValidationError, match="multiple values for parameter 'a'"):
-        p.call(_two_param_fragment(), 1, a=2, b=3)
+        p.call(frag, 1, a=2, b=3)
 
 
 def test_call_missing_argument():
     p = QProgram()
+    frag = _two_param_fragment()
     with pytest.raises(ValidationError, match=r"missing argument.*b"):
-        p.call(_two_param_fragment(), 1)
+        p.call(frag, 1)
 
 
 def test_call_unsupported_argument_type():
     p = QProgram()
+    frag = _two_param_fragment()
     with pytest.raises(ValidationError, match="unsupported argument type"):
-        p.call(_two_param_fragment(), {"not": "allowed"}, 2)
+        p.call(frag, {"not": "allowed"}, 2)
     with pytest.raises(ValidationError, match="unsupported argument type"):
-        p.call(_two_param_fragment(), True, 2)  # ruff: ignore[boolean-positional-value-in-call] — bool is exactly the rejected type
+        p.call(frag, True, 2)  # ruff: ignore[boolean-positional-value-in-call] — bool is exactly the rejected type
 
 
 def test_call_self_rejected():

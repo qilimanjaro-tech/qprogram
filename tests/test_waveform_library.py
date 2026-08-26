@@ -61,8 +61,9 @@ def test_raw_string_bus_reaches_only_global_tier():
 
 def test_set_requires_full_or_no_coordinate():
     library = WaveformLibrary()
+    wf = Gaussian(0.5, 40, 8)
     with pytest.raises(ValidationError, match="exact entry"):
-        library.set("pi", Gaussian(0.5, 40, 8), element="q", idx=0)  # Missing kind.
+        library.set("pi", wf, element="q", idx=0)  # Missing kind.
 
 
 def test_bool_reflects_emptiness():

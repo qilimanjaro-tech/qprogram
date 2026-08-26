@@ -592,7 +592,8 @@ class BusSchema(metaclass=_BusSchemaMeta):
                             f"({existing.buses} vs {element.buses}); rename one element before combining"
                         )
                         raise ValueError(msg)
-                    continue  # identical element already merged — idempotent
+                    # identical element already merged — idempotent
+                    continue
                 combined.add_element(name, dict(element.buses))
         return combined
 

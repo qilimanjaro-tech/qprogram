@@ -385,8 +385,10 @@ def test_combine_requires_at_least_one():
 
 
 def test_combine_duplicate_element_different_buses_raises():
+    plain = BusSchema.transmon()
+    tunable = BusSchema.flux_tunable_transmon()
     with pytest.raises(ValueError, match="defined differently"):
-        _ = BusSchema.transmon() + BusSchema.flux_tunable_transmon()  # both define 'q' differently
+        _ = plain + tunable  # both define 'q' differently
 
 
 def test_combine_duplicate_identical_element_is_idempotent():

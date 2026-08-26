@@ -249,7 +249,8 @@ class QProgramResult:
             record = self._lookup_by_name(candidates, measurement.name, bus)
         elif isinstance(measurement, str):
             record = self._lookup_by_name(candidates, measurement, bus)
-        else:  # int — positional sugar.
+        else:
+            # int — positional sugar.
             if measurement >= len(candidates):
                 scope = f" for bus '{bus}'" if bus is not None else ""
                 msg = f"Measurement index {measurement} out of range{scope} ({len(candidates)} measurements)"

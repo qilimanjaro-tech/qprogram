@@ -373,7 +373,8 @@ def expression_tokens(value: object) -> set[str]:
         for op in value.operands:
             tokens |= expression_tokens(op)
         return tokens
-    if isinstance(value, Expression):  # forward-compat: unknown Expression subclass
+    # forward-compat: unknown Expression subclass
+    if isinstance(value, Expression):
         return set()
     return set()
 
@@ -925,7 +926,8 @@ def _profile_chain(profile: Profile) -> list[Profile]:
         seen.add(current.name)
         chain.append(current)
         current = resolve_profile(current.extends) if current.extends else None
-    chain.reverse()  # root-first so child limits override parent
+    # root-first so child limits override parent
+    chain.reverse()
     return chain
 
 

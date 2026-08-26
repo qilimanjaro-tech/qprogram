@@ -216,10 +216,12 @@ class _Axis:
             a parallel composition attaches one per composed variable, all on the shared dimension.
     """
 
-    node: Block  # Sweep | Parallel
+    # Sweep | Parallel
+    node: Block
     dim: str
     size: int
-    coords: dict[str, np.ndarray]  # coord name -> values (Parallel attaches one per variable)
+    # coord name -> values (Parallel attaches one per variable)
+    coords: dict[str, np.ndarray]
 
 
 def _axis_for(node: Block) -> _Axis | None:
@@ -240,7 +242,8 @@ def _axis_for(node: Block) -> _Axis | None:
     if isinstance(node, Sweep):
         values = node.source.values()
         return _Axis(node=node, dim=node.variable.id, size=len(values), coords={node.variable.id: values})
-    return None  # Average / Conditional / plain Block contribute no dimension
+    # Average / Conditional / plain Block contribute no dimension
+    return None
 
 
 @dataclass
@@ -261,7 +264,8 @@ class _MeasurementSlot:
     op: MeasurementOperation
     axes: tuple[_Axis, ...]
     sums: dict[str, np.ndarray]
-    counts: np.ndarray  # shots executed per sweep point (shared across fields)
+    # shots executed per sweep point (shared across fields)
+    counts: np.ndarray
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +310,8 @@ class _Interpreter:
         self._raw_samples = int(getattr(model, "raw_samples", 16))
         self._slots: list[_MeasurementSlot] = []
         self._slot_by_op: dict[int, _MeasurementSlot] = {}
-        self._indices: dict[int, int] = {}  # id(axis.node) -> current iteration index
+        # id(axis.node) -> current iteration index
+        self._indices: dict[int, int] = {}
 
     # -- setup ---------------------------------------------------------------
 
@@ -350,7 +355,8 @@ class _Interpreter:
                 sums[field_name] = np.zeros((*shape, 2))
             elif field_name == MeasurementField.RAW:
                 sums[field_name] = np.zeros((*shape, self._raw_samples, 2))
-            else:  # state and any vendor-registered scalar-per-shot field
+            else:
+                # state and any vendor-registered scalar-per-shot field
                 sums[field_name] = np.zeros(shape)
         slot = _MeasurementSlot(op=op, axes=axes, sums=sums, counts=np.zeros(shape))
         self._slots.append(slot)
@@ -422,7 +428,8 @@ class _Interpreter:
         if isinstance(block, Conditional):
             self._execute_conditional(block)
             return
-        self._execute_children(block)  # plain grouping Block
+        # plain grouping Block
+        self._execute_children(block)
 
     def _execute_conditional(self, cond: Conditional) -> None:
         """Run the first arm whose condition holds, or the ``else`` body.
@@ -474,7 +481,6 @@ class _Interpreter:
         if isinstance(op, SetParameter):
             value = op.value.evaluate_or_raise() if isinstance(op.value, Expression) else op.value
             self._parameters[f"{op.bus}.{op.parameter}"] = float(value)
-            return
         # Pulse/timing ops (play, wait, sync, set_*) and vendor ops without a handler: their
         # expressions were forced above and nothing else happens here — the reference executor
         # simulates results, not waveform physics or timing.

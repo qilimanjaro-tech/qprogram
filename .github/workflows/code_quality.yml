@@ -40,10 +40,11 @@ jobs:
           python-version: "3.13"
 
       # Ruff takes its whole configuration from pyproject.toml and never imports
-      # the code, so linting needs the linters and nothing else.
+      # the code, so linting needs the linters and nothing else. --no-build keeps
+      # every dependency to its pre-built wheel, so no third-party build backend runs.
       - name: Install the linters
         run: |
-          uv sync --frozen --only-group dev --no-install-project
+          uv sync --frozen --only-group dev --no-install-project --no-build
           echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
@@ -76,9 +77,13 @@ jobs:
             **/uv.lock
           python-version: "3.13"
 
+      # --no-build keeps every dependency to its pre-built wheel, so no third-party
+      # build backend runs here. The project itself has no wheel to install from, so
+      # it is built in a second step that resolves nothing.
       - name: Install the project
         run: |
-          uv sync --frozen --group dev --all-extras
+          uv sync --frozen --group dev --all-extras --no-build --no-install-project
+          uv pip install --no-deps -e .
           echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 

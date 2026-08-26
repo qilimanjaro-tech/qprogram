@@ -604,6 +604,45 @@ class _Writer:
                 )
                 raise SerializationError(msg)
             return f"{val.handle.name}.{val.field}"
+        operator = self._serialize_operator(val)
+        if operator is not None:
+            return operator
+        if isinstance(val, (Waveform, IQWaveform)):
+            return self.serialize_waveform(val)
+        if isinstance(val, SweepSource):
+            # Nested sources: a combinator's ``source`` / ``sources`` attributes.
+            return self.serialize_sweep_source(val)
+        if isinstance(val, np.integer):
+            return str(int(val))
+        if isinstance(val, np.floating):
+            return repr(float(val))
+        if isinstance(val, (int, float)):
+            return str(val)
+        container = self._serialize_container(val)
+        if container is not None:
+            return container
+        msg = (
+            f"Cannot serialize value {val!r} of type {type(val).__name__!r}: the .qp format has "
+            f"no representation for it. Register a custom serialize callback for the operation "
+            f"that carries it, or use a supported value type."
+        )
+        raise SerializationError(msg)
+
+    def _serialize_operator(self, val: object) -> str | None:
+        """Render a symbolic [`Expression`][qprogram.Expression] operator node.
+
+        Arithmetic, comparison, and binary logical operators all emit the canonical parenthesized
+        ``(<left> <op> <right>)`` shape the parser recovers them through; ``not``, the math
+        functions, and ``where`` emit their own forms. Operands recurse through
+        `serialize_value`, so a nested expression renders in full.
+
+        Args:
+            val (object): The value being rendered.
+
+        Returns:
+            The token, or ``None`` when ``val`` is not an operator node and the caller should
+            keep looking. A [`Constant`][qprogram.Constant] renders as the literal it wraps.
+        """
         if isinstance(val, Constant):
             return self.serialize_value(val.value)
         if isinstance(val, BinaryOp):
@@ -624,21 +663,26 @@ class _Writer:
             then = self.serialize_value(val.then)
             else_ = self.serialize_value(val.else_)
             return f"where({cond}, {then}, {else_})"
-        if isinstance(val, (Waveform, IQWaveform)):
-            return self.serialize_waveform(val)
-        if isinstance(val, SweepSource):
-            # Nested sources: a combinator's ``source`` / ``sources`` attributes.
-            return self.serialize_sweep_source(val)
-        if isinstance(val, np.integer):
-            return str(int(val))
-        if isinstance(val, np.floating):
-            return repr(float(val))
-        if isinstance(val, (int, float)):
-            return str(val)
-        # Sequences → ``[v0, v1, ...]``. Never truncated: the bracket
-        # literal must reload to exactly the same values. The tokenizer
-        # treats ``[...]`` as a nesting context, so the spaces after the
-        # commas are safe.
+        return None
+
+    def _serialize_container(self, val: object) -> str | None:
+        """Render a sequence as ``[v0, v1, ...]`` or a string-keyed dict as ``{"k": v, ...}``.
+
+        Sequences are never truncated: the bracket literal has to reload to exactly the same
+        values. The tokenizer treats ``[...]`` and ``{...}`` as nesting contexts, so the spaces
+        after the commas are safe.
+
+        Args:
+            val (object): The value being rendered.
+
+        Returns:
+            The token, or ``None`` when ``val`` is not a container and the caller should keep
+            looking.
+
+        Raises:
+            SerializationError: For an array of any rank other than 1, or a dict with a
+                non-string key — neither has a ``.qp`` form.
+        """
         if isinstance(val, np.ndarray):
             if val.ndim != 1:
                 msg = f"Cannot serialize a {val.ndim}-D array; only 1-D arrays have a .qp form"
@@ -649,19 +693,13 @@ class _Writer:
             return f"[{', '.join(self.serialize_value(v) for v in elements)}]"
         if isinstance(val, (list, tuple)):
             return f"[{', '.join(self.serialize_value(v) for v in val)}]"
-        # String-keyed dicts → ``{"k": v, ...}`` (the generic brace-literal form for dict kwargs).
         if isinstance(val, dict):
             if not all(isinstance(k, str) for k in val):
                 msg = "Cannot serialize a dict with non-string keys"
                 raise SerializationError(msg)
             items = ", ".join(f'"{_escape_str(str(k))}": {self.serialize_value(v)}' for k, v in val.items())
             return f"{{{items}}}"
-        msg = (
-            f"Cannot serialize value {val!r} of type {type(val).__name__!r}: the .qp format has "
-            f"no representation for it. Register a custom serialize callback for the operation "
-            f"that carries it, or use a supported value type."
-        )
-        raise SerializationError(msg)
+        return None
 
     def serialize_bus(self, bus: object) -> str:
         """Render a bus argument as a path or as a quoted string.

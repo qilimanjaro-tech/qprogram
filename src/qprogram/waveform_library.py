@@ -357,7 +357,8 @@ def _format_coord(element: str | None, idx: int | tuple[int, ...] | None, kind: 
     """
     if element is None and kind is None:
         return ""
-    if idx is None:  # family tier: element + kind, any index
+    # family tier: element + kind, any index
+    if idx is None:
         return f"{element}[*].{kind}"
     idx_str = ",".join(str(i) for i in idx) if isinstance(idx, tuple) else str(idx)
     return f"{element}[{idx_str}].{kind}"

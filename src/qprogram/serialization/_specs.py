@@ -19,19 +19,16 @@ signature-driven default callbacks for the majority of operations, the special-c
 ``average``'s shot count), and the registration entry point that puts every core operation, block,
 and sweep source in the registries.
 
-The ``ctx`` parameter on every callback is the writer or parser instance, duck-typed to a small
-surface: the write side reads ``serialize_value`` / ``serialize_bus`` / ``var_ident``, the parse side
-``parse_value`` / ``parse_error`` and the handle and variable accessors.
+The ``ctx`` parameter on every callback is the writer or parser instance, narrowed to the slice of
+it the callbacks may reach for: `SerializeContext` on the write side, `ParseContext` on the parse
+side.
 """
-# Callback ``ctx`` arguments are intentionally ``Any``: the writer and parser pass themselves, and
-# callbacks rely on a small duck-typed surface of theirs.
-# ruff: file-ignore[any-type]
 
 from __future__ import annotations
 
 import inspect
 import math
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from qprogram.blocks.average import Average
 from qprogram.blocks.block import Block
@@ -61,6 +58,63 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from qprogram.operations.operation import MeasurementOperation, Operation
+    from qprogram.result import MeasurementHandle
+    from qprogram.serialization.parser import ParseError
+    from qprogram.variable import Variable
+
+
+# ---------------------------------------------------------------------------
+# Callback contexts
+# ---------------------------------------------------------------------------
+
+
+class SerializeContext(Protocol):
+    """The writer surface a serialize callback may use.
+
+    The writer passes itself as the ``ctx`` argument. Callbacks see it through this protocol rather
+    than through the concrete class, so a callback cannot reach into writer internals that are free
+    to change between releases.
+    """
+
+    def serialize_value(self, val: object) -> str:
+        """Render one argument value as a ``.qp`` token."""
+        ...
+
+    def serialize_bus(self, bus: object) -> str:
+        """Render a bus as a bus path, or as a quoted string when it carries no schema."""
+        ...
+
+    def var_ident(self, var: Variable) -> str:
+        """Return the identifier a variable is written under."""
+        ...
+
+
+class ParseContext(Protocol):
+    """The parser surface a parse callback may use.
+
+    The counterpart of `SerializeContext`: the parser passes itself as the ``ctx`` argument, and
+    callbacks see only the token, error, variable, and handle accessors.
+    """
+
+    def parse_value(self, token: str) -> object:
+        """Turn one ``.qp`` token back into the Python value it spells."""
+        ...
+
+    def parse_error(self, message: str) -> ParseError:
+        """Build a line-tagged error for the statement being parsed. The caller raises it."""
+        ...
+
+    def get_or_declare_variable(self, name: str) -> Variable:
+        """Return the program variable of that identifier, declaring it if the name is new."""
+        ...
+
+    def get_or_create_handle(self, name: str) -> MeasurementHandle:
+        """Return the canonical measurement handle of that name, creating it if the name is new."""
+        ...
+
+    def allocate_measurement_handle(self, bus: object) -> MeasurementHandle:
+        """Allocate a handle for an unnamed measurement, following the builder's naming convention."""
+        ...
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +122,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def default_serialize_operation(op: Operation, spec: OperationSpec, ctx: Any) -> str:
+def default_serialize_operation(op: Operation, spec: OperationSpec, ctx: SerializeContext) -> str:
     """Signature-driven serializer used by most operations.
 
     Walks ``__init__``'s parameters: required ones (no default) emit positionally in declaration
@@ -80,14 +134,15 @@ def default_serialize_operation(op: Operation, spec: OperationSpec, ctx: Any) ->
         op (Operation): Operation instance to serialize.
         spec (OperationSpec): The spec describing ``op``; supplies the qualified keyword and the
             class whose signature is walked.
-        ctx (Any): Writer instance — exposes ``serialize_bus``, ``serialize_value``, etc.
+        ctx (SerializeContext): Writer instance — exposes ``serialize_bus``, ``serialize_value``, etc.
 
     Returns:
         The full statement line: the qualified keyword, then positional arguments, then keyword
         arguments.
     """
     sig = inspect.signature(spec.cls.__init__)
-    params = list(sig.parameters.values())[1:]  # skip self
+    # skip self
+    params = list(sig.parameters.values())[1:]
     pos_parts: list[str] = []
     kw_parts: list[str] = []
     for p in params:
@@ -104,7 +159,7 @@ def default_serialize_operation(op: Operation, spec: OperationSpec, ctx: Any) ->
 def _bind_signature_tokens(
     cls: type[Operation],
     tokens: list[str],
-    ctx: Any,
+    ctx: ParseContext,
 ) -> dict[str, Any]:
     """Bind operation-line tokens to ``cls.__init__``'s parameters.
 
@@ -115,7 +170,7 @@ def _bind_signature_tokens(
     Args:
         cls (type[Operation]): Class whose ``__init__`` the tokens bind to.
         tokens (list[str]): Tokens of the statement body, the keyword already consumed.
-        ctx (Any): Parser instance — supplies ``parse_value`` and ``parse_error``.
+        ctx (ParseContext): Parser instance — supplies ``parse_value`` and ``parse_error``.
 
     Returns:
         The keyword arguments to construct ``cls`` with.
@@ -125,7 +180,8 @@ def _bind_signature_tokens(
             silently dropping the excess would load a *different* program without any error.
     """
     sig = inspect.signature(cls.__init__)
-    params = list(sig.parameters.values())[1:]  # skip self
+    # skip self
+    params = list(sig.parameters.values())[1:]
     positional: list[Any] = []
     kwargs: dict[str, Any] = {}
     for tok in tokens:
@@ -152,7 +208,7 @@ def _bind_signature_tokens(
     return final
 
 
-def _construct_operation(cls: type[Operation], final: dict[str, Any], ctx: Any) -> Operation:
+def _construct_operation(cls: type[Operation], final: dict[str, Any], ctx: ParseContext) -> Operation:
     """Instantiate ``cls(**final)``, converting constructor failures into a line-tagged error.
 
     Two failure shapes are folded in. A ``TypeError`` means the bound arguments don't fit the
@@ -165,7 +221,7 @@ def _construct_operation(cls: type[Operation], final: dict[str, Any], ctx: Any) 
     Args:
         cls (type[Operation]): Class to instantiate.
         final (dict[str, Any]): Keyword arguments from `_bind_signature_tokens`.
-        ctx (Any): Parser instance — supplies ``parse_error``.
+        ctx (ParseContext): Parser instance — supplies ``parse_error``.
 
     Returns:
         The constructed operation.
@@ -182,13 +238,13 @@ def _construct_operation(cls: type[Operation], final: dict[str, Any], ctx: Any) 
         raise ctx.parse_error(str(e)) from e
 
 
-def default_parse_operation(spec: OperationSpec, tokens: list[str], ctx: Any) -> Operation:
+def default_parse_operation(spec: OperationSpec, tokens: list[str], ctx: ParseContext) -> Operation:
     """Signature-driven parser used by most operations.
 
     Args:
         spec (OperationSpec): The spec describing the target class.
         tokens (list[str]): Tokens of the operation body (the leading keyword has been consumed).
-        ctx (Any): Parser instance — exposes ``parse_value``, ``get_or_create_handle``, etc.
+        ctx (ParseContext): Parser instance — exposes ``parse_value``, ``get_or_create_handle``, etc.
 
     Returns:
         A freshly-constructed [`Operation`][qprogram.operations.Operation] instance.
@@ -200,7 +256,7 @@ def default_parse_operation(spec: OperationSpec, tokens: list[str], ctx: Any) ->
     return _construct_operation(spec.cls, final, ctx)
 
 
-def measurement_op_serialize(op: MeasurementOperation, ctx: Any) -> str:
+def measurement_op_serialize(op: MeasurementOperation, ctx: SerializeContext) -> str:
     """Signature-driven serializer for `MeasurementOperation` subclasses.
 
     Mirrors `default_serialize_operation` but skips the ``handle`` constructor parameter and
@@ -211,7 +267,7 @@ def measurement_op_serialize(op: MeasurementOperation, ctx: Any) -> str:
 
     Args:
         op (MeasurementOperation): Measurement operation to serialize.
-        ctx (Any): Writer instance — exposes ``serialize_value``.
+        ctx (SerializeContext): Writer instance — exposes ``serialize_value``.
 
     Returns:
         The full statement line, with ``name=`` between the positional arguments and any other
@@ -220,7 +276,8 @@ def measurement_op_serialize(op: MeasurementOperation, ctx: Any) -> str:
     spec = get_operation_spec_by_class(type(op))
     qualified = spec.qualified_name if spec is not None else type(op).__name__
     sig = inspect.signature(type(op).__init__)
-    params = list(sig.parameters.values())[1:]  # skip self
+    # skip self
+    params = list(sig.parameters.values())[1:]
     pos_parts: list[str] = []
     kw_parts: list[str] = []
     for p in params:
@@ -235,7 +292,7 @@ def measurement_op_serialize(op: MeasurementOperation, ctx: Any) -> str:
     return " ".join([qualified, *pos_parts, name_part, *kw_parts])
 
 
-def make_measurement_op_parse(cls: type[Operation]) -> Callable[[list[str], Any], Operation]:
+def make_measurement_op_parse(cls: type[Operation]) -> Callable[[list[str], ParseContext], Operation]:
     """Build a parse callback for a `MeasurementOperation` subclass.
 
     The returned callback mirrors `default_parse_operation` but resolves the measurement
@@ -264,7 +321,7 @@ def make_measurement_op_parse(cls: type[Operation]) -> Callable[[list[str], Any]
         A signature-driven parse callback ready for `register_vendor_operation`.
     """
 
-    def parse(tokens: list[str], ctx: Any) -> Operation:
+    def parse(tokens: list[str], ctx: ParseContext) -> Operation:
         final = _bind_signature_tokens(cls, tokens, ctx)
         if "returns" in final:
             # ``returns=`` earns its own diagnostic rather than a generic unexpected-kwarg error:
@@ -320,12 +377,12 @@ def _looks_like_kwarg(tok: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def sync_serialize(op: Sync, ctx: Any) -> str:
+def sync_serialize(op: Sync, ctx: SerializeContext) -> str:
     """Serialize as ``sync`` (no buses) or ``sync <bus> [<bus> ...]``.
 
     Args:
         op (Sync): The sync operation.
-        ctx (Any): Writer instance — exposes ``serialize_bus``.
+        ctx (SerializeContext): Writer instance — exposes ``serialize_bus``.
 
     Returns:
         The statement line. The bare keyword means synchronize every bus in the program.
@@ -335,22 +392,24 @@ def sync_serialize(op: Sync, ctx: Any) -> str:
     return "sync"
 
 
-def sync_parse(tokens: list[str], ctx: Any) -> Sync:
+def sync_parse(tokens: list[str], ctx: ParseContext) -> Sync:
     """Parse a ``sync`` body, in which every token is a bus.
 
     Args:
         tokens (list[str]): Bus tokens after the keyword. Empty means synchronize every bus.
-        ctx (Any): Parser instance — exposes ``parse_value``.
+        ctx (ParseContext): Parser instance — exposes ``parse_value``.
 
     Returns:
         The reconstructed operation, with ``targets=None`` for the bare keyword.
     """
     if not tokens:
         return Sync(targets=None)
-    return Sync(targets=[ctx.parse_value(tok) for tok in tokens])
+    # A bus token decodes to a plain ``str`` (a bus path) or to a quoted string; `parse_value`
+    # widens both to ``object``, and ``_upgrade_busrefs`` promotes them to BusRefs afterwards.
+    return Sync(targets=cast("list[str]", [ctx.parse_value(tok) for tok in tokens]))
 
 
-def get_parameter_serialize(op: GetParameter, ctx: Any) -> str:
+def get_parameter_serialize(op: GetParameter, ctx: SerializeContext) -> str:
     """Serialize as ``get_parameter <bus> "param" -> <ident>``.
 
     The result variable appears after the ``->`` arrow rather than as a positional or kwarg —
@@ -360,7 +419,7 @@ def get_parameter_serialize(op: GetParameter, ctx: Any) -> str:
 
     Args:
         op (GetParameter): The operation to serialize.
-        ctx (Any): Writer instance — exposes ``var_ident`` and ``serialize_value``.
+        ctx (SerializeContext): Writer instance — exposes ``var_ident`` and ``serialize_value``.
 
     Returns:
         The statement line.
@@ -371,7 +430,7 @@ def get_parameter_serialize(op: GetParameter, ctx: Any) -> str:
     return f"get_parameter {bus} {parameter} -> {ident}"
 
 
-def get_parameter_parse(tokens: list[str], ctx: Any) -> GetParameter:
+def get_parameter_parse(tokens: list[str], ctx: ParseContext) -> GetParameter:
     """Inverse of `get_parameter_serialize`.
 
     Splits on the ``->`` token; right side is the target variable identifier (auto-declared if new),
@@ -380,7 +439,7 @@ def get_parameter_parse(tokens: list[str], ctx: Any) -> GetParameter:
 
     Args:
         tokens (list[str]): Tokens after the keyword, arrow included.
-        ctx (Any): Parser instance — exposes ``parse_value``, ``get_or_declare_variable`` and
+        ctx (ParseContext): Parser instance — exposes ``parse_value``, ``get_or_declare_variable`` and
             ``parse_error``.
 
     Returns:
@@ -399,8 +458,9 @@ def get_parameter_parse(tokens: list[str], ctx: Any) -> GetParameter:
     if len(body) < 2:
         msg = "get_parameter requires bus and parameter name"
         raise ctx.parse_error(msg)
-    bus = ctx.parse_value(body[0])
-    parameter = ctx.parse_value(body[1])
+    # Both tokens decode to strings — see the note in `sync_parse`.
+    bus = cast("str", ctx.parse_value(body[0]))
+    parameter = cast("str", ctx.parse_value(body[1]))
     var = ctx.get_or_declare_variable(var_name)
     return GetParameter(
         variable=var,
@@ -414,12 +474,12 @@ def get_parameter_parse(tokens: list[str], ctx: Any) -> GetParameter:
 # ---------------------------------------------------------------------------
 
 
-def average_serialize_header(block: Average, ctx: Any) -> str:  # ruff: ignore[unused-function-argument]
+def average_serialize_header(block: Average, ctx: SerializeContext) -> str:  # ruff: ignore[unused-function-argument]
     """Serialize as ``average <shots>``.
 
     Args:
         block (Average): The averaging block.
-        ctx (Any): Writer instance. Unused — the shot count is a plain integer.
+        ctx (SerializeContext): Writer instance. Unused — the shot count is a plain integer.
 
     Returns:
         The header text, without the trailing colon.
@@ -427,12 +487,12 @@ def average_serialize_header(block: Average, ctx: Any) -> str:  # ruff: ignore[u
     return f"average {block.shots}"
 
 
-def average_parse_header(tokens: list[str], ctx: Any) -> Average:
+def average_parse_header(tokens: list[str], ctx: ParseContext) -> Average:
     """Parse ``average <shots>`` — single positional integer.
 
     Args:
         tokens (list[str]): Tokens after the keyword; the first is the shot count.
-        ctx (Any): Parser instance — exposes ``parse_error``.
+        ctx (ParseContext): Parser instance — exposes ``parse_error``.
 
     Returns:
         The reconstructed block, with an empty body for the caller to fill.

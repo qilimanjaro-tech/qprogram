@@ -159,12 +159,12 @@ _LINE_BREAK_RE = re.compile(r"\r?\n")
 _BUS_PATH_RE = re.compile(r"^(\w+)\[(\d+(?:,\d+)*)\]\.(\w+)$")
 _ELEMENT_HEADER_RE = re.compile(r"^element\s+(\w+)\s*:\s*$")
 _BUS_LINE_RE = re.compile(r"^(\w+)\s+info=(\S+)\s*$")
-_FOR_HEADER_RE = re.compile(r"^for\s+(\w+)\s+in\s+(.*)$")
-_FRAGMENT_HEADER_RE = re.compile(r"^fragment\s+([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)\s*:$")
+_FOR_HEADER_RE = re.compile(r"^for\s++(\w++)\s++in\s++(.*)$")
+_FRAGMENT_HEADER_RE = re.compile(r"^fragment\s+([A-Za-z_]\w*)\s*\((.*)\)\s*:$", re.ASCII)
 # A whole statement of the shape ``name(args)`` — a fragment call. Operations never take this
 # form (their name is followed by whitespace-separated tokens) and block headers end with ``:``,
 # so the shape is unambiguous at statement position.
-_CALL_STMT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\((.*)\)$")
+_CALL_STMT_RE = re.compile(r"^([A-Za-z_]\w*)\((.*)\)$", re.ASCII)
 
 # Operator alphabets — frozen sets so membership checks act as the
 # accept/reject gates for the ``cast`` calls in `_parse_paren_expression`.
@@ -1656,11 +1656,12 @@ def _find_comment(line: str) -> int:
     while i < n:
         c = line[i]
         if in_str and c == "\\" and i + 1 < n:
-            i += 2  # escaped character inside a string — never a delimiter
+            # escaped character inside a string — never a delimiter
+            i += 2
             continue
         if c == '"':
             in_str = not in_str
-        elif c == "#" and not in_str and line[:2] != "#!":
+        elif c == "#" and not in_str and not line.startswith("#!"):
             return i
         i += 1
     return -1

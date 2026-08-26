@@ -121,16 +121,18 @@ def test_default_parse_operation_extra_positional_raises():
     """
     spec = get_operation_spec(None, "reset_phase")
     assert spec is not None
+    ctx = _parser()
     with pytest.raises(Exception, match="too many arguments"):
-        default_parse_operation(spec, ['"bus"', "garbage"], _parser())
+        default_parse_operation(spec, ['"bus"', "garbage"], ctx)
 
 
 def test_default_parse_operation_unknown_kwarg_raises():
     """A kwarg the constructor rejects surfaces as a line-tagged parse error."""
     spec = get_operation_spec(None, "reset_phase")
     assert spec is not None
+    ctx = _parser()
     with pytest.raises(Exception, match="cannot construct 'ResetPhase'"):
-        default_parse_operation(spec, ['"bus"', "bogus=1"], _parser())
+        default_parse_operation(spec, ['"bus"', "bogus=1"], ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -214,10 +216,12 @@ def test_average_parse_header():
 
 
 def test_average_parse_header_empty_raises():
+    ctx = _parser()
     with pytest.raises(Exception, match="requires a shot count"):
-        average_parse_header([], _parser())
+        average_parse_header([], ctx)
 
 
 def test_average_parse_header_invalid_int_raises():
+    ctx = _parser()
     with pytest.raises(Exception, match="invalid shots"):
-        average_parse_header(["abc"], _parser())
+        average_parse_header(["abc"], ctx)

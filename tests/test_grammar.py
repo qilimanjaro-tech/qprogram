@@ -29,6 +29,7 @@ import lark
 import numpy as np
 import pytest
 from hypothesis import given, settings
+from test_round_trip import UNICODE_LINE_BREAKS
 from test_round_trip_property import fragment_programs, programs
 
 import qprogram as qp
@@ -191,6 +192,21 @@ def test_comments_anywhere_are_transparent():
 def test_hand_written_spacing_variants():
     # The parser tolerates a space before the fragment paren; so does the grammar.
     assert_grammatical('#!QProgram 1.0\n\nfragment f1 (bus):\n  sync\n\nbody:\n  f1("drive")\n')
+
+
+@pytest.mark.parametrize("char", UNICODE_LINE_BREAKS)
+def test_string_holding_a_unicode_line_break(char):
+    """`STRING` admits these raw, so both readers must keep them inside their line.
+
+    ``str.splitlines`` breaks on all eight, which is the trap the production parser used to fall
+    into while the grammar read the document correctly.
+    """
+    p = qp.QProgram(label=f"a{char}b")
+    p.variable("v", units=char)
+    p.play("drive", "pi")
+    text = qp.dumps(p)
+    qp.loads(text)  # the production parser accepts it...
+    assert_grammatical(text)  # ...and so must the grammar
 
 
 # ---------------------------------------------------------------------------

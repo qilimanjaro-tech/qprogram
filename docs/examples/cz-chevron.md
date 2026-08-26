@@ -1,21 +1,21 @@
 # CZ chevron
 
-A CZ chevron pattern is a two-axis sweep used to calibrate a two-qubit gate.
-You prepare a state, fire a flux pulse with varying amplitude and duration,
-and read the qubits out. The signature pattern in the resulting heatmap
-tells you where the gate lives in parameter space.
+A CZ chevron is a two-axis sweep used to calibrate a two-qubit gate. You
+prepare a state, fire a flux pulse whose amplitude and duration both vary,
+and read the qubits out. The interference fringes in the resulting heatmap
+converge on the amplitude where the two qubits are resonant, which is the
+chevron's tip and the point the gate is tuned to.
 
-This example shows three useful features at once: a flux-tunable schema,
-nested sweeps, and inline waveforms with variable parameters.
+Three things appear here that the [Rabi example](rabi.md) does not have: a
+schema with a single-channel flux bus, two nested sweeps, and an inline
+waveform whose parameters are the sweep variables.
 
 ## The program
 
 ```python
 import qprogram as qp
-from qprogram.buses import BusSchema
-from qprogram.waveforms import FlatTop
 
-schema = BusSchema.flux_tunable_transmon()
+schema = qp.BusSchema.flux_tunable_transmon()
 q = schema.q
 
 program = qp.QProgram(
@@ -34,7 +34,10 @@ with program.average(shots=1000):
             program.sync()
 
             # Apply the flux pulse with sweeping amplitude and duration.
-            program.play(q[0].flux, FlatTop(amplitude=amp, duration=dur, smooth_duration=5))
+            program.play(
+                q[0].flux,
+                qp.waveforms.FlatTop(amplitude=amp, duration=dur, smooth_duration=5),
+            )
             program.sync()
 
             # Read out both qubits.
@@ -42,20 +45,47 @@ with program.average(shots=1000):
             m1 = program.measure(q[1].readout, "readout", "weights")
 ```
 
-## What is going on
+### Why each piece is where it is
 
-- The schema is `flux_tunable_transmon`, so each qubit has `drive`,
-  `readout`, and a `flux` line.
-- The two sweeps are nested, `amp` outside and `dur` inside, so the flux
-  pulse visits every `(amp, dur)` combination, the square grid the chevron
-  pattern lives on. Nesting order sets which axis moves fastest, and it is
-  the order the result dimensions come back in.
-- `FlatTop(amplitude=amp, duration=dur, smooth_duration=5)` is an inline
-  waveform that carries the two sweep variables in its constructor. The
-  platform decides how to materialize the sweep: update an amplitude
-  register, regenerate the envelope, or whatever else its compiler supports.
-- `m0` and `m1` are two separate `MeasurementHandle`s on the same shot. The
-  result object carries a record for each, retrieved by handle.
+`qp.BusSchema.flux_tunable_transmon()` gives element `q` three bus kinds:
+`drive` (IQ), `readout` (IQ, with an ADC), and `flux` (single channel). The
+channel type is enforced at the call site, so a `Play` of an IQ waveform on
+`q[0].flux` raises `ValidationError: Bus 'q0/flux' is a single channel but
+received an IQWaveform (IQDrag)` when the program is built rather than when a
+compiler runs.
+
+The two sweeps are nested with `amp` outside and `dur` inside, so the flux
+pulse visits every `(amp, dur)` pair, which is the grid a chevron pattern
+lives on. Nesting order decides two things at once: the inner variable moves
+fastest during execution, and the result dimensions come back in nesting
+order, outermost first. Each `qp.Range` holds
+`round((stop - start) / step) + 1` points, so `Range(0.0, 1.0, 0.01)` is 101
+amplitudes and `Range(10, 210, 2)` is 101 durations, for 10201 grid points.
+
+`FlatTop(amplitude=amp, duration=dur, smooth_duration=5)` stores the two
+variables as parameters of the waveform node. Nothing materializes the sweep
+at build time; the platform decides whether to update an amplitude register,
+regenerate the envelope per point, or refuse the program because its compiler
+cannot do either. The reference executor renders no envelope at all, so it
+accepts the program either way and tells you nothing about whether real
+hardware would.
+
+`smooth_duration=5` sets the length of each erf-shaped edge, and `duration`
+counts the edges in rather than adding them. The rise crosses half amplitude
+5 ns in and is flat to within a part in 10⁵ by 10 ns, so the shortest few
+durations on the axis, where `dur` is not comfortably above
+`2 * smooth_duration`, never reach full amplitude at all. That is a property
+of the pulse shape rather than of the sweep, and it is what makes the near
+edge of the duration axis worth reading with care.
+
+The pi pulse plays on `q[1].drive` while the flux pulse plays on `q[0].flux`,
+and the `sync()` between them is what stops the flux pulse from starting
+before the preparation is over. The second `sync()` does the same for the
+readout.
+
+`m0` and `m1` are two handles on the same shot. Auto-allocated names carry a
+per-bus counter, so both come out as `m0` under different bus prefixes:
+`q0/readout/m0` and `q1/readout/m0`.
 
 ## What it looks like on disk
 
@@ -87,27 +117,46 @@ body:
         measure q[1].readout "readout" "weights" name="q1/readout/m0"
 ```
 
-`FlatTop`'s `buffer` argument defaults to `0`; the writer spells out every
-constructor argument so the file rebuilds the waveform exactly.
+`FlatTop`'s `buffer` argument defaults to `0` and was not passed, but the
+writer spells out every constructor argument so that reading the file back
+rebuilds the same waveform without depending on today's defaults. `Range`'s
+integer bounds come back as `10.0` and `210.0` because a source stores its
+bounds as floats. Sweep variables inside a waveform are written as bare
+identifiers, and the parser resolves them against the `var` declarations
+above.
 
 ## Reading the results
 
-The reference executor is a pure-Python interpreter that walks every shot of
-every grid point. At the sizes above that is 101 amplitudes x 101 durations x
-1000 shots x 2 measurements, which runs for a few minutes; an 11 x 11 grid at
-the same shot count takes about 4.4 s. Coarsen the `Range` steps or lower
-`average(shots=...)` while you are iterating; the dimensions and coordinates
-below come back the same shape either way.
+The reference executor is an interpreter that walks every shot of every grid
+point, so its cost is the product of the axes. At the sizes above that is 101
+amplitudes by 101 durations by 1000 shots by 2 measurements, which is 20.4
+million model samples and minutes of wall clock on one core; an 11 by 11 grid
+at the same shot count is 84 times less work and returns in seconds. Coarsen
+the steps or lower `average(shots=...)` while you are iterating: the dimensions
+and coordinates below come back the same either way, only shorter.
 
 ```python
-from qprogram.waveforms import IQDrag, IQPair, Square
+import numpy as np
 
 library = {
-    "pi": IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1),
-    "readout": IQPair(Square(1.0, 2000), Square(0.0, 2000)),
-    "weights": IQPair(Square(1.0, 2000), Square(1.0, 2000)),
+    "pi": qp.waveforms.IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1),
+    "readout": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)),
+    "weights": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
 }
-result = qp.simulate(program.with_waveforms(library))
+
+
+def chevron(bus, env):
+    """A two-level model of the swap: population against detuning and time."""
+    coupling = 0.01  # 1/ns
+    detuning = 0.05 * (env["amp"] - 0.5)  # zero at the interaction point
+    rate = np.hypot(coupling, detuning)
+    return (coupling / rate) ** 2 * np.sin(np.pi * rate * env["dur"]) ** 2 + 0j
+
+
+result = qp.simulate(
+    program.with_waveforms(library),
+    model=qp.MockMeasurementModel(response=chevron),
+)
 
 data0 = result.get(m0)
 data1 = result.get(m1)
@@ -115,32 +164,88 @@ data1 = result.get(m1)
 # One dimension per enclosing sweep, outermost first.
 data0.dims  # ("amp", "dur", "IQ")
 data0.shape  # (101, 101, 2)
-data0.coords["amp"]
-data0.coords["dur"]
+data0.coords["amp"]  # 0.00, 0.01, ..., 1.00
+data0.coords["dur"]  # 10.0, 12.0, ..., 210.0
 ```
 
-To plot the chevron, project to the IQ component you care about. The array
-is already on the 2D grid:
+`data1` is the same grid measured on `q[1].readout` and has identical dims and
+shape, since both measurements sit under the same two sweeps. Reading both is
+what separates population moving from `q1` to `q0` from population being lost,
+which a single readout cannot tell apart.
+
+The `response` function receives the currently bound loop variables by id, so
+`env["amp"]` and `env["dur"]` are the coordinates of the grid point being
+measured. It is called once per shot per measurement, and `bus` is the bus
+string, so a model can respond differently on `q0/readout` and `q1/readout`.
+Without a `model=` argument, `qp.simulate` uses a
+`qp.MockMeasurementModel` that responds `0j` everywhere and the heatmap is
+flat zero. The model above is a stand-in for physics, not a simulation of the
+chip: it exists so the plot below has a chevron in it.
+
+`average` contributes no dimension, so the shots are already averaged out of
+`data0` when you get it: the executor sums per grid point and divides by the
+shot count it recorded there. A grid point holds `NaN` when that count is
+zero, which happens only for a measurement inside a conditional arm the
+program never selected at that point.
+
+To plot the chevron, pick the IQ component you want; the array is already on
+the grid, so no reshaping is needed:
 
 ```python
 import matplotlib.pyplot as plt
 
-I = data0.sel(IQ="I")
-plt.pcolormesh(data0.coords["dur"], data0.coords["amp"], I)
+plt.pcolormesh(data0.coords["dur"], data0.coords["amp"], data0.sel(IQ="I"))
 plt.xlabel("Flux duration (ns)")
 plt.ylabel("Flux amplitude (V)")
 ```
 
-## Notes
+`pcolormesh` takes the x axis first, so the inner sweep goes first and the
+outer one second, the opposite of the dimension order in `data0.dims`.
+matplotlib is not a runtime dependency; it comes with the `viz` extra,
+installed with `pip install "qprogram[viz]"`.
 
-- To move both parameters together (one diagonal cut through the grid
-  instead of the whole grid) compose the loops in parallel:
-  `with program.sweep(amp, ...) | program.sweep(dur, ...):`. Both loops must
-  then have the same number of iterations, and the results come back on one
-  `"amp|dur"` dimension carrying both coordinates. See
-  [Control flow](../guide/control-flow.md).
-- Swap `FlatTop` for `SuddenNetZero(amplitude=amp, duration=dur, b=0.5,
-  t_phi=4)` for the SNZ flavor of CZ. The rest of the program stays the same.
-- Add `fields=(qp.MeasurementField.IQ, qp.MeasurementField.RAW)` on the
-  measurements if you also want the raw ADC trace. See
-  [Measurements and results](../guide/measurements.md).
+## Adapting it
+
+To move both parameters together, taking one diagonal cut through the grid
+instead of the whole grid, compose the loops in parallel rather than nesting
+them:
+
+```python
+with program.sweep(amp, qp.Range(0.0, 1.0, 0.01)) | program.sweep(dur, qp.Range(10, 210, 2)):
+    ...
+```
+
+The two sources must then hold the same number of points, and both do here at
+101. When they do not, the composition is rejected as it is built:
+`ValidationError: parallel loops must have the same number of iterations to
+advance in lockstep; got Sweep('amp'): 11, Sweep('dur'): 12`. The results come
+back on one `"amp|dur"` dimension of 101 points carrying `amp` and `dur` as
+coordinates along it. See [Control flow](../guide/control-flow.md).
+
+For the SNZ flavor of CZ, swap the waveform and leave the rest of the program
+alone:
+
+```python
+program.play(
+    q[0].flux,
+    qp.waveforms.SuddenNetZero(amplitude=amp, duration=dur, b=0.5, t_phi=4),
+)
+```
+
+`SuddenNetZero` is a positive square segment, a zero hold of `t_phi` ns, then
+a negative segment scaled by `b`, all inside `duration`. It is single channel
+like `FlatTop`, so the bus check passes unchanged, and `b` is the parameter
+you detune from 1 to null whatever residual flux the line adds.
+
+If the chip has dedicated couplers, use
+`qp.BusSchema.flux_tunable_transmon_coupled()` and drive `schema.c[0, 1].flux`
+instead of `q[0].flux`. A coupler index is a tuple, and the resolved bus name
+joins it with an underscore, giving `c0_1/flux`. See
+[Buses and schemas](../guide/buses.md).
+
+To keep the raw ADC trace alongside the IQ point, request it per measurement
+with `fields=(qp.MeasurementField.IQ, qp.MeasurementField.RAW)` and read it
+back with `result.get(m0, field=qp.MeasurementField.RAW)`, which adds a
+`"time"` dimension between the sweeps and `"IQ"`. On a 101 by 101 grid that is
+a large array, so it is worth coarsening the sweeps first. See
+[Measurements and results](../guide/measurements.md).

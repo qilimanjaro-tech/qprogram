@@ -1607,13 +1607,15 @@ class _Parser:
     def allocate_measurement_handle(self, bus: object) -> MeasurementHandle:
         """Auto-allocate a handle for a measurement line that carries no ``name=``.
 
-        Uses the same per-bus naming convention as [`QProgram.measure`][qprogram.QProgram.measure], computed against the
-        program parsed so far — hand-written files without explicit names get ``m0``, ``m1``, ...
-        exactly as the builder would have assigned them.
+        Allocates through [`QProgram.measure`][qprogram.QProgram.measure]'s own naming code, against
+        the program parsed so far, so a hand-written file without explicit names gets ``m0``,
+        ``m1``, ... The per-bus prefix the builder uses for a schema-backed bus is never reached
+        here: the bus is still the parsed token at this point, not a [`BusRef`][qprogram.BusRef],
+        so every auto-allocated name takes the global form even on a ``q[0].readout`` line. Files
+        the writer produced are unaffected, since it always emits an explicit ``name=``.
 
         Args:
-            bus (object): The bus the measurement targets. A [`BusRef`][qprogram.BusRef] gives the
-                per-bus prefix (``q0/readout/m0``); anything else falls back to the global counter.
+            bus (object): The bus the measurement targets, used only to compute the name prefix.
 
         Returns:
             The handle for the freshly allocated name.

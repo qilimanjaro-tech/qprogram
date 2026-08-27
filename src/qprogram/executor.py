@@ -42,7 +42,7 @@ act as no-ops.
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
@@ -104,12 +104,16 @@ class MeasurementSample:
         q (float): Quadrature value.
         state (int): Classified outcome, ``0`` or ``1``.
         raw (numpy.ndarray): Raw trace of shape ``(raw_samples, 2)`` (I and Q per time sample).
+            Defaults to an empty ``(0, 2)`` array, which is what a model that simulates no ADC
+            wants; it is read only by a measurement that requests
+            [`MeasurementField.RAW`][qprogram.MeasurementField], and such a measurement rejects a
+            trace of the wrong shape rather than broadcasting it.
     """
 
     i: float
     q: float
     state: int
-    raw: np.ndarray
+    raw: np.ndarray = field(default_factory=lambda: np.empty((0, 2)))
 
 
 @runtime_checkable
@@ -118,6 +122,13 @@ class MeasurementModel(Protocol):
 
     ``env`` carries the currently bound loop variables (by id) and the platform parameters (by
     ``"bus.parameter"``), so a model can shape its response as a function of the sweep.
+
+    A model that simulates an ADC also declares ``raw_samples``, an ``int`` the executor reads once
+    at the start of a run (default ``16``), and returns a ``raw`` trace of shape
+    ``(raw_samples, 2)`` from every `sample`. One that does not can leave
+    [`MeasurementSample.raw`][qprogram.MeasurementSample] at its default; a measurement requesting
+    [`MeasurementField.RAW`][qprogram.MeasurementField] then raises rather than accumulating a
+    broadcast of the wrong trace.
     """
 
     def sample(self, bus: str, env: Mapping[str, float]) -> MeasurementSample:
@@ -374,6 +385,8 @@ class _Interpreter:
         Raises:
             UnassignedVariableError: When an operation's expression references a variable no
                 enclosing loop binds.
+            ValueError: When a measurement requests ``raw`` and the model returns a trace whose
+                shape is not ``(raw_samples, 2)``.
         """
         self._setup()
         self._execute_children(self._program.body)
@@ -493,6 +506,10 @@ class _Interpreter:
 
         Args:
             op (MeasurementOperation): The measurement being executed.
+
+        Raises:
+            ValueError: When ``op`` requests ``raw`` and the model returns a trace whose shape is
+                not ``(raw_samples, 2)``.
         """
         sample = self._model.sample(str(op.bus) if hasattr(op, "bus") else "", self._environment())
         op.handle._set_value("state", sample.state)  # ruff: ignore[private-member-access] — the runtime contract of MeasurementHandle
@@ -502,6 +519,18 @@ class _Interpreter:
             if field_name == MeasurementField.IQ:
                 accumulator[index] += (sample.i, sample.q)
             elif field_name == MeasurementField.RAW:
+                # numpy would broadcast a (2,) or (1, 2) trace across every time sample and return a
+                # wrong result in silence, so the shape is checked rather than trusted. ``np.shape``
+                # rather than ``.shape``: a nested list or tuple is a valid trace.
+                if np.shape(sample.raw) != (self._raw_samples, 2):
+                    msg = (
+                        f"Measurement {op.handle.name!r} requested field 'raw', but "
+                        f"{type(self._model).__name__}.sample returned a trace of shape "
+                        f"{np.shape(sample.raw)}; expected {(self._raw_samples, 2)}, taken from the "
+                        f"model's raw_samples at the start of the run. Return a trace of that shape, "
+                        f"or set raw_samples to match."
+                    )
+                    raise ValueError(msg)
                 accumulator[index] += sample.raw
             elif field_name == MeasurementField.STATE:
                 accumulator[index] += sample.state
@@ -837,6 +866,8 @@ class ReferencePlatform(PlatformProtocol):
                 diagnostic (all of them are listed in the message).
             UnassignedVariableError: When an operation's expression references a variable no
                 enclosing loop binds.
+            ValueError: When a measurement requests ``raw`` and the model returns a trace whose
+                shape is not ``(raw_samples, 2)``.
         """
         if qprogram.fragments:
             qprogram = qprogram.expand()
@@ -879,6 +910,8 @@ def simulate(
             run.
         UnassignedVariableError: When an operation's expression references a variable no enclosing
             loop binds.
+        ValueError: When a measurement requests ``raw`` and the model returns a trace whose shape is
+            not ``(raw_samples, 2)``.
     """
     return ReferencePlatform(schema=schema, model=model, parameters=parameters).execute(program)
 

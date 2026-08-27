@@ -451,3 +451,75 @@ def test_alias_only_program_runs_without_a_library():
     schema = BusSchema.transmon()
     # No library: aliases are left as-is and the reference model no-ops them.
     simulate(_alias_program(schema), schema=schema)
+
+
+# ---------------------------------------------------------------------------
+# Measurement model contract
+# ---------------------------------------------------------------------------
+
+
+class _NoRawModel:
+    """A model with no ADC to simulate, leaving `MeasurementSample.raw` at its default."""
+
+    def sample(self, bus: str, env: dict) -> qp.MeasurementSample:  # ruff: ignore[unused-method-argument]
+        return qp.MeasurementSample(i=1.0, q=2.0, state=0)
+
+
+class _BroadcastableRawModel:
+    """A model returning a single (I, Q) pair where a full trace was required."""
+
+    raw_samples = 4
+
+    def sample(self, bus: str, env: dict) -> qp.MeasurementSample:  # ruff: ignore[unused-method-argument]
+        return qp.MeasurementSample(i=1.0, q=2.0, state=0, raw=np.array([1.0, 2.0]))
+
+
+class _ListRawModel:
+    """A model whose trace is a nested list — array-like, so it must still be accepted."""
+
+    raw_samples = 4
+
+    def sample(self, bus: str, env: dict) -> qp.MeasurementSample:  # ruff: ignore[unused-method-argument]
+        return qp.MeasurementSample(i=1.0, q=2.0, state=0, raw=[[1.0, 2.0]] * 4)
+
+
+def _measured(model, fields):
+    p = QProgram()
+    handle = p.measure("readout_q0", _ro(), "w", fields=fields)
+    return qp.simulate(p, model=model), handle
+
+
+def test_measurement_sample_raw_defaults_to_an_empty_trace():
+    """A model that simulates no ADC should not have to invent a filler array."""
+    sample = qp.MeasurementSample(i=1.0, q=2.0, state=1)
+    assert sample.raw.shape == (0, 2)
+    # The field stays last and positional construction is unaffected.
+    assert qp.MeasurementSample(1.0, 2.0, 1).raw.shape == (0, 2)
+
+
+def test_model_omitting_raw_runs_when_raw_is_not_requested():
+    result, handle = _measured(_NoRawModel(), (MeasurementField.IQ,))
+    assert list(result.get(handle).values) == [1.0, 2.0]
+
+
+def test_requesting_raw_from_a_model_that_omits_it_names_the_mismatch():
+    with pytest.raises(ValueError, match=r"returned a trace of shape \(0, 2\); expected \(16, 2\)"):
+        _measured(_NoRawModel(), (MeasurementField.RAW,))
+
+
+def test_raw_trace_numpy_would_broadcast_is_rejected():
+    """A (2,) trace used to broadcast across every time sample and return a wrong result in silence."""
+    with pytest.raises(ValueError, match=r"_BroadcastableRawModel\.sample returned a trace of shape"):
+        _measured(_BroadcastableRawModel(), (MeasurementField.RAW,))
+
+
+def test_raw_accepts_a_trace_that_is_not_an_ndarray():
+    """The shape check goes through `np.shape`, so a nested list is still a valid trace."""
+    result, handle = _measured(_ListRawModel(), (MeasurementField.RAW,))
+    assert result.get(handle, field=MeasurementField.RAW).shape == (4, 2)
+
+
+def test_mock_measurement_model_trace_matches_its_raw_samples():
+    """The built-in model must never trip the check it is measured against."""
+    result, handle = _measured(MockMeasurementModel(response=_unit_response, raw_samples=8), (MeasurementField.RAW,))
+    assert result.get(handle, field=MeasurementField.RAW).shape == (8, 2)

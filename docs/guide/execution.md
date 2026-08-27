@@ -56,9 +56,10 @@ da.sel(IQ="I").plot()  # a noisy Rabi oscillation (needs matplotlib, the `viz` e
 ```
 
 `simulate` raises rather than returning a partial result. A program that
-validation rejects raises `UnsupportedOperationError`, and an operation whose
+validation rejects raises `UnsupportedOperationError`, an operation whose
 expression references a variable no enclosing loop binds raises
-`UnassignedVariableError`.
+`UnassignedVariableError`, and a measurement that requests `raw` from a model
+whose trace is the wrong shape raises `ValueError`.
 
 ## Result shapes
 
@@ -187,11 +188,18 @@ returning something plausible and wrong.
 
 `MeasurementSample` is a frozen dataclass with four fields: `i` and `q` are the
 shot's in-phase and quadrature floats, `state` is the classified outcome as `0`
-or `1`, and `raw` is a `numpy` array of shape `(raw_samples, 2)` holding I and Q
-per time sample. The executor reads the trace length from the model itself, as
+or `1`, and `raw` is an array of shape `(raw_samples, 2)` holding I and Q per
+time sample. Only the first three are required; `raw` defaults to an empty
+`(0, 2)` array, which is what a model that simulates no ADC wants, and it is read
+only by a measurement that requests `MeasurementField.RAW`.
+
+The executor reads the trace length from the model itself, as
 `getattr(model, "raw_samples", 16)`, and allocates its accumulator from that
-before the first sample arrives, so a model that returns traces of a different
-length fails on the accumulation rather than reshaping quietly.
+before the first sample arrives. A trace of any other shape is rejected with a
+`ValueError` naming the measurement, the shape received, and the shape expected,
+rather than being broadcast into the accumulator: a `(2,)` trace would otherwise
+be copied across every time sample and produce a wrong result in silence. The
+check goes through `numpy.shape`, so a nested list is a valid trace.
 
 The protocol is runtime-checkable, so `isinstance(model, qp.MeasurementModel)`
 answers whether an object satisfies it.

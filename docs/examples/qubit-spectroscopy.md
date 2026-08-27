@@ -166,13 +166,19 @@ plt.plot(data.coords["freq"] / 1e9, magnitude)
 plt.xlabel("Drive frequency (GHz)")
 plt.ylabel("Readout magnitude")
 
-f01 = float(data.coords["freq"][int(np.argmax(magnitude))])  # 5.0e9
+f01 = float(data.coords["freq"][int(np.argmax(magnitude.values))])  # 5.0e9
 ```
+
+![Readout magnitude against drive frequency, flat except for a sharp peak at 5.000 GHz marked as f01.](../assets/plots/qubit-spectroscopy-light.png#only-light)
+![Readout magnitude against drive frequency, flat except for a sharp peak at 5.000 GHz marked as f01.](../assets/plots/qubit-spectroscopy-dark.png#only-dark)
 
 `np.hypot` over two `sel` results returns a `DataArray` with dims `("freq",)`,
 so the coordinate survives the arithmetic and the peak can be read back as a
-frequency. matplotlib is not a runtime dependency; it comes with the `viz`
-extra, installed with `pip install "qprogram[viz]"`.
+frequency. `np.argmax` wants the underlying array rather than the `DataArray`,
+which is what `.values` is for; handing it the labelled array raises
+`ValueError: dimensions ('freq',) must have the same length as the number of
+data dimensions, ndim=0`. matplotlib is not a runtime dependency; it comes with
+the `viz` extra, installed with `pip install "qprogram[viz]"`.
 
 ## Adapting it
 

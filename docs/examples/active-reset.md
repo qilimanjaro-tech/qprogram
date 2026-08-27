@@ -213,7 +213,7 @@ library = {
 result = qp.simulate(
     program.with_waveforms(library),
     model=qp.MockMeasurementModel(
-        response=lambda bus, env: np.sin(np.pi * env["amp"] / 2) ** 2 + 0j,
+        response=lambda bus, env: np.sin(np.pi * env["amp"]) ** 2 + 0j,
         p_excited=lambda bus, env: 0.1,
     ),
 )
@@ -231,6 +231,13 @@ data you already have rather than something to instrument for. Reading it is
 worth doing: a herald rate that climbs over a run is the readout heating the
 qubit or the previous shot's pulse leaking, and neither shows up in the Rabi
 curve until it has already distorted it.
+
+Both records plotted against the same sweep, the Rabi curve above and the
+herald rate below, is the shape worth watching: the reset should hold flat
+while the experiment underneath it moves.
+
+![Two stacked panels sharing a drive-amplitude axis: a Rabi curve peaking at 0.5 V and falling back to 0, and a herald rate scattered around 0.1.](../assets/plots/active-reset-light.png#only-light)
+![Two stacked panels sharing a drive-amplitude axis: a Rabi curve peaking at 0.5 V and falling back to 0, and a herald rate scattered around 0.1.](../assets/plots/active-reset-dark.png#only-dark)
 
 Asking `check` for a field it never requested raises rather than substituting
 one:

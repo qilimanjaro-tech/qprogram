@@ -223,7 +223,7 @@ import numpy as np
 import qprogram as qp
 
 model = qp.MockMeasurementModel(
-    response=lambda bus, env: np.sin(np.pi * env["gain"] / 2) ** 2 + 0j,
+    response=lambda bus, env: np.sin(np.pi * env["gain"]) ** 2 + 0j,
     noise=0.02,
     seed=7,
 )

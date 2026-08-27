@@ -254,6 +254,8 @@ def fragment_programs(draw: st.DrawFn) -> QProgram:
     val_p = frag.parameter("val_p")
     frag.wait(bus_p, val_p)  # Raw value position.
     if draw(st.booleans()):
+        frag.sync([bus_p])  # Bus-list position — the only argument the format spells as a list.
+    if draw(st.booleans()):
         frag.set_gain(bus_p, val_p + draw(numbers))  # Expression position.
     if draw(st.booleans()):
         frag.play(bus_p, Gaussian(amplitude=val_p, duration=40, sigma=8))  # Waveform attribute.

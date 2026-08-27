@@ -136,7 +136,13 @@ argument list:
 
 `Sync` needs one because `targets` is a single list-valued parameter emitted as
 a run of bare bus tokens, and because the bare keyword carries meaning of its
-own (synchronize every bus in the program, stored as `targets=None`).
+own (synchronize every bus in the program, stored as `targets=None`). It renders
+each target through `ctx.serialize_value` rather than `ctx.serialize_bus`, which
+is what every other operation's bus argument goes through: `serialize_bus` knows
+`BusRef` and quotes everything else, so a fragment `Parameter` would go out as a
+quoted `"Parameter('drive')"` and stop substituting at expansion.
+`serialize_value` delegates a `BusRef` straight back to `serialize_bus`, so the
+two agree everywhere else.
 `GetParameter` places its output variable after a `->` arrow, which it reaches
 through `ctx.var_ident`. A measurement operation skips its `handle` parameter
 and re-emits it as `name="..."`, and the parse side resolves that name through

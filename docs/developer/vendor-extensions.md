@@ -312,10 +312,13 @@ fields that default to empty: `limits`, `predicates`, and
 the global registry, so a typo fails at construction with
 `Unknown capability token(s): ['vendor.fake_inst.bep']. Register via
 qprogram.protocol.register_capability_tokens before use.` rather than surfacing
-as a mysterious validation result later. `register_profile` is idempotent for
-the same object, which matters for an import-time side effect that may run
-twice, and raises `Profile 'fake_inst-default-v1' is already registered with
-different content` when a second, different profile claims the name.
+as a mysterious validation result later. `register_profile` is idempotent for an
+equal profile, so an import-time side effect that runs twice is safe whether the
+bundle is a module constant or built fresh each time, and raises
+`Profile 'fake_inst-default-v1' is already registered with different content`
+only when a profile with *different* content claims the name. Of an equal pair
+the registry keeps the first object, so treat the profile you just registered as
+possibly not the one `resolve_profile` returns.
 
 Bus-touching ops, waveform tokens, and `measure.fields.*` all belong on a bus
 profile, because the nodes that carry them route to a `(bus, domain)` slot.

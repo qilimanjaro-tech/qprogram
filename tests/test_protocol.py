@@ -212,6 +212,24 @@ def test_register_profile_idempotent_same_object() -> None:
 
 
 @pytest.mark.usefixtures("isolated_registry")
+def test_register_profile_idempotent_for_an_equal_profile() -> None:
+    """A rebuilt-but-identical Profile is a no-op, not a conflict.
+
+    The guard used to compare object identity, so an import-time side effect that ran twice, a
+    reloaded module, or a re-executed notebook cell was told its own bundle had "different
+    content". Of an equal pair the registry keeps the first object.
+    """
+    first = Profile(name="eq", version=(1, 0, 0), extends=None, capabilities=frozenset({"op.play"}))
+    second = Profile(name="eq", version=(1, 0, 0), extends=None, capabilities=frozenset({"op.play"}))
+    assert first == second
+    assert first is not second
+
+    register_profile(first)
+    register_profile(second)
+    assert resolve_profile("eq") is first
+
+
+@pytest.mark.usefixtures("isolated_registry")
 def test_register_profile_rejects_different_content_same_name() -> None:
     p1 = Profile(name="dup", version=(1, 0, 0), extends=None, capabilities=frozenset({"op.play"}))
     p2 = Profile(name="dup", version=(1, 0, 0), extends=None, capabilities=frozenset({"op.sync"}))

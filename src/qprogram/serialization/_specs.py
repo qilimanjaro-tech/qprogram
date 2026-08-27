@@ -380,15 +380,21 @@ def _looks_like_kwarg(tok: str) -> bool:
 def sync_serialize(op: Sync, ctx: SerializeContext) -> str:
     """Serialize as ``sync`` (no buses) or ``sync <bus> [<bus> ...]``.
 
+    Goes through ``serialize_value`` rather than ``serialize_bus`` so that a target carrying a
+    fragment [`Parameter`][qprogram.Parameter] emits as the bare identifier the grammar's ``value``
+    rule accepts, matching how every other operation writes its bus. ``serialize_value`` delegates
+    a [`BusRef`][qprogram.BusRef] straight back to ``serialize_bus`` and quotes a raw-string bus
+    the same way, so the two agree on every other target kind.
+
     Args:
         op (Sync): The sync operation.
-        ctx (SerializeContext): Writer instance — exposes ``serialize_bus``.
+        ctx (SerializeContext): Writer instance — exposes ``serialize_value``.
 
     Returns:
         The statement line. The bare keyword means synchronize every bus in the program.
     """
     if op.targets:
-        return "sync " + " ".join(ctx.serialize_bus(b) for b in op.targets)
+        return "sync " + " ".join(ctx.serialize_value(b) for b in op.targets)
     return "sync"
 
 

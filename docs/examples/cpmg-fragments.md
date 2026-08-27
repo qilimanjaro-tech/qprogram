@@ -178,12 +178,8 @@ sequence, which is exactly what the flattened copy has thrown away.
 library = {
     "pi_half": qp.waveforms.IQDrag(amplitude=0.25, duration=40, sigma=8, beta=0.1),
     "pi": qp.waveforms.IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1),
-    "readout": qp.waveforms.IQPair(
-        qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)
-    ),
-    "weights": qp.waveforms.IQPair(
-        qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)
-    ),
+    "readout": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)),
+    "weights": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
 }
 
 
@@ -224,8 +220,7 @@ different train length and call both on the same qubit:
 
 ```python
 @qp.fragment
-def cpmg_8(f, drive, readout, tau):
-    ...
+def cpmg_8(f, drive, readout, tau): ...
 ```
 
 Because the length is structural, the two definitions both appear in the file

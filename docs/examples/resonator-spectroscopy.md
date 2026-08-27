@@ -181,12 +181,8 @@ read back afterwards:
 import warnings
 
 library = {
-    "readout": qp.waveforms.IQPair(
-        qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)
-    ),
-    "weights": qp.waveforms.IQPair(
-        qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)
-    ),
+    "readout": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)),
+    "weights": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
 }
 
 

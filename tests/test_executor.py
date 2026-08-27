@@ -503,14 +503,16 @@ def test_model_omitting_raw_runs_when_raw_is_not_requested():
 
 
 def test_requesting_raw_from_a_model_that_omits_it_names_the_mismatch():
+    model = _NoRawModel()
     with pytest.raises(ValueError, match=r"returned a trace of shape \(0, 2\); expected \(16, 2\)"):
-        _measured(_NoRawModel(), (MeasurementField.RAW,))
+        _measured(model, (MeasurementField.RAW,))
 
 
 def test_raw_trace_numpy_would_broadcast_is_rejected():
     """A (2,) trace used to broadcast across every time sample and return a wrong result in silence."""
+    model = _BroadcastableRawModel()
     with pytest.raises(ValueError, match=r"_BroadcastableRawModel\.sample returned a trace of shape"):
-        _measured(_BroadcastableRawModel(), (MeasurementField.RAW,))
+        _measured(model, (MeasurementField.RAW,))
 
 
 def test_raw_accepts_a_trace_that_is_not_an_ndarray():

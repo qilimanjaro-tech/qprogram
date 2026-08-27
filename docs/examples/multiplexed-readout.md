@@ -217,11 +217,11 @@ result.get(handles[2], field=qp.MeasurementField.STATE).dims  # ("amp",)
 search before any of them. All of these select the same record:
 
 ```python
-result.get(handles[2])                      # the handle the builder returned
-result.get("q2/readout/m0")                 # its name
+result.get(handles[2])  # the handle the builder returned
+result.get("q2/readout/m0")  # its name
 result.get(qp.MeasurementHandle("q2/readout/m0"))  # a handle rebuilt from the name
-result.get(2)                               # third measurement in the program
-result.get(0, bus="q2/readout")             # first measurement on that bus
+result.get(2)  # third measurement in the program
+result.get(0, bus="q2/readout")  # first measurement on that bus
 ```
 
 The position form is the one a loop wants, since `result.get(i, ...)` walks the
@@ -277,7 +277,7 @@ to watch:
 
 ```python
 program.with_waveforms(library)  # q[0].readout gets the exact entry, amplitude 0.9
-ported.with_waveforms(library)   # q[5].readout gets the family entry, amplitude 0.5
+ported.with_waveforms(library)  # q[5].readout gets the family entry, amplitude 0.5
 ```
 
 The library is keyed on the coordinate, not on the program, so a program that

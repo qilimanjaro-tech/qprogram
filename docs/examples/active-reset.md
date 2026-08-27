@@ -135,9 +135,9 @@ Everything else is rejected where it is written. Comparing against a
 non-integer raises at the operator, before `if_` is reached:
 
 ```python
-check.state == 1.0    # TypeError: handle.state can only be compared to int, ...
-check.state == True   # TypeError: handle.state cannot be compared to a bool; use 0 or 1 ...
-check.state > 0       # TypeError: '>' not supported between instances of ...
+check.state == 1.0  # TypeError: handle.state can only be compared to int, ...
+check.state == True  # TypeError: handle.state cannot be compared to a bool; use 0 or 1 ...
+check.state > 0  # TypeError: '>' not supported between instances of ...
 ```
 
 A condition of the wrong shape gets past the operator and is caught by `if_`
@@ -206,12 +206,8 @@ has not fully relaxed since the previous shot:
 ```python
 library = {
     "pi": qp.waveforms.IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1),
-    "readout": qp.waveforms.IQPair(
-        qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)
-    ),
-    "weights": qp.waveforms.IQPair(
-        qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)
-    ),
+    "readout": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)),
+    "weights": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
 }
 
 result = qp.simulate(
@@ -275,9 +271,7 @@ with its own handle, and the counter names them `m0` through `m3`:
 
 ```python
 for _ in range(4):
-    round_check = program.measure(
-        q[0].readout, "readout", "weights", fields=(qp.MeasurementField.STATE,)
-    )
+    round_check = program.measure(q[0].readout, "readout", "weights", fields=(qp.MeasurementField.STATE,))
     with program.if_(round_check.state == 1):
         program.play(q[0].drive, "pi")
     with program.else_():

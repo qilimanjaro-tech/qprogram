@@ -174,12 +174,8 @@ and therefore no relaxation:
 library = {
     "pi_pulse": qp.waveforms.IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1),
     "pi_half": qp.waveforms.IQDrag(amplitude=0.25, duration=40, sigma=8, beta=0.1),
-    "readout": qp.waveforms.IQPair(
-        qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)
-    ),
-    "weights": qp.waveforms.IQPair(
-        qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)
-    ),
+    "readout": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)),
+    "weights": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
 }
 
 result = qp.simulate(

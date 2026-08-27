@@ -119,15 +119,9 @@ resolved copy on the reference platform:
 import numpy as np
 
 library = {
-    "saturation": qp.waveforms.IQPair(
-        qp.waveforms.Square(0.02, 20000), qp.waveforms.Square(0.0, 20000)
-    ),
-    "readout": qp.waveforms.IQPair(
-        qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)
-    ),
-    "weights": qp.waveforms.IQPair(
-        qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)
-    ),
+    "saturation": qp.waveforms.IQPair(qp.waveforms.Square(0.02, 20000), qp.waveforms.Square(0.0, 20000)),
+    "readout": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)),
+    "weights": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
 }
 
 

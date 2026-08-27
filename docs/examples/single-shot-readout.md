@@ -152,12 +152,8 @@ excited, which is exactly the error the experiment measures.
 ```python
 library = {
     "pi_pulse": qp.waveforms.IQDrag(0.5, 40, 8, 0.1),
-    "readout": qp.waveforms.IQPair(
-        qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)
-    ),
-    "weights": qp.waveforms.IQPair(
-        qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)
-    ),
+    "readout": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)),
+    "weights": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
 }
 
 result = qp.simulate(program.with_waveforms(library), model=ReadoutModel(seed=0))

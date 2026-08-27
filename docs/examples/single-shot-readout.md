@@ -198,6 +198,9 @@ plt.axvline(2.0, color="k", lw=0.5)  # the classifier threshold
 plt.legend()
 ```
 
+![Scatter of single shots in the IQ plane: two well-separated gaussian blobs for the ground and excited preparations, split by a threshold at I = 2.](../assets/plots/single-shot-readout-light.png#only-light)
+![Scatter of single shots in the IQ plane: two well-separated gaussian blobs for the ground and excited preparations, split by a threshold at I = 2.](../assets/plots/single-shot-readout-dark.png#only-dark)
+
 Four thousand shots run in well under a tenth of a second, so this is the
 cheapest program in the section despite having the most records. The
 combination to be careful with is not the shot count but the shot count times

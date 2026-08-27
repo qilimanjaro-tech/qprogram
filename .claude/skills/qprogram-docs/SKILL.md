@@ -37,6 +37,17 @@ A change to the DSL is not finished when the code is. These move together:
    mention in `docs/reference/qp-format.md`.
 5. The docstrings of anything that appears in `docs/reference/api-qprogram.md`,
    since that page is generated from them.
+6. The figures, when a change touches a program an example page plots. They are
+   built by running those programs, so a stale one is a picture of code that no
+   longer exists:
+
+   ```bash
+   uv run --extra viz python .claude/skills/qprogram-docs/scripts/build_example_plots.py
+   ```
+
+   Pass figure names to rebuild only some. Each figure is written twice, once
+   per site theme, into `docs/assets/plots/`, and pages embed the pair with the
+   `#only-light` / `#only-dark` fragments.
 
 If you are asked to do only part of this, do that part and say plainly which
 steps are still outstanding.

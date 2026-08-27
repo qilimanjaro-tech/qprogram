@@ -170,7 +170,7 @@ of exactly `0.0`. Shape the response to see a curve:
 import numpy as np
 
 model = qp.MockMeasurementModel(
-    response=lambda bus, env: np.sin(np.pi * env["gain"] / 2) ** 2 + 0j,
+    response=lambda bus, env: np.sin(np.pi * env["gain"]) ** 2 + 0j,
     noise=0.02,
 )
 result = qp.simulate(resolved, model=model)
@@ -229,6 +229,9 @@ plt.plot(data.coords["gain"], data.sel(IQ="Q"), label="Q")
 plt.xlabel("Drive amplitude (V)")
 plt.legend()
 ```
+
+![Readout response against drive amplitude. I rises to a maximum of 1 at 0.5 V and falls back to 0 by 1.0 V, while Q stays flat at 0.](../assets/plots/rabi-light.png#only-light)
+![Readout response against drive amplitude. I rises to a maximum of 1 at 0.5 V and falls back to 0 by 1.0 V, while Q stays flat at 0.](../assets/plots/rabi-dark.png#only-dark)
 
 The axis label is written out here rather than read from the variable. The
 `label` and `units` given to `program.variable` travel with the program into

@@ -257,6 +257,12 @@ model = qp.MockMeasurementModel(
 Without the branch on `bus` all four records come back identical, which looks
 like a working multiplexed readout and is not one.
 
+Four records off one shot, each qubit reaching its pi amplitude somewhere
+different, which is the calibration this measurement exists to produce:
+
+![Excited-state population against drive amplitude for four qubits, each with a different Rabi period, labelled q0 through q3.](../assets/plots/multiplexed-readout-light.png#only-light)
+![Excited-state population against drive amplitude for four qubits, each with a different Rabi period, labelled q0 through q3.](../assets/plots/multiplexed-readout-dark.png#only-dark)
+
 ## Adapting it
 
 To move a program to different qubits, `rebind` maps element indices and

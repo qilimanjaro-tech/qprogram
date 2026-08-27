@@ -199,6 +199,9 @@ plt.xlabel("Flux duration (ns)")
 plt.ylabel("Flux amplitude (V)")
 ```
 
+![Heatmap of transferred population against flux duration and amplitude, with interference fringes converging to a chevron tip at 0.5 V.](../assets/plots/cz-chevron-light.png#only-light)
+![Heatmap of transferred population against flux duration and amplitude, with interference fringes converging to a chevron tip at 0.5 V.](../assets/plots/cz-chevron-dark.png#only-dark)
+
 `pcolormesh` takes the x axis first, so the inner sweep goes first and the
 outer one second, the opposite of the dimension order in `data0.dims`.
 matplotlib is not a runtime dependency; it comes with the `viz` extra,

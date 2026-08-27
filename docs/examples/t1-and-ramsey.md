@@ -199,6 +199,12 @@ from it per shot. Both receive the same `(bus, env)` pair, so a decay written
 against `env["delay"]` is all it takes to give the curve a shape. Without a
 `p_excited` argument every shot classifies as 0.
 
+The curve is the exponential the model was given, sampled a thousand shots per
+point, and the scatter around it is the Bernoulli noise of that count:
+
+![Excited-state population against delay, decaying exponentially from 1 toward 0 over 40 microseconds.](../assets/plots/t1-light.png#only-light)
+![Excited-state population against delay, decaying exponentially from 1 toward 0 over 40 microseconds.](../assets/plots/t1-dark.png#only-dark)
+
 The `STATE` array has no trailing `"IQ"` dimension, because a classified
 outcome is one number per shot rather than a pair. `result.get(m0)` on the same
 handle still returns the IQ field with dims `("delay", "IQ")` and shape
@@ -231,6 +237,13 @@ The 20 ns spacing that `Linspace(0.0, 3000.0, num=151)` resolves to samples the
 2 MHz fringe 25 times per period, which is the constraint that sets the point
 count: the delay axis has to resolve the artificial detuning, not just reach
 far enough to see the envelope.
+
+The fringe and the envelope are the two things the measurement separates. The
+oscillation is the 2 MHz the program put there; the decay it sits inside is the
+one the qubit contributed:
+
+![Excited-state population against free evolution time, oscillating at 2 MHz inside a decaying envelope drawn as a dashed line.](../assets/plots/ramsey-light.png#only-light)
+![Excited-state population against free evolution time, oscillating at 2 MHz inside a decaying envelope drawn as a dashed line.](../assets/plots/ramsey-dark.png#only-dark)
 
 Nothing in either run knows about relaxation or precession. `wait` evaluates
 its expression and returns, `set_phase` and `reset_phase` do the same, and the

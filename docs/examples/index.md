@@ -7,6 +7,13 @@ the reference platform, the pure-Python interpreter that ships with the
 package. The pages are ordered so that each one adds a few pieces to the ones
 before it, and each names what those are in its opening paragraphs.
 
+The figures come from running the programs. Each one is produced by
+`.claude/skills/qprogram-docs/scripts/build_example_plots.py`, which builds the
+page's own program, executes it on the reference platform, and writes the
+result to `docs/assets/plots/`, so a plot cannot drift from the code printed
+above it. Every figure is written twice, once per site theme, and the page
+picks the one built for the surface you are reading on.
+
 | Example | The features it exercises |
 |---|---|
 | [Rabi oscillation](rabi.md) | One sweep inside an averaging block, one pulse, one measurement, and a result with a single sweep dimension plus the trailing `IQ` axis. |

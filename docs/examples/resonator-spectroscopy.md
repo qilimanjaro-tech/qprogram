@@ -206,6 +206,12 @@ result.get(m0).shape  # (101, 2)
 platform.parameters  # {"q0/readout.lo_frequency": 7400000000.0}
 ```
 
+![Transmitted magnitude against readout LO frequency, flat near 1 except for a sharp dip to 0 at 7.200 GHz.](../assets/plots/resonator-spectroscopy-light.png#only-light)
+![Transmitted magnitude against readout LO frequency, flat near 1 except for a sharp dip to 0 at 7.200 GHz.](../assets/plots/resonator-spectroscopy-dark.png#only-dark)
+
+The dip is the resonator, and its centre is the frequency the readout pulse
+wants to be at.
+
 A swept parameter reaches the model differently from a swept variable. The
 earlier pages read `env["freq"]` or `env["delay"]`, the id of the loop
 variable; a parameter write puts its value in the same `env` under

@@ -207,6 +207,11 @@ both receive the bus string, so one model can describe a whole chip. Without
 that branch the two qubits would return the same numbers and the second
 measurement would be teaching nothing.
 
+One fragment, two call sites, two curves that separate because the chip does:
+
+![Excited-state population against pulse spacing for two qubits, both rising toward 0.5, with q1 losing coherence faster than q0.](../assets/plots/cpmg-light.png#only-light)
+![Excited-state population against pulse spacing for two qubits, both rising toward 0.5, with q1 losing coherence faster than q0.](../assets/plots/cpmg-dark.png#only-dark)
+
 The total free evolution is four times the spacing, which is why the model
 reads `4 * env["tau"]` rather than `env["tau"]`. The reference executor times
 nothing, so the `wait` operations contribute no duration of their own and that

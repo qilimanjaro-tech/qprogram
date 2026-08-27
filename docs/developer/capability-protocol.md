@@ -648,12 +648,16 @@ smaller one.
 ### Registering a profile
 
 `register_profile(profile)` adds the profile to `PROFILE_REGISTRY` under its
-`name`. It is idempotent for the same `Profile` object, so a module whose import
-side effects run twice is safe, and raises
-`ValueError: Profile 'x' is already registered with different content` when a
-different profile claims a name already taken. `resolve_profile(name)` is the
-read side, and raises `KeyError` with the currently registered names listed in
-the message.
+`name`. It is idempotent for an equal `Profile`, so a module whose import side
+effects run twice is safe even when it builds the bundle in a factory rather than
+holding it as a constant, and raises
+`ValueError: Profile 'x' is already registered with different content` only when
+the content actually differs. Of an equal pair the registry keeps the first
+object, so mutating `limits` on the one you built will not be visible through
+`from_profile`. Predicates compare as objects, so a profile carrying a `lambda`,
+a closure, or a `functools.partial` is never equal to a rebuild of itself.
+`resolve_profile(name)` is the read side, and raises `KeyError` with the
+currently registered names listed in the message.
 
 Vendor packages register at import time, alongside their vendor-namespace,
 vendor-version, and operation registration:

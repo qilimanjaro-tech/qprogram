@@ -865,19 +865,31 @@ PROFILE_REGISTRY: dict[str, Profile] = {}
 def register_profile(profile: Profile) -> None:
     """Register a profile in `PROFILE_REGISTRY` under its name.
 
-    Idempotent for the *same* Profile object — useful for import-time side-effect modules that may
-    load twice. Re-registering a different profile under an existing name raises.
+    Idempotent for an *equal* profile, so an import-time side effect that runs twice is safe even
+    when it rebuilds the bundle each time rather than holding it as a module constant. Only a
+    profile whose content differs raises.
+
+    Of an equal pair the registry keeps the first object, so the profile just passed in is not
+    necessarily the one `resolve_profile` returns; mutating ``limits`` on the object you built will
+    not be visible through the registry.
+
+    Equality is [`Profile`][qprogram.Profile]'s own, which compares every field with that field's
+    ``__eq__``. Predicates count as the objects they are, so a profile whose predicates are rebuilt
+    on each construction — a ``lambda``, a closure, a ``functools.partial`` — is never equal to a
+    second construction of itself and still raises. Hold them as module-level functions, or give
+    them a type with value equality, to get the idempotency.
 
     Args:
         profile (Profile): The bundle to register under its own ``name``.
 
     Raises:
-        ValueError: If a different profile is already registered under ``profile.name``.
+        ValueError: If a profile with different content is already registered under
+            ``profile.name``.
     """
     existing = PROFILE_REGISTRY.get(profile.name)
-    if existing is profile:
-        return
     if existing is not None:
+        if existing == profile:
+            return
         msg = f"Profile {profile.name!r} is already registered with different content"
         raise ValueError(msg)
     PROFILE_REGISTRY[profile.name] = profile

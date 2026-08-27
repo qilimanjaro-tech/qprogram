@@ -695,10 +695,18 @@ what is available so a typo is easy to spot:
 KeyError: "Unknown profile 'nope'. Available: qprogram-base-v1"
 ```
 
-`register_profile` is idempotent for the *same* `Profile` object, which matters
-for import-time side-effect modules that may load twice. Re-registering
-different content under an existing name raises
-`ValueError: Profile 'dup' is already registered with different content`.
+`register_profile` is idempotent for an *equal* `Profile`, so an import-time
+side effect that runs twice is safe even when it rebuilds the bundle each time.
+Only different content under an existing name raises
+`ValueError: Profile 'dup' is already registered with different content`. Of an
+equal pair the registry keeps the first object, so the profile you just built is
+not necessarily the one `resolve_profile` returns.
+
+Equality is the dataclass's own, field by field, and predicates count as the
+objects they are. A profile whose predicates are rebuilt on each construction, a
+`lambda` or a closure or a `functools.partial`, is never equal to a second
+construction of itself and still raises; hold them as module-level functions to
+get the idempotency.
 
 Core QProgram ships one profile, `qprogram-base-v1`, exposed as
 `qp.QPROGRAM_BASE_V1` and registered as a side effect of `import qprogram`. It is

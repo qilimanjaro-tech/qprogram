@@ -411,8 +411,9 @@ _OPERATIONS: tuple[tuple[str, type[Operation], bool], ...] = (
 def activate() -> Profile:
     """Register the dummy vendor namespace, version, operations, and profile.
 
-    Returns the registered :class:`Profile` instance so tests that want to
-    introspect or override it can do so without re-importing.
+    Returns the freshly built :class:`Profile`. On a repeat activation the
+    registry keeps the first equal profile, so this is not necessarily the object
+    :func:`resolve_profile` returns; call :func:`deactivate` first to override it.
     """
     _BaseQProgram.register_vendor(VENDOR_NAME, DummyNamespace)
     register_vendor_version(VENDOR_NAME, VENDOR_VERSION)

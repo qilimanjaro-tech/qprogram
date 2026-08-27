@@ -30,7 +30,15 @@ nav = [
     { "Examples" = [
         "examples/index.md",
         { "Rabi oscillation" = "examples/rabi.md" },
+        { "Qubit spectroscopy" = "examples/qubit-spectroscopy.md" },
+        { "T1 and Ramsey" = "examples/t1-and-ramsey.md" },
         { "CZ chevron" = "examples/cz-chevron.md" },
+        { "Active reset" = "examples/active-reset.md" },
+        { "Resonator spectroscopy" = "examples/resonator-spectroscopy.md" },
+        { "CPMG on two qubits" = "examples/cpmg-fragments.md" },
+        { "Multiplexed readout" = "examples/multiplexed-readout.md" },
+        { "Single-shot readout" = "examples/single-shot-readout.md" },
+        { "Checking a program before it runs" = "examples/checking-a-program.md" },
     ] },
     { "Reference" = [
         "reference/index.md",

@@ -963,7 +963,7 @@ INFO           := CHANNEL ("+" INFO_FLAG)*
 CHANNEL        := "single" | "IQ"
 INFO_FLAG      := "acquires"
 
-bus_ref        := STRING | bus_path
+bus_ref        := STRING | bus_path | IDENT   # IDENT only inside a fragment, naming a parameter
 bus_path       := ELEMENT "[" INDEX "]" "." KIND_NAME
 ELEMENT        := IDENT
 KIND_NAME      := IDENT

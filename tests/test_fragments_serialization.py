@@ -128,6 +128,38 @@ def test_schema_busref_call_argument_round_trips():
     assert isinstance(call.arguments["ro"], BusRef)
 
 
+def test_sync_parameter_targets_round_trip_as_identifiers():
+    """A ``sync`` bus list holding fragment parameters writes them as bare identifiers.
+
+    ``sync`` is the only bus argument the format spells as a list, and it used to render each
+    target through ``serialize_bus``, which knows ``BusRef`` and quotes everything else. A
+    ``Parameter`` therefore went out as the quoted string ``"Parameter('drive')"``, reloaded as a
+    literal bus of that name, and stopped substituting at expansion — the text round-tripped
+    byte-for-byte while the program it described no longer did the same thing.
+    """
+    schema = BusSchema.transmon()
+
+    @fragment
+    def paired_readout(f, drive, ro):
+        f.play(drive, "pi")
+        f.sync([drive, ro])
+        f.measure(ro, "ro_wf", "weights")
+
+    p = QProgram(schema=schema)
+    p.call(paired_readout, schema.q[0].drive, schema.q[0].readout)
+
+    text = qp.dumps(p)
+    assert "  sync drive ro\n" in text
+
+    p2 = qp.loads(text)
+    assert p2.fragments == p.fragments
+    assert qp.dumps(p2) == text
+    # The substitution, not just the text, has to survive: a quoted target would expand to a bus
+    # literally named "Parameter('drive')" and quietly widen the program's bus set.
+    assert p2.expand().body == p.expand().body
+    assert p2.expand().buses == {"q0/drive", "q0/readout"}
+
+
 def test_quoted_path_like_argument_stays_string():
     schema = BusSchema.transmon()
 

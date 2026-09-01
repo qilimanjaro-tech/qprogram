@@ -10,12 +10,16 @@ dotted path, so another page can link to a single member:
 `api-qprogram.md#qprogram.QProgram.play`.
 
 The supported surface is `qprogram.__all__`, the names that resolve directly on
-the package after `import qprogram as qp`. Two other kinds of name appear here
-under a longer dotted path. The waveform, operation, and block classes live in
-submodules the top level does not re-export, so they are written
-`qp.waveforms.Gaussian`, `qp.operations.Play`, and `qp.blocks.Sweep`; `Call` and
-`MeasurementField` are the two names from `qprogram.operations` that the top
-level re-exports as well. The rest are extension points an integrator needs and
+the package after `import qprogram as qp`. Three other kinds of name appear
+here under a longer dotted path. The waveform, operation, and block classes
+live in submodules the top level does not re-export, so they are written
+`qp.waveforms.Gaussian`, `qp.operations.Play`, and `qp.blocks.Sweep`. A few
+names the top level does re-export are grouped with the submodule that defines
+them instead, because they read better next to related material: `Call` and
+`MeasurementField` sit with the rest of `qprogram.operations`, `UNASSIGNED` and
+the expression helpers (`qp.eq`, `qp.sin`, and so on) sit with
+`qprogram.variable`, and `dumps`/`save` sit with `qprogram.serialization.writer`
+next to `loads`/`load`. The rest are extension points an integrator needs and
 a program author does not, reached through their submodule:
 `qp.serialization.register_operation`, `qp.protocol.validate_tokens`,
 `qp.sweeps.validate_source`. For the reasoning behind any of these names, read
@@ -156,6 +160,10 @@ class name, which is what makes it parseable from a `.qp` file and spellable as
     options:
       show_root_full_path: false
 
+::: qprogram.buses.ElementSchema
+    options:
+      show_root_full_path: false
+
 ### Typed schemas
 
 Each preset factory on `BusSchema` returns one of these subclasses, whose
@@ -188,15 +196,48 @@ an instance.
     options:
       show_root_full_path: false
 
+### Typed element accessors
+
+`TransmonSchema.q`, `FluxTunableTransmonSchema.q`, and `FluxoniumSchema.q`
+return one of these factories; indexing one returns the matching accessor,
+whose properties are the element's typed bus refs.
+`FluxTunableTransmonQubitBuses` and `FluxoniumQubitBuses` subclass
+`TransmonQubitBuses` to add their extra flux buses rather than repeating
+`drive` and `readout`.
+
+::: qprogram.buses.TransmonQubitBuses
+    options:
+      show_root_full_path: false
+
+::: qprogram.buses.TransmonQubitFactory
+    options:
+      show_root_full_path: false
+
+::: qprogram.buses.FluxTunableTransmonQubitBuses
+    options:
+      show_root_full_path: false
+
+::: qprogram.buses.FluxTunableTransmonQubitFactory
+    options:
+      show_root_full_path: false
+
+::: qprogram.buses.FluxoniumQubitBuses
+    options:
+      show_root_full_path: false
+
+::: qprogram.buses.FluxoniumQubitFactory
+    options:
+      show_root_full_path: false
+
 ### Typed schema base classes
 
 A chip type no preset covers gets a subclass built from the same three pieces
 the presets use: an accessor carrying one property per bus kind, a factory that
 turns an index into an accessor, and the schema carrying one property per
 element. The two base classes hold the machinery for the first two, and
-`CouplerFactory` is reusable as it stands, because a coupler's single `flux` bus
-is the same in every preset that has one. [Defining your own typed
-schema](../guide/buses.md#defining-your-own-typed-schema) walks through a
+`CouplerBuses`/`CouplerFactory` are reusable as they stand, because a coupler's
+single `flux` bus is the same in every preset that has one. [Defining your own
+typed schema](../guide/buses.md#defining-your-own-typed-schema) walks through a
 complete class.
 
 ::: qprogram.buses._TypedElementAccessor
@@ -210,6 +251,10 @@ complete class.
       show_root_full_path: false
       members:
         - __getitem__
+
+::: qprogram.buses.CouplerBuses
+    options:
+      show_root_full_path: false
 
 ::: qprogram.buses.CouplerFactory
     options:

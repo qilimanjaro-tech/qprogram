@@ -77,35 +77,17 @@ request. Say so in the description, and name the guide pages you touched.
    [`docs/reference/api-qprogram.md`](../reference/api-qprogram.md). A new page
    is unreachable until it appears in the nav in `zensical.toml`.
 
-9. **Run the docs checker** on the pages you touched.
+9. **Build the site**, if you touched docstrings or a reference page.
 
    ```bash
-   uv run python .claude/skills/qprogram-docs/scripts/check_docs.py docs/guide/waveforms.md
+   uv run --all-extras --group docs zensical build --strict
    ```
 
-   It parses every Python fence and checks each `qp.` attribute against the
-   installed package, so a renamed symbol is caught; it parses `.qp` fences
-   whose first line is `#!QProgram` with the real parser; it resolves relative
-   links, their anchors, and the nav; and it reports house-style drift. Broken
-   examples, links, and nav entries are errors and set the exit status. Style
-   findings are warnings, and `--strict` promotes them, which is the mode to run
-   before opening the pull request. The one warning `--strict` leaves alone is
-   `qp-vendor`, which fires when a `.qp` example needs a vendor extension that
-   is not installed locally. A fence that is not meant to be valid Python is
-   exempted with `<!-- check: skip -->` on the line above it.
+   `--strict` turns a warning into a failure. The one that matters is an
+   unresolved mkdocstrings cross-reference, which would otherwise ship as a
+   dead link. This is the same command `docs.yml` runs.
 
-10. **Build the site**, if you touched docstrings or a reference page.
-
-    ```bash
-    uv run --all-extras --group docs zensical build --strict
-    ```
-
-    `--strict` turns a warning into a failure. The one that matters is an
-    unresolved mkdocstrings cross-reference, which the docs checker cannot see
-    and which would otherwise ship as a dead link. This is the same command
-    `docs.yml` runs.
-
-11. **Add a changelog entry.** Anything a user would notice gets one news
+10. **Add a changelog entry.** Anything a user would notice gets one news
     fragment under `changelog/`, named `<pr-number>.<type>.md`. The types are
     `added`, `changed`, `fixed`, `removed`, and `misc`; the first four render
     their text under a heading of the same name, while `misc` is configured with
@@ -124,7 +106,7 @@ request. Say so in the description, and name the guide pages you touched.
     fragment without a link, so rename it once the number exists. Internal
     refactors, test-only changes, and docs corrections do not need one.
 
-12. **Open the pull request.** Three of the workflows under
+11. **Open the pull request.** Three of the workflows under
     `.github/workflows/` run on it, and each skips while the pull request is a
     draft: `tests.yml` runs the suite on Python 3.11 and 3.14 and uploads
     coverage from the 3.13 job on `main`; `code_quality.yml` runs `ruff check`

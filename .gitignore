@@ -32,6 +32,9 @@ junit.xml
 # Documentation build output
 site/
 
+# Agent tooling
+.claude/
+
 # Editors
 .idea/
 .vscode/

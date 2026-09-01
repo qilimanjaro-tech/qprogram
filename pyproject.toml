@@ -133,13 +133,6 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# The docs checker is a standalone command-line script rather than part of the
-# package: reporting its findings on stdout is the whole job, and it lives in a
-# plain directory because it is run by path, never imported.
-".claude/skills/**" = [
-    "print",
-    "implicit-namespace-package",
-]
 # The public re-export surface is assembled lazily through module __getattr__,
 # so the names in __all__ are resolvable at runtime but invisible to ruff.
 "src/qprogram/__init__.py" = ["undefined-export"]

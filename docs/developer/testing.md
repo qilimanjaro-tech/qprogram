@@ -274,7 +274,7 @@ uv run pytest --cov=qprogram
 ## Related pages
 
 [Contributing](contributing.md) has the full pull-request workflow, including
-the changelog fragment and the docs checker.
+the changelog fragment.
 [Adding operations](adding-operations.md) and
 [Adding waveforms](adding-waveforms.md) list the tests each of those changes
 needs.

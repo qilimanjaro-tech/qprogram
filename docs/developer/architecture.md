@@ -21,7 +21,6 @@ qprogram/
 ├── zensical.toml                   # docs site config and the explicit nav (this site)
 ├── uv.lock
 ├── .github/workflows/              # tests, code quality, docs, publish
-├── .claude/skills/qprogram-docs/   # the documentation writing guide and its checker
 ├── docs/                           # markdown sources for this site
 ├── tests/                          # 1582 tests, roughly one module per source area
 │   ├── conftest.py                 # shared schema / program / waveform fixtures

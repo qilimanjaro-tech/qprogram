@@ -260,14 +260,16 @@ def test_a_twin_carries_the_restated_positions_of_its_axis():
 
 def test_the_third_of_a_composition_is_told_it_is_not_drawn():
     data = _composed().assign_coords(c=xr.DataArray([7.0, 8.0, 9.0, 10.0], dims="a|b")).rename({"a|b": "a|b|c"})
+    coords = {"c": Quantity("C")}
     with pytest.raises(ValidationError, match=r"'c'\] names a coordinate this figure does not draw"):
-        build_figure(data, coords={"c": Quantity("C")})
+        build_figure(data, coords=coords)
 
 
 def test_a_twin_is_named_as_a_twin_when_a_key_reaches_nothing():
     data = _composed()
+    coords = {"nope": Quantity("X")}
     with pytest.raises(ValidationError, match=r"'a' \(the x axis\), 'b' \(the twin of the x axis\)"):
-        build_figure(data, coords={"nope": Quantity("X")})
+        build_figure(data, coords=coords)
 
 
 def test_a_heatmap_twins_both_of_its_axes():

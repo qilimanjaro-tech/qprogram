@@ -22,6 +22,8 @@ platforms), then walks the AST in pure Python — driving loop variables via
 
 - dims = enclosing ``Sweep`` blocks, outermost first, named by variable id;
   ``Parallel`` contributes one shared ``"a|b"`` dim carrying every composed variable's coords.
+- A swept variable's ``label`` and ``units`` reach its coordinate as the ``long_name`` and
+  ``units`` attributes, the two keys xarray's plotting accessor reads.
 - ``average(shots)`` contributes **no** dim — ``iq``/``raw`` are means over shots, ``state``
   averages to the excited-state population.
 - Measurement-field shapes: ``iq`` → ``(*sweeps, "IQ"[2])``; ``state`` → ``(*sweeps)``;
@@ -225,6 +227,9 @@ class _Axis:
         size (int): Number of points along the dimension.
         coords (dict[str, numpy.ndarray]): Coordinate name to values. One entry for a plain sweep;
             a parallel composition attaches one per composed variable, all on the shared dimension.
+        attrs (dict[str, dict[str, str]]): Coordinate name to the xarray attributes carrying that
+            variable's presentation metadata. Keyed the same way as ``coords``; a variable that
+            declared neither a label nor units maps to an empty dict.
     """
 
     # Sweep | Parallel
@@ -233,6 +238,29 @@ class _Axis:
     size: int
     # coord name -> values (Parallel attaches one per variable)
     coords: dict[str, np.ndarray]
+    # coord name -> {"long_name": ..., "units": ...}
+    attrs: dict[str, dict[str, str]] = field(default_factory=dict)
+
+
+def _coord_attrs(variable: Variable) -> dict[str, str]:
+    """Map a swept variable's label and units onto xarray coordinate attributes.
+
+    ``long_name`` and ``units`` are the two keys xarray's own plotting accessor reads, so a
+    coordinate carrying them labels itself. A key the variable did not declare is left out rather
+    than written as ``None``, which xarray would render.
+
+    Args:
+        variable (Variable): The variable the sweep binds.
+
+    Returns:
+        The attributes for that variable's coordinate, empty when it declared neither.
+    """
+    attrs: dict[str, str] = {}
+    if variable.label is not None:
+        attrs["long_name"] = variable.label
+    if variable.units is not None:
+        attrs["units"] = variable.units
+    return attrs
 
 
 def _axis_for(node: Block) -> _Axis | None:
@@ -249,10 +277,17 @@ def _axis_for(node: Block) -> _Axis | None:
         dim = "|".join(lp.variable.id for lp in node.loops)
         size = node.loops[0].num_iterations()
         coords = {lp.variable.id: lp.source.values() for lp in node.loops}
-        return _Axis(node=node, dim=dim, size=size, coords=coords)
+        attrs = {lp.variable.id: _coord_attrs(lp.variable) for lp in node.loops}
+        return _Axis(node=node, dim=dim, size=size, coords=coords, attrs=attrs)
     if isinstance(node, Sweep):
         values = node.source.values()
-        return _Axis(node=node, dim=node.variable.id, size=len(values), coords={node.variable.id: values})
+        return _Axis(
+            node=node,
+            dim=node.variable.id,
+            size=len(values),
+            coords={node.variable.id: values},
+            attrs={node.variable.id: _coord_attrs(node.variable)},
+        )
     # Average / Conditional / plain Block contribute no dimension
     return None
 
@@ -570,12 +605,16 @@ class _Interpreter:
         for slot in self._slots:
             dims = [axis.dim for axis in slot.axes]
             coords: dict[str, object] = {}
+            coord_attrs: dict[str, dict[str, str]] = {}
             for axis in slot.axes:
                 for name, values in axis.coords.items():
                     coords[name] = (axis.dim, values) if name != axis.dim else values
+                coord_attrs.update({name: attrs for name, attrs in axis.attrs.items() if attrs})
             fields: dict[str, xr.DataArray] = {}
             for field_name in slot.op.fields:
-                fields[field_name] = self._field_array(slot, field_name, dims, coords)
+                array = self._field_array(slot, field_name, dims, coords)
+                _apply_coord_attrs(array, coord_attrs)
+                fields[field_name] = array
             # ``iq`` is the primary whenever requested; otherwise the first field in canonical
             # order (see MeasurementField's declaration order).
             primary = fields.get(MeasurementField.IQ, fields[slot.op.fields[0]])
@@ -618,6 +657,22 @@ class _Interpreter:
             )
         mean = _safe_mean(slot.sums[field_name], counts)
         return xr.DataArray(mean, dims=dims, coords=coords)
+
+
+def _apply_coord_attrs(array: xr.DataArray, coord_attrs: dict[str, dict[str, str]]) -> None:
+    """Write each swept variable's attributes onto the matching coordinate of ``array``, in place.
+
+    Only coordinates the array actually carries are touched, so a field with no sweep dimensions,
+    such as ``state`` on an unswept measurement, is left alone. ``IQ`` and ``time`` never appear
+    here: neither comes from a variable.
+
+    Args:
+        array (xarray.DataArray): The field array to annotate.
+        coord_attrs (dict[str, dict[str, str]]): Coordinate name to its attributes.
+    """
+    for name, attrs in coord_attrs.items():
+        if name in array.coords:
+            array.coords[name].attrs.update(attrs)
 
 
 def _safe_mean(total: np.ndarray, count: np.ndarray) -> np.ndarray:

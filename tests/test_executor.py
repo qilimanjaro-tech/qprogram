@@ -91,6 +91,72 @@ def test_parallel_loops_share_one_dimension_with_both_coords():
     assert np.allclose(da.coords["b"].values, [10.0, 15.0, 20.0])
 
 
+def test_swept_variable_label_and_units_reach_the_coordinate():
+    p = QProgram()
+    gain = p.variable("gain", label="Drive amplitude", units="V")
+    with p.sweep(gain, Range(0.0, 1.0, 0.5)):
+        p.measure("readout_q0", _ro(), "w")
+    da = simulate(p).get("m0")
+    assert da.coords["gain"].attrs == {"long_name": "Drive amplitude", "units": "V"}
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({}, {}),
+        ({"label": "Delay"}, {"long_name": "Delay"}),
+        ({"units": "ns"}, {"units": "ns"}),
+    ],
+)
+def test_coordinate_attrs_omit_what_the_variable_did_not_declare(kwargs, expected):
+    p = QProgram()
+    t = p.variable("t", **kwargs)
+    with p.sweep(t, Range(0.0, 1.0, 0.5)):
+        p.measure("readout_q0", _ro(), "w")
+    da = simulate(p).get("m0")
+    assert da.coords["t"].attrs == expected
+
+
+def test_parallel_composition_labels_each_composed_coordinate():
+    p = QProgram()
+    a = p.variable("a", label="Gain", units="V")
+    b = p.variable("b", label="Frequency", units="Hz")
+    with p.sweep(a, Range(0.0, 1.0, 0.5)) | p.sweep(b, Range(10.0, 20.0, 5.0)):
+        p.measure("readout_q0", _ro(), "w")
+    da = simulate(p).get("m0")
+    assert da.coords["a"].attrs == {"long_name": "Gain", "units": "V"}
+    assert da.coords["b"].attrs == {"long_name": "Frequency", "units": "Hz"}
+    # The joined dim is not itself a coordinate, so there is nothing to annotate on it.
+    assert "a|b" not in da.coords
+
+
+def test_only_variable_coordinates_are_annotated():
+    model = MockMeasurementModel(raw_samples=8)
+    p = QProgram()
+    g = p.variable("g", label="Gain", units="V")
+    with p.sweep(g, Range(0.0, 1.0, 0.5)):
+        p.measure("readout_q0", _ro(), "w", fields=("iq", "state", "raw"))
+    result = simulate(p, model=model)
+    raw = result.get("m0", field="raw")
+    assert raw.coords["g"].attrs == {"long_name": "Gain", "units": "V"}
+    assert raw.coords["IQ"].attrs == {}
+    assert raw.coords["time"].attrs == {}
+    # Every field carries the annotation, not just the primary one.
+    assert result.get("m0", field="state").coords["g"].attrs == {"long_name": "Gain", "units": "V"}
+    # The array itself is left alone: a measurement has no unit the executor knows.
+    assert raw.attrs == {}
+
+
+def test_coordinate_attrs_survive_a_qp_round_trip():
+    p = QProgram()
+    freq = p.variable("freq", label="Drive frequency", units="Hz")
+    with p.sweep(freq, Range(4e9, 5e9, 0.5e9)):
+        p.measure("readout_q0", _ro(), "w")
+    reloaded = qp.loads(qp.dumps(p))
+    da = simulate(reloaded).get("m0")
+    assert da.coords["freq"].attrs == {"long_name": "Drive frequency", "units": "Hz"}
+
+
 def test_no_loop_measurement_is_scalar():
     p = QProgram()
     p.measure("readout_q0", _ro(), "w", fields=("iq", "state"))

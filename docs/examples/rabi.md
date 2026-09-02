@@ -233,10 +233,15 @@ plt.legend()
 ![Readout response against drive amplitude. I rises to a maximum of 1 at 0.5 V and falls back to 0 by 1.0 V, while Q stays flat at 0.](../assets/plots/rabi-light.png#only-light)
 ![Readout response against drive amplitude. I rises to a maximum of 1 at 0.5 V and falls back to 0 by 1.0 V, while Q stays flat at 0.](../assets/plots/rabi-dark.png#only-dark)
 
-The axis label is written out here rather than read from the variable. The
-`label` and `units` given to `program.variable` travel with the program into
-`.qp` and are there for tooling and for whoever reads the file; the executor
-does not copy them onto the xarray coordinate.
+The axis label is written out here, but it does not have to be. The `label` and
+`units` given to `program.variable` reach the coordinate as its `long_name` and
+`units` attributes, so `data.coords["gain"].attrs` holds both and anything that
+reads them labels the axis itself:
+
+```python
+data.coords["gain"].attrs  # {"long_name": "Drive amplitude", "units": "V"}
+data.sel(IQ="I").plot()  # x axis reads "Drive amplitude [V]"
+```
 
 ## Adapting it
 

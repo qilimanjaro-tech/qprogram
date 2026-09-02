@@ -284,7 +284,7 @@ class QProgramResult:
         title: str | None = None,
         style: Style | None = None,
         renderer: str | None = None,
-        target: Any = None,  # ruff: ignore[any-type]
+        target: object = None,
     ) -> Any:  # ruff: ignore[any-type]  # whatever handle the renderer gives back
         """Draw one measurement field.
 
@@ -323,7 +323,7 @@ class QProgramResult:
                 [`Style`][qprogram.plotting.Style]``()``, which is the light theme.
             renderer (str | None): A name passed to
                 [`resolve_renderer`][qprogram.plotting.resolve_renderer]. Defaults to ``"matplotlib"``.
-            target (Any): An existing surface for the renderer to draw on — a matplotlib
+            target (object): An existing surface for the renderer to draw on — a matplotlib
                 `Axes` for the default one. A new figure is made when omitted.
 
         Returns:

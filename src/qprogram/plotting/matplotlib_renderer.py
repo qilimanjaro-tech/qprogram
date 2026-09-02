@@ -24,7 +24,7 @@ behind the data, and a legend with no box. What should carry the eye is the data
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
@@ -42,14 +42,14 @@ if TYPE_CHECKING:
 _DATA_LAYER = 3
 
 
-def render(figure: Figure, style: Style, target: Any = None) -> Axes:  # ruff: ignore[any-type]
+def render(figure: Figure, style: Style, target: Axes | None = None) -> Axes:
     """Draw ``figure`` on a matplotlib `Axes`.
 
     Args:
         figure (Figure): What to draw.
         style (Style): The palette and the weights to draw it with.
-        target (Any): An `Axes` to draw on. A fresh figure is created when ``None``, sized
-            by `Style.size` and filled with the theme's surface colour.
+        target (matplotlib.axes.Axes | None): An `Axes` to draw on. A fresh figure is created when
+            ``None``, sized by `Style.size` and filled with the theme's surface colour.
 
     Returns:
         The `Axes` the marks were drawn on.

@@ -142,18 +142,21 @@ def test_three_dimensions_cannot_be_inferred():
 
 
 def test_unknown_kind_is_rejected():
+    data = _sweep_iq()
     with pytest.raises(ValidationError, match="kind must be one of"):
-        build_figure(_sweep_iq(), kind="bar")
+        build_figure(data, kind="bar")
 
 
 def test_line_rejects_a_two_dimensional_array():
+    data = _grid_iq()
     with pytest.raises(ValidationError, match="exactly one dimension besides 'IQ'"):
-        build_figure(_grid_iq(), kind="line")
+        build_figure(data, kind="line")
 
 
 def test_heatmap_rejects_a_one_dimensional_array():
+    data = _sweep_iq()
     with pytest.raises(ValidationError, match="exactly two dimensions besides 'IQ'"):
-        build_figure(_sweep_iq(), kind="heatmap")
+        build_figure(data, kind="heatmap")
 
 
 # ---------------------------------------------------------------------------
@@ -191,8 +194,9 @@ def test_line_x_values_come_from_the_coordinate():
 
 
 def test_a_composed_dimension_refuses_to_guess_an_axis():
+    data = _composed()
     with pytest.raises(ValidationError, match="composes 2 swept variables"):
-        build_figure(_composed())
+        build_figure(data)
 
 
 def test_x_names_one_of_the_composed_coordinates():
@@ -208,8 +212,9 @@ def test_naming_the_composed_dimension_plots_the_sweep_index():
 
 
 def test_an_unknown_x_names_what_is_available():
+    data = _composed()
     with pytest.raises(ValidationError, match="Coordinates: a, b, IQ"):
-        build_figure(_composed(), x="nope")
+        build_figure(data, x="nope")
 
 
 def test_a_lone_coordinate_on_a_bare_dimension_needs_no_choosing():
@@ -261,13 +266,15 @@ def test_phase_is_the_arctangent():
 
 
 def test_unknown_channels_are_rejected():
+    data = _sweep_iq()
     with pytest.raises(ValidationError, match="channels must be one of"):
-        build_figure(_sweep_iq(), channels="abs")
+        build_figure(data, channels="abs")
 
 
 def test_channels_need_quadratures_to_choose_between():
+    data = _state()
     with pytest.raises(ValidationError, match="needs an 'IQ' dimension"):
-        build_figure(_state(), channels="i")
+        build_figure(data, channels="i")
 
 
 def test_an_array_without_quadratures_draws_one_unnamed_line():
@@ -300,8 +307,9 @@ def test_y_alone_settles_both_axes():
 
 
 def test_x_and_y_cannot_name_the_same_dimension():
+    data = _grid_iq()
     with pytest.raises(ValidationError, match="a heatmap needs one on each axis"):
-        build_figure(_grid_iq(), x="amp", y="amp")
+        build_figure(data, x="amp", y="amp")
 
 
 def test_the_grid_is_indexed_row_by_column():
@@ -325,8 +333,9 @@ def test_a_heatmap_defaults_to_the_magnitude():
 
 
 def test_a_heatmap_cannot_colour_both_quadratures():
+    data = _grid_iq()
     with pytest.raises(ValidationError, match="colours one surface"):
-        build_figure(_grid_iq(), channels="iq")
+        build_figure(data, channels="iq")
 
 
 def test_a_heatmap_without_quadratures_needs_no_channel():
@@ -361,19 +370,22 @@ def test_scatter_flattens_every_other_dimension():
 
 
 def test_scatter_needs_quadratures():
+    data = _state()
     with pytest.raises(ValidationError, match="no 'IQ' dimension"):
-        build_figure(_state(), kind="scatter")
+        build_figure(data, kind="scatter")
 
 
 @pytest.mark.parametrize("argument", ["x", "y", "channels"])
 def test_scatter_has_nothing_left_for_an_axis_argument_to_choose(argument):
+    data = _sweep_iq()
     with pytest.raises(ValidationError, match=f"{argument} has nothing left to choose"):
-        build_figure(_sweep_iq(), kind="scatter", **{argument: "i"})
+        build_figure(data, kind="scatter", **{argument: "i"})
 
 
 def test_a_line_figure_has_no_second_dimension_for_y_to_name():
+    data = _sweep_iq()
     with pytest.raises(ValidationError, match="only a heatmap has"):
-        build_figure(_sweep_iq(), y="gain")
+        build_figure(data, y="gain")
 
 
 # ---------------------------------------------------------------------------

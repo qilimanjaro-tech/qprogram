@@ -180,6 +180,11 @@ which is what `.values` is for; handing it the labelled array raises
 data dimensions, ndim=0`. matplotlib is not a runtime dependency; it comes with
 the `viz` extra, installed with `pip install "qprogram[viz]"`.
 
+`result.plot(m0, channels="magnitude")` draws the same curve without the four
+lines above. The code is written out here because the figure reads in
+gigahertz, and rescaling a coordinate is arithmetic on the array rather than
+anything the result knows about.
+
 ## Adapting it
 
 The scan above is the coarse one. Once it has put `f01` near 5 GHz, the next

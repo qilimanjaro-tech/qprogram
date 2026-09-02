@@ -25,6 +25,7 @@ nav = [
         { "Measurements and results" = "guide/measurements.md" },
         { "Capabilities, diagnostics, and profiles" = "guide/capabilities.md" },
         { "Running programs" = "guide/execution.md" },
+        { "Plotting results" = "guide/plotting.md" },
         { "Saving and loading" = "guide/serialization.md" },
     ] },
     { "Examples" = [

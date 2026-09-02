@@ -218,30 +218,30 @@ It comes with the `viz` extra:
 pip install "qprogram[viz]"
 ```
 
-The `IQ` dimension is a coordinate, so the two quadratures come out by label:
+`result.plot` works the figure out from the array's shape. One swept dimension
+besides `IQ` gives a line per quadrature:
 
 ```python
-import matplotlib.pyplot as plt
-
-data = result.get(m0)
-plt.plot(data.coords["gain"], data.sel(IQ="I"), label="I")
-plt.plot(data.coords["gain"], data.sel(IQ="Q"), label="Q")
-plt.xlabel("Drive amplitude (V)")
-plt.legend()
+result.plot(m0, value_label="Readout response")
 ```
 
 ![Readout response against drive amplitude. I rises to a maximum of 1 at 0.5 V and falls back to 0 by 1.0 V, while Q stays flat at 0.](../assets/plots/rabi-light.png#only-light)
 ![Readout response against drive amplitude. I rises to a maximum of 1 at 0.5 V and falls back to 0 by 1.0 V, while Q stays flat at 0.](../assets/plots/rabi-dark.png#only-dark)
 
-The axis label is written out here, but it does not have to be. The `label` and
-`units` given to `program.variable` reach the coordinate as its `long_name` and
-`units` attributes, so `data.coords["gain"].attrs` holds both and anything that
-reads them labels the axis itself:
+Nothing about the x axis is typed out. The `label` and `units` given to
+`program.variable` reach the coordinate as its `long_name` and `units`
+attributes, and the axis reads them:
 
 ```python
 data.coords["gain"].attrs  # {"long_name": "Drive amplitude", "units": "V"}
-data.sel(IQ="I").plot()  # x axis reads "Drive amplitude [V]"
 ```
+
+`value_label` is there because the other axis has no such source: what a
+demodulated point means is the readout chain's business, not the program's. The
+call returns the matplotlib `Axes`, so anything else the figure does not decide
+is a method away on it. [Plotting results](../guide/plotting.md) has the rest:
+heatmaps and scatters, the `channels` argument, themes, and registering a
+renderer of your own.
 
 ## Adapting it
 

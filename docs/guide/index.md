@@ -18,6 +18,7 @@ where they are used.
 | [Measurements and results](measurements.md) | The `measure` signature and its `fields` argument, how names are allocated and how they survive a `.qp` round trip, and `QProgramResult` access by handle, by name, and by index, with the dimensions a result carries. |
 | [Capabilities, diagnostics, and profiles](capabilities.md) | `PlatformCapabilities`, the routing that decides which slot checks a node, the ten diagnostic codes and what produces each, the `ExecutionPlan` and `explain()`, numeric limits, predicates, and `Profile` bundles. |
 | [Running programs](execution.md) | `qp.simulate` and `ReferencePlatform`: the result shapes a run produces, measurement models and the mock default, what the reference executor does not model, and what implementing `PlatformProtocol` involves. |
+| [Plotting results](plotting.md) | `QProgramResult.plot`: the figure a result's shape asks for, the `channels` argument that decides what becomes of the `IQ` dimension, where an axis label comes from, the `Style` and `Theme` dataclasses, and registering a renderer of your own. |
 | [Saving and loading](serialization.md) | `dumps`, `loads`, `save`, and `load`: what the round trip preserves and what it drops, the format version and `require` lines, vendor activation at parse time, the normalizations the writer applies, and the `WaveformLibrary` that quoted aliases resolve through, with its own `.wfl` file. |
 
 Two worked programs, each given in full from the builder calls to the result

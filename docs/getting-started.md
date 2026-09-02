@@ -18,19 +18,20 @@ pip install "qprogram[viz]"   # matplotlib >= 3.10.9
 pip install "qprogram[lsp]"   # pygls >= 2, < 3
 ```
 
-The `viz` extra is what `Waveform.plot()` and `IQWaveform.plot()` need, and
-`lsp` is what `python -m qprogram.lsp serve` needs. Both packages are imported
-inside the call that uses them, so a missing extra raises
-`ModuleNotFoundError` at that call rather than breaking `import qprogram`; the
-language server catches that error and re-raises it naming the extra to
-install, while `plot()` lets Python's own message through. The other two
-language-server front-ends, `python -m qprogram.lsp check` and
+The `viz` extra is what `QProgramResult.plot()`, `Waveform.plot()`, and
+`IQWaveform.plot()` need, and `lsp` is what `python -m qprogram.lsp serve`
+needs. Both packages are imported inside the call that uses them, so a missing
+extra raises `ModuleNotFoundError` at that call rather than breaking
+`import qprogram`; the language server catches that error and re-raises it
+naming the extra to install, while `plot()` lets Python's own message through.
+The other two language-server front-ends, `python -m qprogram.lsp check` and
 `python -m qprogram.lsp explain`, need no extra at all: they run the parser
 and validator the base install already carries, which is why an editor
 integration can spawn them directly.
 
 The base install covers the AST, expressions, sweep sources, waveforms, bus
-schemas, serialization, validation, and the reference platform.
+schemas, serialization, validation, the reference platform, and the half of
+plotting that describes a figure without drawing it.
 Vendor-specific operations come from separate packages that follow the protocol
 described in [Building a vendor extension](developer/vendor-extensions.md).
 

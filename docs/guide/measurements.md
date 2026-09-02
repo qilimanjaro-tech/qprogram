@@ -387,6 +387,11 @@ primary array lives.
 result.measurements[0].data  # the "iq" field if requested, else the first in canonical order
 ```
 
+`result.plot` takes the same measurement, `bus`, and `field` arguments and
+draws the array rather than returning it, working the figure out from the
+dimensions below. [Plotting results](plotting.md) covers what it makes of each
+shape.
+
 ## Result dimensions
 
 The dimensions of every returned array are the enclosing `sweep` blocks,

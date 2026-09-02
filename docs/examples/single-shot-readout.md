@@ -201,6 +201,12 @@ plt.legend()
 ![Scatter of single shots in the IQ plane: two well-separated gaussian blobs for the ground and excited preparations, split by a threshold at I = 2.](../assets/plots/single-shot-readout-light.png#only-light)
 ![Scatter of single shots in the IQ plane: two well-separated gaussian blobs for the ground and excited preparations, split by a threshold at I = 2.](../assets/plots/single-shot-readout-dark.png#only-dark)
 
+`result.plot(shots, kind="scatter")` draws the same plane in one call, but as a
+single cloud: two colours by prepared state and a line at the threshold are a
+layout, and nothing on the result says those three things belong in one figure.
+[Plotting results](../guide/plotting.md) draws the line between what `plot`
+infers and what stays here.
+
 Four thousand shots run in well under a tenth of a second, so this is the
 cheapest program in the section despite having the most records. The
 combination to be careful with is not the shot count but the shot count times

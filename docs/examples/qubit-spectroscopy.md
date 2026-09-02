@@ -167,8 +167,8 @@ result.plot(
 )
 ```
 
-![Readout magnitude against drive frequency, flat except for a sharp peak at 5.000 GHz marked as f01.](../assets/plots/qubit-spectroscopy-light.png#only-light)
-![Readout magnitude against drive frequency, flat except for a sharp peak at 5.000 GHz marked as f01.](../assets/plots/qubit-spectroscopy-dark.png#only-dark)
+![Readout magnitude against drive frequency, flat except for a sharp peak at 5.000 GHz.](../assets/plots/qubit-spectroscopy-light.png#only-light)
+![Readout magnitude against drive frequency, flat except for a sharp peak at 5.000 GHz.](../assets/plots/qubit-spectroscopy-dark.png#only-dark)
 
 `channels="magnitude"` is `np.hypot(I, Q)`, and the `qp.plotting.Quantity` on
 `coords` restates the axis in gigahertz: the arithmetic and the unit it

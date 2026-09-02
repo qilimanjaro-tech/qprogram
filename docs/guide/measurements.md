@@ -395,6 +395,10 @@ values as its coordinate. The trailing dimensions belong to the field: `"IQ"`
 with coordinates `["I", "Q"]` for `iq`, `"time"` with an integer coordinate for
 `raw`, and nothing for `state`. The full order is `(*sweeps, *field dims)`.
 
+A sweep coordinate also carries whatever `label` and `units` its variable
+declared, as the `long_name` and `units` attributes. The field dimensions carry
+none: neither comes from a variable.
+
 ```python
 program = qp.QProgram(label="spectroscopy", schema=schema)
 freq = program.variable("freq", units="Hz")

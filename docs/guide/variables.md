@@ -95,8 +95,10 @@ phi = program.variable(
 All three are free-form strings and none of them affects execution. They are
 written into the `var` line of a `.qp` file, parsed back from it, and carried
 across fragment expansion when a fragment-local variable is renamed onto the
-host program. Nothing else reads them: validation, the capability token
-vocabulary, the executor, and the result objects all ignore `units`.
+host program. `label` and `units` travel one step further: the executor writes
+them onto the swept coordinate of every result array, as the `long_name` and
+`units` attributes that xarray's own plotting reads. Validation and the
+capability token vocabulary ignore all three, and nothing reads `description`.
 
 That means `units="ns"` records what the numbers mean and converts nothing. A
 variable swept over `Range(0, 200, 4)` and passed to `wait` carries

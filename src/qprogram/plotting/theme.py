@@ -89,6 +89,9 @@ class Style:
         grid (bool): Draw grid lines behind the data.
         legend (bool): Draw a legend when the figure has more than one labelled mark.
         colorbar (bool): Draw a colour bar beside a [`Mesh`][qprogram.plotting.Mesh].
+        twin_ticks (int): How many ticks a [`Twin`][qprogram.plotting.Twin] scale gets. They land on
+            samples rather than on round numbers, so this is the count the renderer aims for and a
+            sweep shorter than it gets one tick per sample; two is the floor.
     """
 
     theme: Theme = LIGHT
@@ -101,6 +104,7 @@ class Style:
     grid: bool = True
     legend: bool = True
     colorbar: bool = True
+    twin_ticks: int = 5
 
     def color(self, index: int) -> str:
         """Return the categorical colour for series ``index``, cycling when the theme runs out.

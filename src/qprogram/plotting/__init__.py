@@ -33,7 +33,7 @@ time a figure is rendered.
 from __future__ import annotations
 
 from qprogram.plotting.build import CHANNELS, IQ_DIM, KINDS, build_figure
-from qprogram.plotting.model import Figure, Line, Mark, Mesh, Points
+from qprogram.plotting.model import Figure, Line, Mark, Mesh, Points, Twin
 from qprogram.plotting.quantity import Quantity
 from qprogram.plotting.renderers import (
     DEFAULT_RENDERER,
@@ -60,6 +60,7 @@ __all__ = [
     "Renderer",
     "Style",
     "Theme",
+    "Twin",
     "available_renderers",
     "build_figure",
     "register_renderer",

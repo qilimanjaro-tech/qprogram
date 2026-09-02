@@ -221,7 +221,8 @@ The two sources must then hold the same number of points, and both do here at
 `ValidationError: parallel loops must have the same number of iterations to
 advance in lockstep; got Sweep('amp'): 11, Sweep('dur'): 12`. The results come
 back on one `"amp|dur"` dimension of 101 points carrying `amp` and `dur` as
-coordinates along it. See [Control flow](../guide/control-flow.md).
+coordinates along it, which `plot` draws as one axis with the other above it.
+See [Control flow](../guide/control-flow.md).
 
 For the SNZ flavor of CZ, swap the waveform and leave the rest of the program
 alone:

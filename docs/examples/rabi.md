@@ -256,8 +256,9 @@ subclassing `BusSchema` gives typed accessors. See
 To sweep frequency as well, add `program.set_frequency(q[0].drive, freq)` and
 a second sweep. Nesting the two gives the full grid and a two-dimensional
 result; composing them with `|` advances them in lockstep and gives one
-`"gain|freq"` dimension carrying both coordinates. Both loops must then have
-the same length. See [Control flow](../guide/control-flow.md).
+`"gain|freq"` dimension carrying both coordinates, which `plot` draws as one
+axis and a twin axis above it. Both loops must then have the same length. See
+[Control flow](../guide/control-flow.md).
 
 To read the classified state instead of the IQ point, request
 `fields=(qp.MeasurementField.STATE,)` and read

@@ -108,18 +108,44 @@ result.plot(m0)  # x is "dur", the inner sweep
 result.plot(m0, x="amp")  # x is "amp", so "dur" moves to y
 ```
 
-A dimension built by a parallel composition is the case where the default has
-no answer. It composes several variables onto one dimension and carries one
-coordinate per variable, so there is no single set of values to put on the
-axis. Asking anyway raises, because the alternative is worse: `coords["a|b"]`
-returns a plain integer range rather than failing, so a guess would produce a
-wrong axis that looks entirely plausible.
+## Two variables on one axis
+
+A dimension built by a parallel composition carries one coordinate per composed
+variable and none of its own, so there are two readings of every sample and no
+reason to throw one away. Both are drawn: the first goes on the axis and the
+second on a twin scale opposite it, which is matplotlib's `secondary_xaxis`,
+the position-tracking form of `twiny`. The order is the order the dimension
+name gives, which is the order the loops were written in, so `"freq|time"`
+draws frequency along the bottom and time along the top.
 
 ```python
-result.plot(m0)  # ValidationError: 'a|b' composes 2 swept variables
-result.plot(m0, x="a")  # that variable's values, and its label
-result.plot(m0, x="a|b")  # the sweep index, if that is what you meant
+with program.sweep(freq, qp.Range(4e9, 5e9, 25e6)) | program.sweep(time, qp.Range(0, 400, 10)):
+    m0 = program.measure(q[0].readout, "readout", "weights")
+
+result.plot(m0)  # freq along the bottom, time along the top
 ```
+
+The twin ticks at samples rather than at round numbers. The two loops advanced
+in lockstep, so tick *i* and sample *i* are the same measurement, and putting a
+tick anywhere else would mean interpolating between measured points to label a
+position nothing was measured at. `Style(twin_ticks=...)` is how many to aim
+for; a sweep shorter than that gets one per sample.
+
+`x=` and `y=` name an axis to draw on its own, which is how an axis with
+nothing above it is asked for:
+
+```python
+result.plot(m0, x="freq")  # frequency along the bottom, nothing on top
+result.plot(m0, x="time")  # time along the bottom instead
+result.plot(m0, x="freq|time")  # the sweep index, if that is what you meant
+```
+
+A heatmap twins each axis separately, so a chevron whose inner loop is a
+composition reads its second variable across the top and a composition on the
+outer loop reads up the right-hand side. A composition of three or more
+variables draws the first two and leaves the rest: two scales on one axis is
+already the most a reader can follow, and the coordinates are all still on the
+array for a caller who wants a different one.
 
 ## Restating a quantity
 
@@ -141,6 +167,7 @@ result.plot(
 
 `coords=` is keyed by the name the axis resolved to, which is the same string
 `x=` takes: the coordinate on the axis, or the dimension when no coordinate is.
+A twin scale is keyed by its own coordinate the same way.
 A key that reaches no axis raises rather than doing nothing, since a figure
 that ignored it would print the axis it was asked to change. `value=` is the
 measured quantity wherever it lands: the y axis of a line, the colour bar of a
@@ -225,9 +252,9 @@ result.plot(m0, style=qp.plotting.Style(theme=house))
 ```
 
 `Style` carries `size`, `linewidth`, `markers`, `markersize`, `point_size`,
-`point_alpha`, `grid`, `legend`, and `colorbar` alongside `theme`. `markers` is
-worth turning on for a coarse sweep, where the points are the measurement and
-the line between them is interpolation.
+`point_alpha`, `grid`, `legend`, `colorbar`, and `twin_ticks` alongside `theme`.
+`markers` is worth turning on for a coarse sweep, where the points are the
+measurement and the line between them is interpolation.
 
 ## Another renderer
 

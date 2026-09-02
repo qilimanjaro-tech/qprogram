@@ -330,7 +330,8 @@ class QProgramResult:
         The shape of the array chooses the figure. One dimension besides ``"IQ"`` gives a line per
         quadrature, two give a heatmap of the magnitude, and ``kind="scatter"`` plots I against Q,
         which no shape implies on its own. A swept variable's ``label`` and ``units`` reach the axis
-        from the coordinate the executor wrote them onto.
+        from the coordinate the executor wrote them onto, and a dimension a parallel composition
+        built brings two of them, the second read on a twin axis opposite the first.
 
         Args:
             measurement (MeasurementHandle | str | int): Which measurement to draw, by handle, by
@@ -340,15 +341,18 @@ class QProgramResult:
                 `IQ`.
             kind (str | None): ``"line"``, ``"heatmap"`` or ``"scatter"``. Inferred from the shape
                 when omitted.
-            x (str | None): Dimension or coordinate for the x axis. Required when the dimension
-                composes several swept variables in parallel, because it holds one coordinate per
-                variable and the sweep index is a plausible-looking wrong answer.
+            x (str | None): Dimension or coordinate for the x axis, drawn on its own. A dimension a
+                parallel composition built needs no such argument: its loops advanced in lockstep,
+                so its first two coordinates go on the axis and opposite it as a
+                [`Twin`][qprogram.plotting.Twin] scale, in the order the dimension name gives them.
+                Naming one here is how a bare axis is asked for instead.
             y (str | None): The same for the y axis of a heatmap.
             channels (str | None): What to make of the ``"IQ"`` dimension — ``"iq"``, ``"i"``,
                 ``"q"``, ``"magnitude"`` or ``"phase"``. Defaults to both quadratures for a line and
                 to the magnitude for a heatmap, which colours one surface.
             coords (collections.abc.Mapping[str, Quantity] | None): Restatements for the swept
-                coordinates, keyed by the name the axis resolved to — the same string ``x=`` takes.
+                coordinates, keyed by the name each axis or twin resolved to — the same string
+                ``x=`` takes.
                 A [`Quantity`][qprogram.plotting.Quantity] carries the arithmetic and the words it
                 produces together, so ``{"freq": Quantity(units="GHz", transform=lambda v: v / 1e9)}``
                 draws the axis in gigahertz and labels it so. The array itself is untouched.

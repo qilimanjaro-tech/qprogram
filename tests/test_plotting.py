@@ -96,7 +96,7 @@ def _composed() -> xr.DataArray:
         dims=("a|b", "IQ"),
         coords={
             "a": xr.DataArray([0.0, 1.0, 2.0, 3.0], dims="a|b", attrs={"long_name": "Gain", "units": "V"}),
-            "b": xr.DataArray([10.0, 20.0, 30.0, 40.0], dims="a|b"),
+            "b": xr.DataArray([10.0, 20.0, 30.0, 40.0], dims="a|b", attrs={"units": "ns"}),
             "IQ": ["I", "Q"],
         },
     )
@@ -194,22 +194,99 @@ def test_line_x_values_come_from_the_coordinate():
 # ---------------------------------------------------------------------------
 
 
-def test_a_composed_dimension_refuses_to_guess_an_axis():
-    data = _composed()
-    with pytest.raises(ValidationError, match="composes 2 swept variables"):
-        build_figure(data)
+def test_a_composed_dimension_draws_its_first_coordinate_and_twins_the_second():
+    figure = build_figure(_composed())
+    assert figure.x_label == "Gain (V)"
+    assert np.allclose(figure.marks[0].x, [0.0, 1.0, 2.0, 3.0])
+    assert figure.x_twin.label == "b (ns)"
+    assert np.allclose(figure.x_twin.values, [10.0, 20.0, 30.0, 40.0])
 
 
-def test_x_names_one_of_the_composed_coordinates():
+def test_a_twin_carries_the_positions_of_the_axis_it_doubles():
+    figure = build_figure(_composed())
+    assert np.allclose(figure.x_twin.positions, figure.marks[0].x)
+
+
+def test_the_dimension_name_orders_the_axis_and_its_twin():
+    data = _composed().rename({"a|b": "b|a"})
+    figure = build_figure(data)
+    assert (figure.x_label, figure.x_twin.label) == ("b (ns)", "Gain (V)")
+    assert np.allclose(figure.marks[0].x, [10.0, 20.0, 30.0, 40.0])
+
+
+def test_a_composition_of_three_draws_the_first_two():
+    data = _composed().assign_coords(c=xr.DataArray([7.0, 8.0, 9.0, 10.0], dims="a|b")).rename({"a|b": "a|b|c"})
+    figure = build_figure(data)
+    assert (figure.x_label, figure.x_twin.label) == ("Gain (V)", "b (ns)")
+
+
+def test_x_names_one_of_the_composed_coordinates_and_leaves_no_twin():
     figure = build_figure(_composed(), x="a")
     assert figure.x_label == "Gain (V)"
     assert np.allclose(figure.marks[0].x, [0.0, 1.0, 2.0, 3.0])
+    assert figure.x_twin is None
+
+
+def test_x_can_name_the_second_composed_coordinate():
+    figure = build_figure(_composed(), x="b")
+    assert figure.x_label == "b (ns)"
+    assert np.allclose(figure.marks[0].x, [10.0, 20.0, 30.0, 40.0])
+    assert figure.x_twin is None
 
 
 def test_naming_the_composed_dimension_plots_the_sweep_index():
     figure = build_figure(_composed(), x="a|b")
     assert figure.x_label == "a|b"
     assert np.allclose(figure.marks[0].x, [0, 1, 2, 3])
+    assert figure.x_twin is None
+
+
+def test_an_ordinary_sweep_has_no_twin():
+    figure = build_figure(_sweep_iq())
+    assert figure.x_twin is None
+    assert figure.y_twin is None
+
+
+def test_a_twin_is_restated_by_its_own_key():
+    figure = build_figure(_composed(), coords={"b": Quantity(units="us", transform=lambda v: v / 1e3)})
+    assert figure.x_twin.label == "b (us)"
+    assert np.allclose(figure.x_twin.values, [0.01, 0.02, 0.03, 0.04])
+
+
+def test_a_twin_carries_the_restated_positions_of_its_axis():
+    figure = build_figure(_composed(), coords={"a": Quantity(units="mV", transform=lambda v: v * 1e3)})
+    assert np.allclose(figure.x_twin.positions, [0.0, 1000.0, 2000.0, 3000.0])
+
+
+def test_the_third_of_a_composition_is_told_it_is_not_drawn():
+    data = _composed().assign_coords(c=xr.DataArray([7.0, 8.0, 9.0, 10.0], dims="a|b")).rename({"a|b": "a|b|c"})
+    with pytest.raises(ValidationError, match=r"'c'\] names a coordinate this figure does not draw"):
+        build_figure(data, coords={"c": Quantity("C")})
+
+
+def test_a_twin_is_named_as_a_twin_when_a_key_reaches_nothing():
+    data = _composed()
+    with pytest.raises(ValidationError, match=r"'a' \(the x axis\), 'b' \(the twin of the x axis\)"):
+        build_figure(data, coords={"nope": Quantity("X")})
+
+
+def test_a_heatmap_twins_both_of_its_axes():
+    values = np.arange(4 * 3 * 2, dtype=float).reshape(4, 3, 2)
+    data = xr.DataArray(
+        values,
+        dims=("a|b", "c|d", "IQ"),
+        coords={
+            "a": xr.DataArray([0.0, 1.0, 2.0, 3.0], dims="a|b"),
+            "b": xr.DataArray([10.0, 20.0, 30.0, 40.0], dims="a|b"),
+            "c": xr.DataArray([0.0, 0.5, 1.0], dims="c|d"),
+            "d": xr.DataArray([100.0, 200.0, 300.0], dims="c|d"),
+            "IQ": ["I", "Q"],
+        },
+    )
+    figure = build_figure(data)
+    # The inner dimension runs along x, so 'c|d' is across and 'a|b' is up.
+    assert (figure.x_label, figure.x_twin.label) == ("c", "d")
+    assert (figure.y_label, figure.y_twin.label) == ("a", "b")
 
 
 def test_an_unknown_x_names_what_is_available():
@@ -905,6 +982,49 @@ def test_a_scatter_draws_one_collection():
     assert len(ax.collections) == 1
 
 
+def test_a_twin_reads_from_the_top_of_a_line_figure():
+    ax = matplotlib_renderer.render(build_figure(_composed()), Style())
+    (twin,) = ax.child_axes
+    assert twin.xaxis.get_label_position() == "top"
+    assert twin.get_xlabel() == "b (ns)"
+    assert twin.spines["top"].get_edgecolor() == mpl.colors.to_rgba(LIGHT.grid)
+
+
+def test_a_twin_ticks_every_sample_of_a_sweep_shorter_than_the_style_asks_for():
+    data = _composed().isel({"a|b": [0, 1, 2]})
+    ax = matplotlib_renderer.render(build_figure(data), Style())
+    (twin,) = ax.child_axes
+    assert [text.get_text() for text in twin.get_xticklabels()] == ["10", "20", "30"]
+
+
+def test_a_twinned_figure_is_laid_out_constrained_to_make_room_for_the_scale():
+    twinned = matplotlib_renderer.render(build_figure(_composed()), Style())
+    assert twinned.get_figure().get_layout_engine() is not None
+    plain = matplotlib_renderer.render(build_figure(_sweep_iq()), Style())
+    assert plain.get_figure().get_layout_engine() is None
+
+
+def test_a_twinned_heatmap_keeps_the_colour_bar_clear_of_the_right_hand_scale():
+    values = np.arange(4 * 3 * 2, dtype=float).reshape(4, 3, 2)
+    data = xr.DataArray(
+        values,
+        dims=("a|b", "dur", "IQ"),
+        coords={
+            "a": xr.DataArray([0.0, 1.0, 2.0, 3.0], dims="a|b"),
+            "b": xr.DataArray([10.0, 20.0, 30.0, 40.0], dims="a|b"),
+            "dur": xr.DataArray([1.0, 2.0, 3.0], dims="dur"),
+            "IQ": ["I", "Q"],
+        },
+    )
+    ax = matplotlib_renderer.render(build_figure(data), Style())
+    (twin,) = ax.child_axes
+    assert twin.yaxis.get_label_position() == "right"
+    fig = ax.get_figure()
+    fig.canvas.draw()
+    (bar,) = (other for other in fig.axes if other is not ax)
+    assert bar.get_position().x0 > twin.get_tightbbox().transformed(fig.transFigure.inverted()).x1
+
+
 def test_a_figure_can_mix_marks():
     figure = Figure(
         marks=(
@@ -1055,14 +1175,61 @@ def test_plot_reports_a_missing_field_the_way_get_does():
         result.plot(handle, field=qp.MeasurementField.RAW)
 
 
-def test_plot_of_a_parallel_sweep_asks_which_variable_to_use():
+def _parallel_result() -> tuple[qp.QProgramResult, qp.MeasurementHandle]:
+    """Run a parallel composition, so the dimension and its coordinates are the executor's own."""
     schema = qp.BusSchema.transmon()
     program = qp.QProgram(label="parallel", schema=schema)
     amp = program.variable("amp", label="Amplitude", units="V")
     freq = program.variable("freq", label="Frequency", units="Hz")
     with program.sweep(amp, qp.Range(0.0, 1.0, 0.25)) | program.sweep(freq, qp.Range(4e9, 5e9, 0.25e9)):
         handle = program.measure(schema.q[0].readout, "readout", "weights")
-    result = qp.simulate(program.with_waveforms(_LIBRARY))
-    with pytest.raises(ValidationError, match="composes 2 swept variables"):
-        result.plot(handle)
-    assert result.plot(handle, x="freq").get_xlabel() == "Frequency (Hz)"
+    return qp.simulate(program.with_waveforms(_LIBRARY)), handle
+
+
+def test_plot_of_a_parallel_sweep_reads_the_second_variable_on_a_twin_axis():
+    result, handle = _parallel_result()
+    ax = result.plot(handle)
+    assert ax.get_xlabel() == "Amplitude (V)"
+    (twin,) = ax.child_axes
+    assert twin.get_xlabel() == "Frequency (Hz)"
+    assert twin.xaxis.get_label_position() == "top"
+
+
+def test_plot_of_a_parallel_sweep_takes_the_axis_it_is_told_to():
+    result, handle = _parallel_result()
+    ax = result.plot(handle, x="freq")
+    assert ax.get_xlabel() == "Frequency (Hz)"
+    assert ax.child_axes == []
+
+
+def test_a_twin_ticks_at_the_samples_it_shares_with_its_axis():
+    result, handle = _parallel_result()
+    ax = result.plot(handle)
+    (twin,) = ax.child_axes
+    ax.get_figure().canvas.draw()
+    assert np.allclose(twin.get_xticks(), [0.0, 0.25, 0.5, 0.75, 1.0])
+    assert [text.get_text() for text in twin.get_xticklabels()] == ["4e+09", "4.25e+09", "4.5e+09", "4.75e+09", "5e+09"]
+
+
+def test_twin_ticks_thin_out_a_sweep_longer_than_the_style_asks_for():
+    result, handle = _parallel_result()
+    ax = result.plot(handle, style=Style(twin_ticks=3))
+    (twin,) = ax.child_axes
+    assert np.allclose(twin.get_xticks(), [0.0, 0.5, 1.0])
+
+
+def test_a_twin_takes_the_limits_of_the_axis_it_doubles():
+    result, handle = _parallel_result()
+    ax = result.plot(handle)
+    (twin,) = ax.child_axes
+    ax.set_xlim(0.2, 0.8)
+    ax.get_figure().canvas.draw()
+    assert twin.get_xlim() == ax.get_xlim()
+
+
+def test_a_twin_reads_in_whatever_unit_it_was_restated_to():
+    result, handle = _parallel_result()
+    ax = result.plot(handle, coords={"freq": Quantity(units="GHz", transform=lambda v: v / 1e9)})
+    (twin,) = ax.child_axes
+    assert twin.get_xlabel() == "Frequency (GHz)"
+    assert [text.get_text() for text in twin.get_xticklabels()] == ["4", "4.25", "4.5", "4.75", "5"]

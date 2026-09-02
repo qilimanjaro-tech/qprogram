@@ -124,6 +124,11 @@ da.coords["a"].values  # [0.0, 0.5, 1.0]
 da.coords["b"].values  # [10.0, 15.0, 20.0]
 ```
 
+Both coordinates describe the same three samples, which is why a figure of them
+reads one along the axis and the other on a twin scale opposite it rather than
+picking between them. See
+[Plotting results](plotting.md#two-variables-on-one-axis).
+
 The trailing dimensions depend on which field you ask for. Writing `*sweeps` for
 the loop dimensions above:
 

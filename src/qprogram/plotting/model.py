@@ -15,8 +15,10 @@
 
 A [`Figure`][qprogram.plotting.Figure] is a sequence of marks and the two axis labels they share. A mark is one of
 three shapes — a [`Line`][qprogram.plotting.Line], a [`Points`][qprogram.plotting.Points] cloud, or a
-[`Mesh`][qprogram.plotting.Mesh] — each holding plain numpy arrays. There is no colour here, no figure size, and no
-reference to a plotting library: those belong to [`Style`][qprogram.plotting.Style] and to the renderer.
+[`Mesh`][qprogram.plotting.Mesh] — each holding plain numpy arrays. An axis may also carry a
+[`Twin`][qprogram.plotting.Twin], a second scale reading the same samples in another variable. There is no colour
+here, no figure size, and no reference to a plotting library: those belong to
+[`Style`][qprogram.plotting.Style] and to the renderer.
 
 Keeping the description separate is what makes a second renderer possible at all. It is also what
 lets a caller inspect what would be drawn without drawing it, which is how the tests in
@@ -89,6 +91,29 @@ Mark: TypeAlias = Line | Points | Mesh
 
 
 @dataclass(frozen=True, eq=False)
+class Twin:
+    """A second scale along one axis, reading the same samples as another variable.
+
+    This is what a parallel composition leaves behind. Its loops advance in lockstep, so the
+    variables it composes share one dimension and one set of samples, and sample *i* of the axis and
+    tick *i* of the twin are the same measurement. That is what makes the second scale a fact about
+    the data rather than a coincidence of two ranges, and it is why nothing here needs interpolating.
+
+    Attributes:
+        positions (numpy.ndarray): Where the samples sit along the axis this twin doubles, in that
+            axis's own drawn numbers — so a renderer places a tick without knowing which axis it is
+            or what it was restated by.
+        values (numpy.ndarray): What the twinned variable read at those same samples, in the same
+            order. Same length as ``positions``.
+        label (str): Text for the twin axis, already carrying its units.
+    """
+
+    positions: np.ndarray
+    values: np.ndarray
+    label: str
+
+
+@dataclass(frozen=True, eq=False)
 class Figure:
     """A set of marks sharing one pair of axes.
 
@@ -99,9 +124,15 @@ class Figure:
         x_label (str): Text for the x axis, already carrying its units.
         y_label (str): Text for the y axis, already carrying its units.
         title (str | None): Title above the axes, or ``None`` for none.
+        x_twin (Twin | None): A second scale to draw opposite the x axis, or ``None`` for none. A
+            renderer with nowhere to put one may ignore it: it repeats what the x axis already
+            shows, in another variable.
+        y_twin (Twin | None): The same for the y axis.
     """
 
     marks: tuple[Mark, ...]
     x_label: str
     y_label: str
     title: str | None = None
+    x_twin: Twin | None = None
+    y_twin: Twin | None = None

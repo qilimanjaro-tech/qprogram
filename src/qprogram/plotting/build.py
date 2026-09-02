@@ -22,6 +22,11 @@ The ``"IQ"`` dimension is the one that is never an axis. It carries the two quad
 measured point, so it becomes the series of a line figure, the two axes of a scatter, or a single
 derived surface for a heatmap — see the ``channels`` argument. Every other dimension, ``"time"``
 included, is a plot dimension, which is what makes a raw trace plot against time on its own.
+
+A dimension a parallel composition built carries one coordinate per composed variable rather than
+one for itself. The first two become an axis and its [`Twin`][qprogram.plotting.Twin], in the order
+the dimension name gives them, because the loops advanced in lockstep and both readings describe the
+same samples.
 """
 
 from __future__ import annotations
@@ -32,7 +37,7 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 
 from qprogram.errors import ValidationError
-from qprogram.plotting.model import Figure, Line, Mesh, Points
+from qprogram.plotting.model import Figure, Line, Mesh, Points, Twin
 from qprogram.plotting.quantity import Quantity, checked, restated, text
 
 if TYPE_CHECKING:
@@ -87,6 +92,25 @@ class _Resolved:
     units: str | None
 
 
+@dataclass(frozen=True, eq=False)
+class _Axis:
+    """One finished axis: the numbers to draw on it, the words for it, and the twin beside it.
+
+    Attributes:
+        positions (numpy.ndarray): The positions along the axis, restated.
+        label (str): The text for the axis, restated.
+        twin (Twin | None): The second scale a composed dimension left over, or ``None``.
+        drawn (tuple[tuple[str, str], ...]): The ``(name, role)`` of everything this axis consumed a
+            ``coords`` key for — one entry, or two when it carries a twin. `_unused` lists these back
+            to a caller whose key reached nothing.
+    """
+
+    positions: np.ndarray
+    label: str
+    twin: Twin | None
+    drawn: tuple[tuple[str, str], ...]
+
+
 def build_figure(  # ruff: ignore[too-many-arguments]  # every argument is one decision about the figure
     data: xr.DataArray,
     *,
@@ -107,9 +131,11 @@ def build_figure(  # ruff: ignore[too-many-arguments]  # every argument is one d
         kind (str | None): One of `KINDS`. ``None`` infers it from the shape: one plot
             dimension gives ``"line"``, two give ``"heatmap"``. ``"scatter"`` is never inferred —
             plotting I against Q is a choice no shape implies.
-        x (str | None): Dimension or coordinate to put on the x axis. Required when the dimension
-            composes several swept variables, since it holds one coordinate per variable and no
-            preference between them.
+        x (str | None): Dimension or coordinate to put on the x axis, drawn alone — naming an axis
+            is what settles it, so no [`Twin`][qprogram.plotting.Twin] follows. ``None`` takes the
+            dimension's own coordinate, or for a dimension a parallel composition built, the first
+            two coordinates in the order the dimension name gives them: the first on the axis and
+            the second as its twin.
         y (str | None): The same for the y axis of a ``"heatmap"``. The two arguments name different
             dimensions; naming one leaves the other for the axis not named. Only a heatmap has a
             second axis to choose, so a line or a scatter rejects it rather than ignoring it.
@@ -120,8 +146,9 @@ def build_figure(  # ruff: ignore[too-many-arguments]  # every argument is one d
             surface and has no rotation to prefer I with. Rejected for an array with no ``"IQ"``
             dimension, such as a ``state`` field.
         coords (collections.abc.Mapping[str, Quantity] | None): Restatements for the swept
-            coordinates, keyed by the name each axis resolved to — the same string ``x=`` or ``y=``
-            takes, or the coordinate's own name when neither was given. Each
+            coordinates, keyed by the name each axis or [`Twin`][qprogram.plotting.Twin] resolved to
+            — the same string ``x=`` or ``y=`` takes, or the coordinate's own name when neither was
+            given. Each
             [`Quantity`][qprogram.plotting.Quantity] carries the arithmetic and the words it produces
             together, so ``{"freq": Quantity(units="GHz", transform=lambda v: v / 1e9)}`` puts
             gigahertz on the axis and says so. A key naming no axis this figure draws raises: a
@@ -139,10 +166,10 @@ def build_figure(  # ruff: ignore[too-many-arguments]  # every argument is one d
     Raises:
         ValidationError: If ``kind`` or ``channels`` is not a known name; if the array's shape does
             not suit the requested kind; if ``x`` or ``y`` names something that is not a coordinate
-            on a plot dimension, or a composed dimension is left without one; if ``coords`` or
-            ``value`` holds anything but a [`Quantity`][qprogram.plotting.Quantity]; if a ``coords``
-            key names no axis this figure draws; or if a restatement changes the numbers without the
-            unit, or the unit without the numbers.
+            on a plot dimension; if ``coords`` or ``value`` holds anything but a
+            [`Quantity`][qprogram.plotting.Quantity]; if a ``coords`` key names no axis this figure
+            draws; or if a restatement changes the numbers without the unit, or the unit without the
+            numbers.
     """
     if kind is not None and kind not in KINDS:
         msg = f"kind must be one of {', '.join(KINDS)}, got {kind!r}"
@@ -272,20 +299,25 @@ def _lines(  # ruff: ignore[too-many-arguments]
         )
         raise ValidationError(msg)
     dim = dims[0]
-    resolved = _axis(data, dim, x, "x")
-    positions, x_label = _consume(rescales, resolved)
-    _unused(rescales, ((resolved.name, "the x axis"),), data, "line")
+    across = _axis(data, dim, x, "x", rescales)
+    _unused(rescales, across.drawn, data, "line")
     channels = channels or _default_channels(data, "line")
     label, units = _measured(data, channels)
     marks: tuple[Mark, ...] = tuple(
         Line(
-            x=positions,
+            x=across.positions,
             y=restated(value, np.asarray(values.transpose(dim).values), _VALUE),
             label=series,
         )
         for series, values in _channels(data, channels, "line")
     )
-    return Figure(marks=marks, x_label=x_label, y_label=text(value, label, units, _VALUE), title=title)
+    return Figure(
+        marks=marks,
+        x_label=across.label,
+        y_label=text(value, label, units, _VALUE),
+        title=title,
+        x_twin=across.twin,
+    )
 
 
 def _heatmap(  # ruff: ignore[too-many-arguments]
@@ -324,21 +356,26 @@ def _heatmap(  # ruff: ignore[too-many-arguments]
         )
         raise ValidationError(msg)
     x_dim, y_dim = _mesh_dims(data, dims, x, y)
-    across = _axis(data, x_dim, x, "x")
-    up = _axis(data, y_dim, y, "y")
-    columns, x_label = _consume(rescales, across)
-    rows, y_label = _consume(rescales, up)
-    _unused(rescales, ((across.name, "the x axis"), (up.name, "the y axis")), data, "heatmap")
+    across = _axis(data, x_dim, x, "x", rescales)
+    up = _axis(data, y_dim, y, "y", rescales)
+    _unused(rescales, across.drawn + up.drawn, data, "heatmap")
     channels = channels or _default_channels(data, "heatmap")
     ((_, values),) = _channels(data, channels, "heatmap")
     label, units = _measured(data, channels)
     mesh = Mesh(
-        x=columns,
-        y=rows,
+        x=across.positions,
+        y=up.positions,
         values=restated(value, np.asarray(values.transpose(y_dim, x_dim).values), _VALUE),
         label=text(value, label, units, _VALUE),
     )
-    return Figure(marks=(mesh,), x_label=x_label, y_label=y_label, title=title)
+    return Figure(
+        marks=(mesh,),
+        x_label=across.label,
+        y_label=up.label,
+        title=title,
+        x_twin=across.twin,
+        y_twin=up.twin,
+    )
 
 
 def _consume(rescales: dict[str, Quantity], resolved: _Resolved) -> tuple[np.ndarray, str]:
@@ -481,39 +518,106 @@ def _dim_of(data: xr.DataArray, dims: tuple[str, ...], name: str, argument: str)
     raise ValidationError(msg)
 
 
-def _axis(data: xr.DataArray, dim: str, requested: str | None, argument: str) -> _Resolved:
-    """Resolve the positions, the name and the inherited label of one axis.
+def _axis(
+    data: xr.DataArray,
+    dim: str,
+    requested: str | None,
+    argument: str,
+    rescales: dict[str, Quantity],
+) -> _Axis:
+    """Resolve one axis of a figure, restate it, and pick up any twin beside it.
 
     Args:
         data (xarray.DataArray): The array being plotted.
         dim (str): The plot dimension this axis shows.
         requested (str | None): The dimension or coordinate the caller named for this axis, if any.
-        argument (str): ``"x"`` or ``"y"``, for the error messages.
+        argument (str): ``"x"`` or ``"y"``, for the error messages and the roles in them.
+        rescales (dict[str, Quantity]): Restatements keyed by coordinate. Mutated: this axis and its
+            twin each pop their own.
 
     Returns:
-        What this axis draws, still unrestated.
+        The finished axis.
 
     Raises:
-        ValidationError: If ``requested`` is not a coordinate on ``dim``, or if the dimension
-            composes several variables and nothing chose between them.
+        ValidationError: If ``requested`` is not a coordinate on ``dim``, or if a restatement this
+            axis consumed changes the numbers without the unit, or the unit without the numbers.
+    """
+    primary, partner = _coordinates(data, dim, requested, argument)
+    positions, label = _consume(rescales, primary)
+    role = f"the {argument} axis"
+    if partner is None:
+        return _Axis(positions=positions, label=label, twin=None, drawn=((primary.name, role),))
+    values, twin_label = _consume(rescales, partner)
+    return _Axis(
+        positions=positions,
+        label=label,
+        twin=Twin(positions=positions, values=values, label=twin_label),
+        drawn=((primary.name, role), (partner.name, f"the twin of {role}")),
+    )
+
+
+def _coordinates(
+    data: xr.DataArray,
+    dim: str,
+    requested: str | None,
+    argument: str,
+) -> tuple[_Resolved, _Resolved | None]:
+    """Choose the coordinate an axis draws, and the one that doubles it.
+
+    A dimension a parallel composition built carries one coordinate per composed variable and none
+    of its own. Its loops advanced in lockstep, though, so every one of those coordinates describes
+    the same samples, and the second reading of them is a twin axis rather than a choice to be made:
+    the first two coordinates go on the axis and opposite it. Naming ``x=`` or ``y=`` draws that one
+    alone, which is how an axis with nothing above it is asked for.
+
+    A composition of three or more leaves the rest undrawn. Two scales on one axis is already the
+    most a reader can follow, and a third would be a legend rather than an axis; the coordinates are
+    all still on the array for a caller who wants one of them instead.
+
+    Args:
+        data (xarray.DataArray): The array being plotted.
+        dim (str): The plot dimension this axis shows.
+        requested (str | None): The dimension or coordinate the caller named for this axis, if any.
+        argument (str): ``"x"`` or ``"y"``, for the error message.
+
+    Returns:
+        The coordinate on the axis, and the one to twin it with or ``None``.
+
+    Raises:
+        ValidationError: If ``requested`` is not a coordinate on ``dim``.
     """
     if requested is not None:
         _dim_of(data, (dim,), requested, argument)
-        return _coordinate(data, dim, requested)
+        return _coordinate(data, dim, requested), None
     if dim in data.coords:
-        return _coordinate(data, dim, dim)
-    candidates = [str(name) for name, coord in data.coords.items() if coord.dims == (dim,)]
-    if len(candidates) == 1:
-        return _coordinate(data, dim, candidates[0])
+        return _coordinate(data, dim, dim), None
+    candidates = _candidates(data, dim)
     if not candidates:
-        return _Resolved(name=dim, values=np.arange(data.sizes[dim]), label=dim, units=None)
-    choices = " or ".join(f"{argument}={name!r}" for name in candidates)
-    msg = (
-        f"Dimension {dim!r} composes {len(candidates)} swept variables, so it carries no single "
-        f"coordinate to put on the {argument} axis. Name one with {choices}, or {argument}={dim!r} "
-        f"for the sweep index."
-    )
-    raise ValidationError(msg)
+        return _Resolved(name=dim, values=np.arange(data.sizes[dim]), label=dim, units=None), None
+    primary = _coordinate(data, dim, candidates[0])
+    if len(candidates) == 1:
+        return primary, None
+    return primary, _coordinate(data, dim, candidates[1])
+
+
+def _candidates(data: xr.DataArray, dim: str) -> list[str]:
+    """List the coordinates lying along ``dim``, in the order the dimension name gives them.
+
+    A parallel composition names its dimension by joining the ids of the variables it composes with
+    ``"|"``, so the name is the declaration order of the loops — which is the order the axis and its
+    twin are wanted in, and not what a mapping of coordinates hands back. A name that spells none of
+    them out, which is any array not built by the executor, leaves the array's own order alone.
+
+    Args:
+        data (xarray.DataArray): The array being plotted.
+        dim (str): The dimension to look along.
+
+    Returns:
+        The coordinate names, the ones the dimension name spells out first.
+    """
+    along = [str(name) for name, coord in data.coords.items() if coord.dims == (dim,)]
+    ranked = [part for part in dim.split("|") if part in along]
+    return ranked + [name for name in along if name not in ranked]
 
 
 def _coordinate(data: xr.DataArray, dim: str, name: str) -> _Resolved:

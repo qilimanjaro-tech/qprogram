@@ -480,6 +480,10 @@ in `qprogram.plotting`, which the top level does not re-export.
     options:
       show_root_full_path: false
 
+::: qprogram.plotting.Twin
+    options:
+      show_root_full_path: false
+
 ::: qprogram.plotting.Style
     options:
       show_root_full_path: false

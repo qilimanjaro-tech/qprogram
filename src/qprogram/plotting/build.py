@@ -45,6 +45,10 @@ if TYPE_CHECKING:
 IQ_DIM = "IQ"
 """The dimension carrying the in-phase and quadrature halves of one measured point."""
 
+# How the measured quantity's argument is named in an error. A coordinate's restatement is named by
+# the key that carried it, ``coords['freq']``; the measured quantity has no key, only this argument.
+_VALUE = "value="
+
 KINDS = ("line", "heatmap", "scatter")
 """The figure shapes [`build_figure`][qprogram.plotting.build_figure] knows how to build."""
 
@@ -147,7 +151,7 @@ def build_figure(  # ruff: ignore[too-many-arguments]  # every argument is one d
         msg = f"channels must be one of {', '.join(CHANNELS)}, got {channels!r}"
         raise ValidationError(msg)
     rescales = _rescales(coords)
-    value = checked(value, "value=")
+    value = checked(value, _VALUE)
 
     dims = tuple(str(dim) for dim in data.dims if dim != IQ_DIM)
     kind = kind or _infer_kind(data, dims)
@@ -276,12 +280,12 @@ def _lines(  # ruff: ignore[too-many-arguments]
     marks: tuple[Mark, ...] = tuple(
         Line(
             x=positions,
-            y=restated(value, np.asarray(values.transpose(dim).values), "value="),
+            y=restated(value, np.asarray(values.transpose(dim).values), _VALUE),
             label=series,
         )
         for series, values in _channels(data, channels, "line")
     )
-    return Figure(marks=marks, x_label=x_label, y_label=text(value, label, units, "value="), title=title)
+    return Figure(marks=marks, x_label=x_label, y_label=text(value, label, units, _VALUE), title=title)
 
 
 def _heatmap(  # ruff: ignore[too-many-arguments]
@@ -331,8 +335,8 @@ def _heatmap(  # ruff: ignore[too-many-arguments]
     mesh = Mesh(
         x=columns,
         y=rows,
-        values=restated(value, np.asarray(values.transpose(y_dim, x_dim).values), "value="),
-        label=text(value, label, units, "value="),
+        values=restated(value, np.asarray(values.transpose(y_dim, x_dim).values), _VALUE),
+        label=text(value, label, units, _VALUE),
     )
     return Figure(marks=(mesh,), x_label=x_label, y_label=y_label, title=title)
 
@@ -677,11 +681,11 @@ def _scatter(  # ruff: ignore[too-many-arguments]
         raise ValidationError(msg)
     units = data.attrs.get("units")
     units = str(units) if units else None
-    in_phase = restated(value, np.asarray(data.sel({IQ_DIM: "I"}).values).reshape(-1), "value=")
-    quadrature = restated(value, np.asarray(data.sel({IQ_DIM: "Q"}).values).reshape(-1), "value=")
+    in_phase = restated(value, np.asarray(data.sel({IQ_DIM: "I"}).values).reshape(-1), _VALUE)
+    quadrature = restated(value, np.asarray(data.sel({IQ_DIM: "Q"}).values).reshape(-1), _VALUE)
     return Figure(
         marks=(Points(x=in_phase, y=quadrature),),
-        x_label=text(value, "I", units, "value="),
-        y_label=text(value, "Q", units, "value="),
+        x_label=text(value, "I", units, _VALUE),
+        y_label=text(value, "Q", units, _VALUE),
         title=title,
     )

@@ -523,14 +523,16 @@ def test_a_unit_the_coordinate_never_declared_is_taken_as_a_correction():
 
 def test_rescaling_without_saying_the_new_unit_is_refused():
     data = _hertz()
+    quantity = Quantity(transform=lambda v: v / 1e9)
     with pytest.raises(ValidationError, match="no longer describes them"):
-        build_figure(data, coords={"freq": Quantity(transform=lambda v: v / 1e9)})
+        build_figure(data, coords={"freq": quantity})
 
 
 def test_renaming_the_unit_without_the_arithmetic_is_refused():
     data = _hertz()
+    quantity = Quantity(units="GHz")
     with pytest.raises(ValidationError, match="without changing the numbers"):
-        build_figure(data, coords={"freq": Quantity(units="GHz")})
+        build_figure(data, coords={"freq": quantity})
 
 
 def test_a_shift_that_keeps_its_unit_says_so_by_repeating_it():
@@ -594,38 +596,44 @@ def test_the_sweep_index_of_a_composed_dimension_is_keyed_by_the_dimension():
 
 def test_a_misspelled_key_names_what_the_figure_draws():
     data = _hertz()
+    coords = {"frequency": Quantity("Frequency")}
     with pytest.raises(ValidationError, match="names nothing on this result"):
-        build_figure(data, coords={"frequency": Quantity("Frequency")})
+        build_figure(data, coords=coords)
 
 
 def test_the_error_lists_the_axes_with_their_roles():
     data = _grid_iq()
+    coords = {"nope": Quantity("X")}
     with pytest.raises(ValidationError, match=r"'dur' \(the x axis\), 'amp' \(the y axis\)"):
-        build_figure(data, channels="i", coords={"nope": Quantity("X")})
+        build_figure(data, channels="i", coords=coords)
 
 
 def test_the_error_points_at_the_argument_the_measured_quantity_uses():
     data = _hertz()
+    coords = {"nope": Quantity("X")}
     with pytest.raises(ValidationError, match="name it with value=Quantity"):
-        build_figure(data, coords={"nope": Quantity("X")})
+        build_figure(data, coords=coords)
 
 
 def test_a_sibling_coordinate_that_lost_the_axis_is_told_apart_from_a_typo():
     data = _composed()
+    coords = {"b": Quantity("B")}
     with pytest.raises(ValidationError, match=r"'b'\] names a coordinate this figure does not draw"):
-        build_figure(data, x="a", coords={"b": Quantity("B")})
+        build_figure(data, x="a", coords=coords)
 
 
 def test_a_dimension_name_where_a_coordinate_is_drawn_is_told_apart_too():
     data = _composed()
+    coords = {"a|b": Quantity("Step")}
     with pytest.raises(ValidationError, match="names a dimension, and this figure draws a coordinate"):
-        build_figure(data, x="a", coords={"a|b": Quantity("Step")})
+        build_figure(data, x="a", coords=coords)
 
 
 def test_every_unused_key_is_reported_at_once():
     data = _hertz()
+    coords = {"second": Quantity("B"), "first": Quantity("A")}
     with pytest.raises(ValidationError, match=r"'first'.*'second'"):
-        build_figure(data, coords={"second": Quantity("B"), "first": Quantity("A")})
+        build_figure(data, coords=coords)
 
 
 # ---------------------------------------------------------------------------
@@ -647,8 +655,9 @@ def test_a_bare_string_says_what_to_wrap_it_in():
 
 def test_a_coords_argument_that_is_not_a_mapping_is_refused():
     data = _sweep_iq()
+    pairs = [("gain", Quantity("G"))]
     with pytest.raises(ValidationError, match="must be a mapping"):
-        build_figure(data, coords=[("gain", Quantity("G"))])
+        build_figure(data, coords=pairs)
 
 
 # ---------------------------------------------------------------------------
@@ -658,26 +667,30 @@ def test_a_coords_argument_that_is_not_a_mapping_is_refused():
 
 def test_an_exception_inside_a_transform_names_the_argument_that_carried_it():
     data = _hertz()
+    quantity = Quantity(units="GHz", transform=lambda v: v[99])
     with pytest.raises(ValidationError, match=r"coords\['freq'\] raised IndexError"):
-        build_figure(data, coords={"freq": Quantity(units="GHz", transform=lambda v: v[99])})
+        build_figure(data, coords={"freq": quantity})
 
 
 def test_a_transform_that_changes_the_shape_is_refused():
     data = _hertz()
+    quantity = Quantity(units="GHz", transform=lambda v: v[:2])
     with pytest.raises(ValidationError, match=r"returned shape \(2,\) for an input of shape \(5,\)"):
-        build_figure(data, coords={"freq": Quantity(units="GHz", transform=lambda v: v[:2])})
+        build_figure(data, coords={"freq": quantity})
 
 
 def test_a_transform_that_returns_complex_numbers_is_refused():
     data = _hertz()
+    quantity = Quantity(units="GHz", transform=lambda v: v.astype(complex))
     with pytest.raises(ValidationError, match="an axis is drawn on real numbers"):
-        build_figure(data, coords={"freq": Quantity(units="GHz", transform=lambda v: v.astype(complex))})
+        build_figure(data, coords={"freq": quantity})
 
 
 def test_a_transform_that_introduces_a_non_finite_value_names_the_first_one():
     data = _hertz()
+    quantity = Quantity(units="GHz", transform=lambda v: np.full_like(v, np.nan))
     with pytest.raises(ValidationError, match=r"turned 5 of 5 finite values into inf or nan"):
-        build_figure(data, coords={"freq": Quantity(units="GHz", transform=lambda v: np.full_like(v, np.nan))})
+        build_figure(data, coords={"freq": quantity})
 
 
 def test_a_nan_the_measurement_already_carried_is_not_blamed_on_the_transform():
@@ -730,14 +743,16 @@ def test_a_scatter_restates_both_quadratures_at_once():
 
 def test_a_scatter_refuses_one_label_for_its_two_axes():
     data = _sweep_iq()
+    quantity = Quantity("Readout")
     with pytest.raises(ValidationError, match="which already name themselves"):
-        build_figure(data, kind="scatter", value=Quantity("Readout"))
+        build_figure(data, kind="scatter", value=quantity)
 
 
 def test_a_scatter_draws_no_coordinate_to_restate():
     data = _sweep_iq()
+    coords = {"gain": Quantity("G")}
     with pytest.raises(ValidationError, match="A scatter draws no coordinate"):
-        build_figure(data, kind="scatter", coords={"gain": Quantity("G")})
+        build_figure(data, kind="scatter", coords=coords)
 
 
 def test_the_unit_of_a_phase_is_its_own_and_can_be_restated():

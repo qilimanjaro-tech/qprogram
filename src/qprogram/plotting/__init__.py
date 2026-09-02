@@ -34,6 +34,7 @@ from __future__ import annotations
 
 from qprogram.plotting.build import CHANNELS, IQ_DIM, KINDS, build_figure
 from qprogram.plotting.model import Figure, Line, Mark, Mesh, Points
+from qprogram.plotting.quantity import Quantity
 from qprogram.plotting.renderers import (
     DEFAULT_RENDERER,
     Renderer,
@@ -55,6 +56,7 @@ __all__ = [
     "Mark",
     "Mesh",
     "Points",
+    "Quantity",
     "Renderer",
     "Style",
     "Theme",

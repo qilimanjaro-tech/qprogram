@@ -159,31 +159,39 @@ since the phase of the transmitted signal depends on cable length and the
 feature does not:
 
 ```python
-import matplotlib.pyplot as plt
-
-magnitude = np.hypot(data.sel(IQ="I"), data.sel(IQ="Q"))
-plt.plot(data.coords["freq"] / 1e9, magnitude)
-plt.xlabel("Drive frequency (GHz)")
-plt.ylabel("Readout magnitude")
-
-f01 = float(data.coords["freq"][int(np.argmax(magnitude.values))])  # 5.0e9
+result.plot(
+    m0,
+    channels="magnitude",
+    coords={"freq": qp.plotting.Quantity(units="GHz", transform=lambda v: v / 1e9)},
+    value=qp.plotting.Quantity("Readout magnitude"),
+)
 ```
 
 ![Readout magnitude against drive frequency, flat except for a sharp peak at 5.000 GHz marked as f01.](../assets/plots/qubit-spectroscopy-light.png#only-light)
 ![Readout magnitude against drive frequency, flat except for a sharp peak at 5.000 GHz marked as f01.](../assets/plots/qubit-spectroscopy-dark.png#only-dark)
 
+`channels="magnitude"` is `np.hypot(I, Q)`, and the `qp.plotting.Quantity` on
+`coords` restates the axis in gigahertz: the arithmetic and the unit it
+produces travel as one object, so the axis cannot end up reading `(Hz)` over
+numbers running 4.6 to 5.4. matplotlib is not a runtime dependency; it comes
+with the `viz` extra, installed with `pip install "qprogram[viz]"`.
+
+The figure is restated; the result is not. Reading the peak back is arithmetic
+on the array, and the array is still in hertz:
+
+```python
+magnitude = np.hypot(data.sel(IQ="I"), data.sel(IQ="Q"))
+f01 = float(data.coords["freq"][int(np.argmax(magnitude.values))])  # 5.0e9
+```
+
 `np.hypot` over two `sel` results returns a `DataArray` with dims `("freq",)`,
-so the coordinate survives the arithmetic and the peak can be read back as a
+so the coordinate survives the arithmetic and the peak comes back as a
 frequency. `np.argmax` wants the underlying array rather than the `DataArray`,
 which is what `.values` is for; handing it the labelled array raises
 `ValueError: dimensions ('freq',) must have the same length as the number of
-data dimensions, ndim=0`. matplotlib is not a runtime dependency; it comes with
-the `viz` extra, installed with `pip install "qprogram[viz]"`.
-
-`result.plot(m0, channels="magnitude")` draws the same curve without the four
-lines above. The code is written out here because the figure reads in
-gigahertz, and rescaling a coordinate is arithmetic on the array rather than
-anything the result knows about.
+data dimensions, ndim=0`. The same split is worth remembering for anything you
+draw on the axes `plot` returns: they are in the figure's units, so marking the
+peak is `ax.axvline(f01 / 1e9)`.
 
 ## Adapting it
 

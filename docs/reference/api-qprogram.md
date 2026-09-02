@@ -460,6 +460,10 @@ in `qprogram.plotting`, which the top level does not re-export.
 
 ::: qprogram.plotting.build_figure
 
+::: qprogram.plotting.Quantity
+    options:
+      show_root_full_path: false
+
 ::: qprogram.plotting.Figure
     options:
       show_root_full_path: false

@@ -34,6 +34,7 @@ from qprogram.plotting import (
     Line,
     Mesh,
     Points,
+    Quantity,
     Style,
     Theme,
     available_renderers,
@@ -226,6 +227,21 @@ def test_a_lone_coordinate_on_a_bare_dimension_needs_no_choosing():
     assert build_figure(data).x_label == "a"
 
 
+def test_a_coordinate_belonging_to_another_dimension_is_not_this_axis_s():
+    # xarray allows a coordinate named after one dimension to live on a second, and the executor
+    # builds exactly that when one variable is swept at two nesting levels. Taking the name at face
+    # value would draw the other dimension's values under this one's label.
+    data = xr.DataArray(
+        np.arange(12.0).reshape(3, 4),
+        dims=("a", "b"),
+        coords={"a": ("b", np.arange(4.0))},
+    )
+    mesh = build_figure(data, x="b", y="a").marks[0]
+    assert len(mesh.y) == data.sizes["a"]
+    assert np.allclose(mesh.y, [0, 1, 2])
+    assert mesh.values.shape == (len(mesh.y), len(mesh.x))
+
+
 def test_a_dimension_with_no_coordinate_at_all_plots_its_index():
     data = xr.DataArray(np.zeros((3, 2)), dims=("shot", "IQ"), coords={"IQ": ["I", "Q"]})
     figure = build_figure(data)
@@ -271,16 +287,26 @@ def test_unknown_channels_are_rejected():
         build_figure(data, channels="abs")
 
 
-def test_channels_need_quadratures_to_choose_between():
+@pytest.mark.parametrize("channels", ["iq", "i", "q", "magnitude", "phase"])
+def test_every_channel_needs_quadratures_to_choose_between(channels):
     data = _state()
     with pytest.raises(ValidationError, match="needs an 'IQ' dimension"):
-        build_figure(data, channels="i")
+        build_figure(data, channels=channels)
 
 
 def test_an_array_without_quadratures_draws_one_unnamed_line():
     figure = build_figure(_state())
     assert [mark.label for mark in figure.marks] == [None]
     assert figure.y_label == "Value"
+
+
+def test_a_derived_channel_names_the_quantity_it_derived():
+    # The array names the values that went in; an arctangent of them is a different quantity, so
+    # its own name travels with its own unit rather than borrowing half of each.
+    data = _sweep_iq()
+    data.attrs = {"long_name": "Readout voltage", "units": "V"}
+    assert build_figure(data, channels="phase").y_label == "Phase (rad)"
+    assert build_figure(data, channels="magnitude").y_label == "Readout voltage (V)"
 
 
 # ---------------------------------------------------------------------------
@@ -393,8 +419,8 @@ def test_a_line_figure_has_no_second_dimension_for_y_to_name():
 # ---------------------------------------------------------------------------
 
 
-def test_the_caller_s_value_label_wins():
-    assert build_figure(_sweep_iq(), value_label="Readout response").y_label == "Readout response"
+def test_the_caller_s_label_for_the_measured_quantity_wins():
+    assert build_figure(_sweep_iq(), value=Quantity("Readout response")).y_label == "Readout response"
 
 
 def test_the_array_s_own_attributes_are_read_next():
@@ -427,6 +453,298 @@ def test_a_title_is_carried_through():
 
 def test_no_title_by_default():
     assert build_figure(_sweep_iq()).title is None
+
+
+# ---------------------------------------------------------------------------
+# Quantity: construction
+# ---------------------------------------------------------------------------
+
+
+def test_a_quantity_that_restates_nothing_is_refused():
+    with pytest.raises(ValidationError, match="restates nothing"):
+        Quantity()
+
+
+@pytest.mark.parametrize("field", ["label", "units"])
+def test_the_words_of_a_quantity_must_be_words(field):
+    with pytest.raises(ValidationError, match=f"Quantity {field} must be a string"):
+        Quantity(**{field: 1e-9})
+
+
+def test_the_arithmetic_of_a_quantity_must_be_arithmetic():
+    with pytest.raises(ValidationError, match="transform must be callable"):
+        Quantity(units="GHz", transform=1e-9)
+
+
+def test_a_quantity_reads_positionally_as_the_sentence_the_axis_does():
+    quantity = Quantity("Detuning", "MHz", abs)
+    assert (quantity.label, quantity.units, quantity.transform) == ("Detuning", "MHz", abs)
+
+
+# ---------------------------------------------------------------------------
+# Restating a coordinate
+# ---------------------------------------------------------------------------
+
+
+_HERTZ = np.linspace(4.6e9, 5.4e9, 5)
+
+
+def _hertz() -> xr.DataArray:
+    """A frequency sweep whose coordinate declares a name and a unit, as the executor writes them."""
+    freq = xr.DataArray(_HERTZ, dims="freq", attrs={"long_name": "Drive frequency", "units": "Hz"})
+    values = np.stack([np.arange(5.0), np.arange(5.0) * 2], axis=-1)
+    return xr.DataArray(values, dims=("freq", "IQ"), coords={"freq": freq, "IQ": ["I", "Q"]})
+
+
+def test_a_restatement_moves_the_numbers_and_the_unit_together():
+    figure = build_figure(_hertz(), coords={"freq": Quantity(units="GHz", transform=lambda v: v / 1e9)})
+    assert figure.x_label == "Drive frequency (GHz)"
+    assert np.allclose(figure.marks[0].x, _HERTZ / 1e9)
+
+
+def test_a_restatement_can_rename_as_well_as_rescale():
+    figure = build_figure(_hertz(), coords={"freq": Quantity("Detuning", "MHz", lambda v: (v - 5e9) / 1e6)})
+    assert figure.x_label == "Detuning (MHz)"
+    assert np.allclose(figure.marks[0].x, [-400.0, -200.0, 0.0, 200.0, 400.0])
+
+
+def test_a_label_alone_leaves_the_unit_it_inherited():
+    assert build_figure(_hertz(), coords={"freq": Quantity("Frequency")}).x_label == "Frequency (Hz)"
+
+
+def test_an_empty_unit_drops_the_one_it_inherited():
+    assert build_figure(_hertz(), coords={"freq": Quantity(units="")}).x_label == "Drive frequency"
+
+
+def test_a_unit_the_coordinate_never_declared_is_taken_as_a_correction():
+    data = _sweep_iq(attrs={"long_name": "Drive amplitude"})
+    assert build_figure(data, coords={"gain": Quantity(units="V")}).x_label == "Drive amplitude (V)"
+
+
+def test_rescaling_without_saying_the_new_unit_is_refused():
+    data = _hertz()
+    with pytest.raises(ValidationError, match="no longer describes them"):
+        build_figure(data, coords={"freq": Quantity(transform=lambda v: v / 1e9)})
+
+
+def test_renaming_the_unit_without_the_arithmetic_is_refused():
+    data = _hertz()
+    with pytest.raises(ValidationError, match="without changing the numbers"):
+        build_figure(data, coords={"freq": Quantity(units="GHz")})
+
+
+def test_a_shift_that_keeps_its_unit_says_so_by_repeating_it():
+    figure = build_figure(_hertz(), coords={"freq": Quantity(units="Hz", transform=lambda v: v - v[0])})
+    assert figure.x_label == "Drive frequency (Hz)"
+    assert figure.marks[0].x[0] == 0.0
+
+
+def test_a_coordinate_with_no_unit_takes_a_bare_transform():
+    data = _sweep_iq(attrs={"long_name": "Shot"})
+    figure = build_figure(data, coords={"gain": Quantity(transform=lambda v: v * 2)})
+    assert figure.x_label == "Shot"
+
+
+def test_the_array_the_figure_came_from_is_left_alone():
+    data = _hertz()
+    before = data.coords["freq"].values.copy()
+    build_figure(data, coords={"freq": Quantity(units="GHz", transform=lambda v: v / 1e9)})
+    assert np.array_equal(data.coords["freq"].values, before)
+
+
+def test_an_in_place_transform_cannot_reach_the_stored_result():
+    data = _hertz()
+    before = data.coords["freq"].values.copy()
+
+    def baseline(values):
+        values -= values[0]
+        return values
+
+    build_figure(data, coords={"freq": Quantity(units="Hz", transform=baseline)})
+    assert np.array_equal(data.coords["freq"].values, before)
+
+
+def test_both_axes_of_a_heatmap_can_be_restated():
+    figure = build_figure(
+        _grid_iq(),
+        channels="i",
+        coords={
+            "amp": Quantity(units="mV", transform=lambda v: v * 1e3),
+            "dur": Quantity(units="us", transform=lambda v: v / 1e3),
+        },
+    )
+    assert (figure.x_label, figure.y_label) == ("dur (us)", "Flux amplitude (mV)")
+    assert np.allclose(figure.marks[0].y, [0.0, 1000.0])
+
+
+def test_a_composed_dimension_is_keyed_by_the_coordinate_that_won_the_axis():
+    figure = build_figure(_composed(), x="a", coords={"a": Quantity(units="mV", transform=lambda v: v * 1e3)})
+    assert figure.x_label == "Gain (mV)"
+
+
+def test_the_sweep_index_of_a_composed_dimension_is_keyed_by_the_dimension():
+    figure = build_figure(_composed(), x="a|b", coords={"a|b": Quantity("Sweep step")})
+    assert figure.x_label == "Sweep step"
+
+
+# ---------------------------------------------------------------------------
+# A key that reaches no axis
+# ---------------------------------------------------------------------------
+
+
+def test_a_misspelled_key_names_what_the_figure_draws():
+    data = _hertz()
+    with pytest.raises(ValidationError, match="names nothing on this result"):
+        build_figure(data, coords={"frequency": Quantity("Frequency")})
+
+
+def test_the_error_lists_the_axes_with_their_roles():
+    data = _grid_iq()
+    with pytest.raises(ValidationError, match=r"'dur' \(the x axis\), 'amp' \(the y axis\)"):
+        build_figure(data, channels="i", coords={"nope": Quantity("X")})
+
+
+def test_the_error_points_at_the_argument_the_measured_quantity_uses():
+    data = _hertz()
+    with pytest.raises(ValidationError, match="name it with value=Quantity"):
+        build_figure(data, coords={"nope": Quantity("X")})
+
+
+def test_a_sibling_coordinate_that_lost_the_axis_is_told_apart_from_a_typo():
+    data = _composed()
+    with pytest.raises(ValidationError, match=r"'b'\] names a coordinate this figure does not draw"):
+        build_figure(data, x="a", coords={"b": Quantity("B")})
+
+
+def test_a_dimension_name_where_a_coordinate_is_drawn_is_told_apart_too():
+    data = _composed()
+    with pytest.raises(ValidationError, match="names a dimension, and this figure draws a coordinate"):
+        build_figure(data, x="a", coords={"a|b": Quantity("Step")})
+
+
+def test_every_unused_key_is_reported_at_once():
+    data = _hertz()
+    with pytest.raises(ValidationError, match=r"'first'.*'second'"):
+        build_figure(data, coords={"second": Quantity("B"), "first": Quantity("A")})
+
+
+# ---------------------------------------------------------------------------
+# The type gates
+# ---------------------------------------------------------------------------
+
+
+def test_a_bare_function_says_what_it_is_missing():
+    data = _hertz()
+    with pytest.raises(ValidationError, match="A bare function rescales the numbers"):
+        build_figure(data, coords={"freq": lambda v: v / 1e9})
+
+
+def test_a_bare_string_says_what_to_wrap_it_in():
+    data = _sweep_iq()
+    with pytest.raises(ValidationError, match=r"write it as Quantity\('Readout response'\)"):
+        build_figure(data, value="Readout response")
+
+
+def test_a_coords_argument_that_is_not_a_mapping_is_refused():
+    data = _sweep_iq()
+    with pytest.raises(ValidationError, match="must be a mapping"):
+        build_figure(data, coords=[("gain", Quantity("G"))])
+
+
+# ---------------------------------------------------------------------------
+# What a transform is checked for
+# ---------------------------------------------------------------------------
+
+
+def test_an_exception_inside_a_transform_names_the_argument_that_carried_it():
+    data = _hertz()
+    with pytest.raises(ValidationError, match=r"coords\['freq'\] raised IndexError"):
+        build_figure(data, coords={"freq": Quantity(units="GHz", transform=lambda v: v[99])})
+
+
+def test_a_transform_that_changes_the_shape_is_refused():
+    data = _hertz()
+    with pytest.raises(ValidationError, match=r"returned shape \(2,\) for an input of shape \(5,\)"):
+        build_figure(data, coords={"freq": Quantity(units="GHz", transform=lambda v: v[:2])})
+
+
+def test_a_transform_that_returns_complex_numbers_is_refused():
+    data = _hertz()
+    with pytest.raises(ValidationError, match="an axis is drawn on real numbers"):
+        build_figure(data, coords={"freq": Quantity(units="GHz", transform=lambda v: v.astype(complex))})
+
+
+def test_a_transform_that_introduces_a_non_finite_value_names_the_first_one():
+    data = _hertz()
+    with pytest.raises(ValidationError, match=r"turned 5 of 5 finite values into inf or nan"):
+        build_figure(data, coords={"freq": Quantity(units="GHz", transform=lambda v: np.full_like(v, np.nan))})
+
+
+def test_a_nan_the_measurement_already_carried_is_not_blamed_on_the_transform():
+    data = _sweep_iq(n=4)
+    data.values[0, 0] = np.nan
+    figure = build_figure(data, channels="i", value=Quantity(transform=lambda v: v * 2))
+    assert np.isnan(figure.marks[0].y[0])
+
+
+def test_a_coordinate_that_is_not_numbers_skips_the_finiteness_check():
+    data = xr.DataArray(
+        np.zeros((3, 2)),
+        dims=("label", "IQ"),
+        coords={"label": ["a", "b", "c"], "IQ": ["I", "Q"]},
+    )
+    figure = build_figure(data, coords={"label": Quantity(transform=lambda v: np.arange(len(v), dtype=float))})
+    assert np.allclose(figure.marks[0].x, [0, 1, 2])
+
+
+# ---------------------------------------------------------------------------
+# Restating the measured quantity
+# ---------------------------------------------------------------------------
+
+
+def test_the_measured_values_of_a_line_are_restated_per_series():
+    data = _sweep_iq(n=3)
+    figure = build_figure(data, value=Quantity("Change", transform=lambda v: v - v[0]))
+    assert figure.y_label == "Change"
+    assert [float(mark.y[0]) for mark in figure.marks] == [0.0, 0.0]
+
+
+def test_the_coloured_values_of_a_heatmap_are_restated_with_their_bar():
+    figure = build_figure(
+        _grid_iq(),
+        channels="i",
+        value=Quantity("Population transferred", "%", lambda v: v * 100),
+    )
+    mesh = figure.marks[0]
+    assert mesh.label == "Population transferred (%)"
+    assert np.allclose(mesh.values, _grid_iq().sel(IQ="I").transpose("amp", "dur").values * 100)
+
+
+def test_a_scatter_restates_both_quadratures_at_once():
+    data = _sweep_iq(n=4)
+    figure = build_figure(data, kind="scatter", value=Quantity(units="mV", transform=lambda v: v * 1e3))
+    assert (figure.x_label, figure.y_label) == ("I (mV)", "Q (mV)")
+    assert np.allclose(figure.marks[0].x, data.sel(IQ="I").values * 1e3)
+    assert np.allclose(figure.marks[0].y, data.sel(IQ="Q").values * 1e3)
+
+
+def test_a_scatter_refuses_one_label_for_its_two_axes():
+    data = _sweep_iq()
+    with pytest.raises(ValidationError, match="which already name themselves"):
+        build_figure(data, kind="scatter", value=Quantity("Readout"))
+
+
+def test_a_scatter_draws_no_coordinate_to_restate():
+    data = _sweep_iq()
+    with pytest.raises(ValidationError, match="A scatter draws no coordinate"):
+        build_figure(data, kind="scatter", coords={"gain": Quantity("G")})
+
+
+def test_the_unit_of_a_phase_is_its_own_and_can_be_restated():
+    data = _sweep_iq()
+    assert build_figure(data, channels="phase").y_label == "Phase (rad)"
+    figure = build_figure(data, channels="phase", value=Quantity(units="deg", transform=np.degrees))
+    assert figure.y_label == "Phase (deg)"
 
 
 # ---------------------------------------------------------------------------
@@ -673,8 +991,47 @@ def test_plot_uses_the_renderer_it_is_told_to():
 
 def test_plot_takes_a_label_for_the_measured_quantity():
     result, handle = _rabi_result()
-    ax = result.plot(handle, value_label="Readout response")
+    ax = result.plot(handle, value=Quantity("Readout response"))
     assert ax.get_ylabel() == "Readout response"
+
+
+def test_plot_restates_a_coordinate_for_the_axis():
+    result, handle = _rabi_result()
+    ax = result.plot(handle, coords={"gain": Quantity(units="mV", transform=lambda v: v * 1e3)})
+    assert ax.get_xlabel() == "Drive amplitude (mV)"
+    assert np.allclose(ax.lines[0].get_xdata(), [0.0, 250.0, 500.0, 750.0, 1000.0])
+
+
+def test_plot_leaves_the_result_in_the_units_it_was_measured_in():
+    result, handle = _rabi_result()
+    result.plot(handle, coords={"gain": Quantity(units="mV", transform=lambda v: v * 1e3)})
+    assert np.allclose(result.get(handle).coords["gain"].values, [0.0, 0.25, 0.5, 0.75, 1.0])
+
+
+def test_plot_fills_in_the_label_a_field_implies_and_yields_to_the_caller_s():
+    result, handle = _rabi_result()
+    implied = result.plot(handle, field=qp.MeasurementField.STATE)
+    assert implied.get_ylabel() == "State"
+    named = result.plot(handle, field=qp.MeasurementField.STATE, value=Quantity("Excited population"))
+    assert named.get_ylabel() == "Excited population"
+
+
+def test_plot_restates_a_field_whose_label_it_supplies():
+    result, handle = _rabi_result()
+    ax = result.plot(handle, field=qp.MeasurementField.STATE, value=Quantity(units="%", transform=lambda v: v * 100))
+    assert ax.get_ylabel() == "State (%)"
+
+
+def test_plot_refuses_a_bare_string_where_a_quantity_belongs():
+    result, handle = _rabi_result()
+    with pytest.raises(ValidationError, match="must be a Quantity, got str"):
+        result.plot(handle, field=qp.MeasurementField.STATE, value="Excited population")
+
+
+def test_plot_of_a_scatter_takes_no_label_from_the_field():
+    result, handle = _rabi_result()
+    ax = result.plot(handle, kind="scatter", value=Quantity(units="mV", transform=lambda v: v * 1e3))
+    assert (ax.get_xlabel(), ax.get_ylabel()) == ("I (mV)", "Q (mV)")
 
 
 def test_plot_reports_a_missing_field_the_way_get_does():

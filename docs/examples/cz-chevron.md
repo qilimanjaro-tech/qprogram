@@ -193,7 +193,7 @@ the grid, so no reshaping is needed. A heatmap colours one surface, so name the
 quadrature you want; leaving `channels` out takes the magnitude instead:
 
 ```python
-result.plot(m0, channels="i", value_label="Population transferred")
+result.plot(m0, channels="i", value=qp.plotting.Quantity("Population transferred"))
 ```
 
 ![Heatmap of transferred population against flux duration and amplitude, with interference fringes converging to a chevron tip at 0.5 V.](../assets/plots/cz-chevron-light.png#only-light)

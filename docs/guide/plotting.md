@@ -92,12 +92,11 @@ the two strings are and where else they travel.
 The other axis is the measured quantity, and there the result has less to go
 on: a demodulated point is whatever the readout chain makes of it, and no unit
 follows from the program. It is labeled from the channel by default, `Signal`
-for a pair of quadratures and `Magnitude` for their hypotenuse, and
-`value_label=` says what it really is. On a heatmap the same string labels the
-colour bar.
+for a pair of quadratures and `Magnitude` for their hypotenuse, and `value=`
+says what it really is. The same words label the colour bar of a heatmap.
 
 ```python
-result.plot(m0, value_label="Readout response")
+result.plot(m0, value=qp.plotting.Quantity("Readout response"))
 ```
 
 For a heatmap the innermost sweep runs along the x axis and the outermost up
@@ -121,6 +120,90 @@ result.plot(m0)  # ValidationError: 'a|b' composes 2 swept variables
 result.plot(m0, x="a")  # that variable's values, and its label
 result.plot(m0, x="a|b")  # the sweep index, if that is what you meant
 ```
+
+## Restating a quantity
+
+A result carries hertz because the instrument takes hertz, and the figure of it
+wants gigahertz. That is two changes at once, arithmetic on the numbers and a
+new unit on the axis, and `Quantity` carries the pair so that neither can
+travel without the other:
+
+```python
+from qprogram.plotting import Quantity
+
+result.plot(
+    m0,
+    channels="magnitude",
+    coords={"freq": Quantity(units="GHz", transform=lambda v: v / 1e9)},
+    value=Quantity("Readout magnitude"),
+)
+```
+
+`coords=` is keyed by the name the axis resolved to, which is the same string
+`x=` takes: the coordinate on the axis, or the dimension when no coordinate is.
+A key that reaches no axis raises rather than doing nothing, since a figure
+that ignored it would print the axis it was asked to change. `value=` is the
+measured quantity wherever it lands: the y axis of a line, the colour bar of a
+heatmap, both axes of a scatter.
+
+| Field | What it does |
+|---|---|
+| `label` | Replaces the coordinate's `long_name`, or the name the channel implies. `None` keeps it. |
+| `units` | Replaces the coordinate's `units`. `None` keeps it, `""` says the numbers now carry none. |
+| `transform` | Arithmetic on the values. Gets a copy of the whole array that would have been drawn, and returns one real number per value. |
+
+Read positionally the three are the sentence the axis makes:
+
+```python
+result.plot(m0, coords={"freq": Quantity("Detuning", "MHz", lambda f: (f - 5e9) / 1e6)})
+```
+
+A `Quantity` describes presentation only. `result.get(m0)` is still in hertz
+after the figure of it has been drawn in gigahertz, which is what you want when
+the next line fits a peak, and what to remember when the line after that draws
+on the axes: everything you hand the returned `Axes` is in the figure's units,
+so a frequency read back off the array needs the same `/ 1e9` the figure got.
+
+### One rule, in both directions
+
+A change of unit and a change of numbers travel together. Rescaling values that
+carry a unit has to say what the unit is now, and a unit that contradicts the
+one already there has to come with the arithmetic that earns it:
+
+```python
+# On a coordinate that declares units="Hz":
+Quantity(transform=lambda v: v / 1e9)  # raises: the axis would read (Hz) over gigahertz
+Quantity(units="GHz")  # raises: relabels the unit, changes no number
+Quantity(units="GHz", transform=lambda v: v / 1e9)  # both halves, and the figure is drawn
+Quantity(units="Hz", transform=lambda v: v - v[0])  # a shift keeps its unit, and says so
+```
+
+Both fire only where there is a claim to falsify, so a coordinate that declared
+no unit, or a demodulated magnitude that has none to declare, takes either half
+alone. That is also how you correct a unit the program never recorded:
+`Quantity(units="V")` on an unlabeled coordinate is a statement, not a
+contradiction.
+
+A transform is checked for the things that produce a broken figure rather than
+a wrong one: it must not raise, must return the shape it was given, must return
+real numbers, and must not turn a finite value into an infinity or a NaN. A NaN
+the measurement itself carries, from a grid point a conditional arm never
+reached, passes through untouched. What cannot be checked is whether the
+arithmetic matches the unit — `Quantity(units="GHz", transform=lambda v: v / 1e6)`
+is a lie no check here can catch, because `Variable.units` is free-form text
+that legitimately holds `arb`, `counts` and `shots`.
+
+### Why this moves the data, not the tick labels
+
+matplotlib would let a formatter rewrite the tick text and leave the numbers
+alone, and that is what `EngFormatter` and `FuncFormatter` do. This does not,
+for three reasons. The figure model is numpy and xarray only, so a formatter
+would be a rendering contract smuggled into the description. A transform like
+`v - v[0]` or `v / v.max()` reads the whole array, which no per-tick formatter
+can see. And a ticks-only rescale leaves `ax.get_xlim()`, a fit, and any
+`axvline` in the old unit while the axis reads the new one, which is the
+mismatch this page spends its rules preventing. The numbers on the axis are the
+numbers drawn.
 
 ## Themes
 

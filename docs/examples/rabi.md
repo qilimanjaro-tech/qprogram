@@ -222,7 +222,7 @@ pip install "qprogram[viz]"
 besides `IQ` gives a line per quadrature:
 
 ```python
-result.plot(m0, value_label="Readout response")
+result.plot(m0, value=qp.plotting.Quantity("Readout response"))
 ```
 
 ![Readout response against drive amplitude. I rises to a maximum of 1 at 0.5 V and falls back to 0 by 1.0 V, while Q stays flat at 0.](../assets/plots/rabi-light.png#only-light)
@@ -236,12 +236,13 @@ attributes, and the axis reads them:
 data.coords["gain"].attrs  # {"long_name": "Drive amplitude", "units": "V"}
 ```
 
-`value_label` is there because the other axis has no such source: what a
-demodulated point means is the readout chain's business, not the program's. The
-call returns the matplotlib `Axes`, so anything else the figure does not decide
-is a method away on it. [Plotting results](../guide/plotting.md) has the rest:
-heatmaps and scatters, the `channels` argument, themes, and registering a
-renderer of your own.
+`value=` is there because the other axis has no such source: what a demodulated
+point means is the readout chain's business, not the program's. A
+`qp.plotting.Quantity` is also how a coordinate gets restated for the figure,
+in the units you want to read it in. The call returns the matplotlib `Axes`, so
+anything else the figure does not decide is a method away on it.
+[Plotting results](../guide/plotting.md) has the rest: heatmaps and scatters,
+the `channels` argument, themes, and registering a renderer of your own.
 
 ## Adapting it
 

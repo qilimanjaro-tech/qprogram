@@ -80,9 +80,11 @@ subclass inherits all of it and writes none of it. `peak_amplitude()` is
 `max(|envelope|)`, `rms_amplitude()` the root mean square of the samples,
 `area()` the trapezoidal integral in nanosecond-amplitude units
 (`np.trapezoid(env, dx=resolution)`), and `spectrum()` a one-sided `np.fft.rfft`
-paired with frequencies in Hz. `plot()` and the Jupyter `_repr_html_` need
-matplotlib, which ships in the `viz` extra and is imported inside the call so
-the package stays importable without it.
+paired with frequencies in Hz. `plot()` describes the envelope as a
+`qp.plotting.Figure` and hands it to a renderer, and the Jupyter `_repr_html_`
+draws it once per surface; both reach matplotlib by default, which ships in the
+`viz` extra and is imported the first time something draws with it, so the
+package stays importable without it.
 
 Nothing in core calls `envelope()`. Validation and serialization work on the
 constructor arguments alone, so samples are rendered only when someone asks for

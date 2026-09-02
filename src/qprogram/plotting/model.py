@@ -128,6 +128,11 @@ class Figure:
             renderer with nowhere to put one may ignore it: it repeats what the x axis already
             shows, in another variable.
         y_twin (Twin | None): The same for the y axis.
+        series (int): Which categorical slot the first mark takes, the rest counting up from it.
+            Zero unless this figure is one panel of several that should not repeat a colour, which
+            is what keeps the Q panel of an IQ envelope off the I panel's hue. It is an index and
+            not a colour: what the slot holds is the renderer's business, and one drawing in a
+            single colour ignores it.
     """
 
     marks: tuple[Mark, ...]
@@ -136,3 +141,4 @@ class Figure:
     title: str | None = None
     x_twin: Twin | None = None
     y_twin: Twin | None = None
+    series: int = 0

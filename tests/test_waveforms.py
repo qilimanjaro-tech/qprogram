@@ -15,14 +15,19 @@
 
 from __future__ import annotations
 
-from typing import cast
+import base64
+import re
+from typing import TYPE_CHECKING, cast
 
 import matplotlib as mpl
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from matplotlib.axes import Axes
 
+import qprogram as qp
 from qprogram import UnassignedVariableError, ValidationError, Variable
+from qprogram.plotting import DARK, ENVELOPE_SIZE, IQ_ENVELOPE_SIZE, LIGHT, Style, register_renderer
 from qprogram.waveforms import (
     Arbitrary,
     Chained,
@@ -45,7 +50,8 @@ from qprogram.waveforms import (
     Waveform,
 )
 
-mpl.use("Agg")
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
 # ---------------------------------------------------------------------------
 # Square
@@ -768,8 +774,20 @@ def test_iq_spectrum_returns_complex():
 
 
 # ---------------------------------------------------------------------------
-# Visualization helpers (smoke tests — visual correctness is human-checked)
+# Visualization helpers (appearance is human-checked; what is decidable is asserted)
 # ---------------------------------------------------------------------------
+
+
+def _svg_size(html: str, index: int = -1) -> tuple[float, float]:
+    """Return the ``(width, height)`` in points of one figure in a ``_repr_html_`` fragment.
+
+    The fragment holds the dark render first and the light one second, so the default index is the
+    light figure, which is the one an ``<img>`` shows.
+    """
+    uri = re.findall(r'data:image/svg\+xml;base64,([^"]+)', html)[index]
+    svg = base64.b64decode(uri).decode("utf-8")
+    width, height = re.findall(r'(?:width|height)="([\d.]+)pt"', svg)[:2]
+    return float(width), float(height)
 
 
 def test_waveform_plot_returns_axes():
@@ -783,14 +801,108 @@ def test_iq_plot_returns_axes_pair():
     assert all(isinstance(a, Axes) for a in axes)
 
 
-def test_waveform_repr_html_returns_svg():
+def test_a_style_naming_no_size_is_drawn_at_the_envelope_size():
+    ax = Square(0.5, 20).plot(style=Style(theme=DARK))
+    assert tuple(cast("Figure", ax.get_figure()).get_size_inches()) == ENVELOPE_SIZE
+    axes = IQPair(I=Square(0.5, 20), Q=Square(0.3, 20)).plot(style=Style(theme=DARK))
+    assert tuple(cast("Figure", axes[0].get_figure()).get_size_inches()) == IQ_ENVELOPE_SIZE
+
+
+def test_the_default_style_is_drawn_at_the_envelope_size():
+    ax = Square(0.5, 20).plot()
+    assert tuple(cast("Figure", ax.get_figure()).get_size_inches()) == ENVELOPE_SIZE
+    axes = IQPair(I=Square(0.5, 20), Q=Square(0.3, 20)).plot()
+    assert tuple(cast("Figure", axes[0].get_figure()).get_size_inches()) == IQ_ENVELOPE_SIZE
+
+
+def test_a_size_on_the_style_wins():
+    ax = Square(0.5, 20).plot(style=Style(size=(4.0, 1.5)))
+    assert tuple(cast("Figure", ax.get_figure()).get_size_inches()) == (4.0, 1.5)
+    axes = IQPair(I=Square(0.5, 20), Q=Square(0.3, 20)).plot(style=Style(size=(4.0, 2.5)))
+    assert tuple(cast("Figure", axes[0].get_figure()).get_size_inches()) == (4.0, 2.5)
+
+
+def test_plot_draws_on_the_surface_the_style_names():
+    light = Square(0.5, 20).plot()
+    dark = Square(0.5, 20).plot(style=Style(theme=DARK))
+    assert mpl.colors.to_hex(light.get_facecolor()) == LIGHT.surface
+    assert mpl.colors.to_hex(dark.get_facecolor()) == DARK.surface
+
+
+def test_plot_draws_the_envelope_in_the_first_series_colour():
+    ax = Square(0.5, 20).plot()
+    assert ax.get_lines()[0].get_color() == LIGHT.series[0]
+
+
+def test_iq_plot_gives_the_two_channels_the_first_two_colours():
+    i_axes, q_axes = IQPair(I=Square(0.5, 20), Q=Square(0.3, 20)).plot()
+    assert i_axes.get_lines()[0].get_color() == LIGHT.series[0]
+    assert q_axes.get_lines()[0].get_color() == LIGHT.series[1]
+
+
+def test_plot_draws_on_the_target_it_is_given():
+    _, ax = plt.subplots()
+    assert Square(0.5, 20).plot(target=ax) is ax
+    _, (top, bottom) = plt.subplots(2, 1)
+    assert IQPair(I=Square(0.5, 20), Q=Square(0.3, 20)).plot(target=(top, bottom)) == (top, bottom)
+
+
+def test_plot_uses_the_renderer_it_is_told_to():
+    figures = []
+
+    def fake(figure, style, target=None):  # ruff: ignore[unused-function-argument]
+        figures.append(figure)
+        return figure
+
+    try:
+        register_renderer("test-waveform", fake)
+        one = Square(0.5, 20).plot(renderer="test-waveform")
+        _, (top, bottom) = plt.subplots(2, 1)
+        pair = IQPair(I=Square(0.5, 20), Q=Square(0.3, 20)).plot(renderer="test-waveform", target=(top, bottom))
+    finally:
+        qp.plotting.renderers._renderers.pop("test-waveform", None)
+    assert one.x_label == "Time (ns)"
+    assert one.y_label == "Amplitude"
+    assert one.title == "Square"
+    assert [f.y_label for f in pair] == ["I", "Q"]
+    assert [f.series for f in pair] == [0, 1]
+    assert len(figures) == 3
+
+
+def test_an_iq_pair_refuses_a_foreign_renderer_with_no_target_to_draw_on():
+    def fake(figure, style, target=None):  # ruff: ignore[unused-function-argument]
+        return figure
+
+    wf = IQPair(I=Square(0.5, 20), Q=Square(0.3, 20))
+    try:
+        register_renderer("test-no-panels", fake)
+        with pytest.raises(ValidationError, match="target=\\(I, Q\\)"):
+            wf.plot(renderer="test-no-panels")
+    finally:
+        qp.plotting.renderers._renderers.pop("test-no-panels", None)
+
+
+def test_repr_html_carries_one_figure_per_surface():
     html = Square(0.5, 20)._repr_html_()
-    assert "<svg" in html
+    assert html.count("data:image/svg+xml;base64,") == 2
+    assert "prefers-color-scheme: dark" in html
 
 
-def test_iq_repr_html_returns_svg():
+def test_iq_repr_html_carries_one_figure_per_surface():
     html = IQPair(I=Square(0.5, 20), Q=Square(0.3, 20))._repr_html_()
-    assert "<svg" in html
+    assert html.count("data:image/svg+xml;base64,") == 2
+
+
+def test_repr_html_ignores_pyplots_current_figure():
+    """The markup comes from the axes ``plot`` returned, not from whatever pyplot last drew on."""
+    plt.subplots(figsize=(3, 9))
+    width, height = _svg_size(Square(0.5, 20)._repr_html_())
+    assert width > height
+
+
+def test_repr_html_closes_the_figures_it_drew():
+    Square(0.5, 20)._repr_html_()
+    assert plt.get_fignums() == []
 
 
 # ---------------------------------------------------------------------------

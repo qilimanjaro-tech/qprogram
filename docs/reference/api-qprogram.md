@@ -454,7 +454,9 @@ compared, hashed, and serialized in.
 `QProgramResult.plot` above is the front door. It runs `build_figure` to
 describe the figure and a renderer to draw it, and the two halves are separate
 so that a backend other than matplotlib is possible: everything down to
-`Renderer` reads numpy and xarray only. See
+`Renderer` reads numpy and xarray only. `Waveform.plot` and `IQWaveform.plot`
+take the same `style`, `renderer` and `target` and describe an envelope as the
+same `Figure`, which is what keeps a pulse and a result on one palette. See
 [Plotting results](../guide/plotting.md) for the walkthrough. These names live
 in `qprogram.plotting`, which the top level does not re-export.
 
@@ -495,6 +497,12 @@ in `qprogram.plotting`, which the top level does not re-export.
 ::: qprogram.plotting.LIGHT
 
 ::: qprogram.plotting.DARK
+
+::: qprogram.plotting.DEFAULT_SIZE
+
+::: qprogram.plotting.ENVELOPE_SIZE
+
+::: qprogram.plotting.IQ_ENVELOPE_SIZE
 
 ::: qprogram.plotting.Renderer
     options:

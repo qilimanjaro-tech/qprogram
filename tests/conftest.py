@@ -11,13 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Shared fixtures for the qprogram test suite."""
+"""Shared fixtures for the qprogram test suite.
+
+The matplotlib backend and the figure teardown live here rather than in the modules that draw:
+`filterwarnings = ["error"]` turns matplotlib's too-many-figures warning into a failure, and which
+module leaked the twentieth figure is not something the failure would say.
+"""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import _dummy_vendor
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
@@ -28,6 +35,15 @@ from qprogram.waveforms import Gaussian, IQDrag, IQPair, Square
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+mpl.use("Agg")
+
+
+@pytest.fixture(autouse=True)
+def _close_figures() -> Iterator[None]:
+    """Close every figure a test opened, so the suite never trips matplotlib's open-figure warning."""
+    yield
+    plt.close("all")
 
 
 @pytest.fixture

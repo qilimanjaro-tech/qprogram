@@ -13,10 +13,10 @@
 # limitations under the License.
 """The matplotlib renderer — the one implementation of [`Renderer`][qprogram.plotting.Renderer] that ships.
 
-Nothing else in the package imports it. It is loaded the first time something resolves the
-``"matplotlib"`` renderer, which is what keeps ``import qprogram`` free of a plotting library;
-matplotlib itself comes with the ``viz`` extra, so a missing install surfaces here as a plain
-`ModuleNotFoundError`.
+Nothing imports it at module scope. It is loaded the first time something resolves the
+``"matplotlib"`` renderer or plots a waveform, which is what keeps ``import qprogram`` free of a
+plotting library; matplotlib itself comes with the ``viz`` extra, so a missing install surfaces here
+as a plain `ModuleNotFoundError`.
 
 The frame it draws is deliberately quiet: no top or right spine, ticks with no marks, grid lines
 behind the data, and a legend with no box. What should carry the eye is the data. The exception is a
@@ -33,6 +33,7 @@ import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
 
 from qprogram.plotting.model import Line, Points
+from qprogram.plotting.theme import DEFAULT_SIZE
 
 if TYPE_CHECKING:
     from typing import Literal
@@ -77,11 +78,11 @@ def render(figure: Figure, style: Style, target: Axes | None = None) -> Axes:
         # between the axes and the colour bar — so a figure carrying one is laid out constrained.
         # A figure the caller brought keeps whatever layout the caller gave it.
         twinned = figure.x_twin is not None or figure.y_twin is not None
-        fig, ax = plt.subplots(figsize=style.size, layout="constrained" if twinned else None)
+        fig, ax = plt.subplots(figsize=style.size or DEFAULT_SIZE, layout="constrained" if twinned else None)
         fig.set_facecolor(style.theme.surface)
     _frame(ax, style)
 
-    series = 0
+    series = figure.series
     for mark in figure.marks:
         if isinstance(mark, Line):
             _line(ax, mark, style, series)

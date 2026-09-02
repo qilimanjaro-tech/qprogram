@@ -19,6 +19,8 @@ assertions read that description. The renderer half draws for real, on the Agg b
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,6 +31,7 @@ import qprogram as qp
 from qprogram import ValidationError
 from qprogram.plotting import (
     DARK,
+    DEFAULT_SIZE,
     LIGHT,
     Figure,
     Line,
@@ -43,16 +46,6 @@ from qprogram.plotting import (
     register_renderer,
     resolve_renderer,
 )
-
-mpl.use("Agg")
-
-
-@pytest.fixture(autouse=True)
-def _close_figures():
-    """Close every figure a test opened, so the suite never trips matplotlib's open-figure warning."""
-    yield
-    plt.close("all")
-
 
 # ---------------------------------------------------------------------------
 # Arrays shaped like the executor's output
@@ -855,6 +848,11 @@ def test_the_default_style_is_the_light_theme():
     assert Style().theme is LIGHT
 
 
+def test_the_default_style_names_no_figure_size():
+    """Which is what lets the same style suit a measurement and a pulse."""
+    assert Style().size is None
+
+
 def test_the_two_themes_differ_where_it_matters():
     assert LIGHT.surface != DARK.surface
     assert LIGHT.ramp[0] != DARK.ramp[0]
@@ -931,6 +929,27 @@ def test_the_axis_labels_reach_the_axes():
     assert ax.get_xlabel() == "Drive amplitude (V)"
     assert ax.get_ylabel() == "Signal"
     assert ax.get_title(loc="left") == "Rabi"
+
+
+def test_a_new_figure_takes_the_default_size_or_the_style_own():
+    default = matplotlib_renderer.render(build_figure(_sweep_iq()), Style())
+    assert tuple(default.get_figure().get_size_inches()) == DEFAULT_SIZE
+    named = matplotlib_renderer.render(build_figure(_sweep_iq()), Style(size=(4.0, 3.0)))
+    assert tuple(named.get_figure().get_size_inches()) == (4.0, 3.0)
+
+
+def test_sized_fills_a_size_in_and_never_overwrites_one():
+    assert Style().sized((6.0, 2.0)).size == (6.0, 2.0)
+    named = Style(size=(4.0, 3.0))
+    assert named.sized((6.0, 2.0)) is named
+
+
+def test_the_figure_says_which_colour_slot_its_first_mark_takes():
+    first = matplotlib_renderer.render(build_figure(_sweep_iq(), channels="i"), Style())
+    figure = build_figure(_sweep_iq(), channels="i")
+    second = matplotlib_renderer.render(replace(figure, series=1), Style())
+    assert first.get_lines()[0].get_color() == LIGHT.series[0]
+    assert second.get_lines()[0].get_color() == LIGHT.series[1]
 
 
 def test_an_existing_axes_is_drawn_on_rather_than_replaced():

@@ -19,11 +19,14 @@ so a renderer for any backend reads the same two objects.
 
 Two themes ship: [`LIGHT`][qprogram.plotting.LIGHT] and [`DARK`][qprogram.plotting.DARK]. Both are frozen dataclasses,
 so a variant is one `dataclasses.replace` away and a whole palette of your own is a constructor call.
+
+A style names no figure size of its own by default, so the same `Style()` suits a measurement and a
+pulse: whatever is drawing fills in the size that suits it, from the three named here.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -72,13 +75,31 @@ ramp that lightens away from it — so in both themes the strongest mark is the 
 page."""
 
 
+DEFAULT_SIZE = (7.2, 4.0)
+"""Figure size in inches a renderer makes a new figure at, which is what
+[`QProgramResult.plot`][qprogram.QProgramResult.plot] draws a measurement at."""
+
+ENVELOPE_SIZE = (6.0, 2.0)
+"""Figure size for [`Waveform.plot`][qprogram.waveforms.Waveform.plot]. An envelope is one line over
+a few hundred nanoseconds, so four inches of height would be mostly empty surface."""
+
+IQ_ENVELOPE_SIZE = (6.0, 3.0)
+"""Figure size for [`IQWaveform.plot`][qprogram.waveforms.IQWaveform.plot], an inch taller than
+[`ENVELOPE_SIZE`][qprogram.plotting.ENVELOPE_SIZE] because it stacks two panels."""
+
+
 @dataclass(frozen=True)
 class Style:
     """A theme plus the settings that decide how the marks are drawn.
 
     Attributes:
         theme (Theme): The palette. Defaults to [`LIGHT`][qprogram.plotting.LIGHT].
-        size (tuple[float, float]): Figure size in inches, ``(width, height)``.
+        size (tuple[float, float] | None): Figure size in inches, ``(width, height)``, or ``None``
+            for the size that suits what is being drawn:
+            [`DEFAULT_SIZE`][qprogram.plotting.DEFAULT_SIZE] for a measurement,
+            [`ENVELOPE_SIZE`][qprogram.plotting.ENVELOPE_SIZE] or
+            [`IQ_ENVELOPE_SIZE`][qprogram.plotting.IQ_ENVELOPE_SIZE] for a waveform. Only consulted
+            when the figure is made here; one the caller brought keeps the size it has.
         linewidth (float): Stroke width of a [`Line`][qprogram.plotting.Line].
         markers (bool): Draw a marker at every sample of a line. Worth turning on for a coarse
             sweep, where the points are the measurement and the line between them is interpolation.
@@ -95,7 +116,7 @@ class Style:
     """
 
     theme: Theme = LIGHT
-    size: tuple[float, float] = (7.2, 4.0)
+    size: tuple[float, float] | None = None
     linewidth: float = 1.8
     markers: bool = False
     markersize: float = 3.5
@@ -116,3 +137,18 @@ class Style:
             One of the theme's `series` colours.
         """
         return self.theme.series[index % len(self.theme.series)]
+
+    def sized(self, default: tuple[float, float]) -> Style:
+        """Return this style with a figure size on it, ``default`` when it names none of its own.
+
+        What a figure of a pulse should measure is not something a renderer can know, so a caller
+        that knows fills it in before handing the style over. A style that already names a size is
+        returned unchanged, which is what makes ``size=`` on a call the last word.
+
+        Args:
+            default (tuple[float, float]): Size in inches to use when this style names none.
+
+        Returns:
+            This style, or a copy of it carrying ``default``.
+        """
+        return self if self.size is not None else replace(self, size=default)

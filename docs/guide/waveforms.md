@@ -58,7 +58,7 @@ own, answers them without extra code:
 | `peak_amplitude(resolution=1)` | `max(abs(envelope))`, and for an IQ shape the peak magnitude `max(abs(I + 1j*Q))`.                                                                                                                           |
 | `rms_amplitude(resolution=1)`  | the root mean square of the samples, or of the complex magnitudes for an IQ shape.                                                                                                                            |
 | `spectrum(resolution=1)`       | a `(frequencies_hz, complex_spectrum)` pair. Real shapes use `numpy.fft.rfft`, so 64 samples at `resolution=1` give 33 one-sided bins up to 500 MHz; IQ shapes use a `fftshift`ed two-sided `numpy.fft.fft`.  |
-| `plot(resolution=1, ...)`      | a matplotlib `Axes`, or an `(I_axes, Q_axes)` pair for an IQ shape.                                                                                                                                           |
+| `plot(resolution=1, ...)`      | whatever the renderer returns, which for matplotlib is an `Axes`, or an `(I, Q)` pair of them for an IQ shape.                                                                                                 |
 
 `envelope()` resolves every symbolic parameter before it samples anything, by
 calling `Expression.evaluate_or_raise()` on it. A variable with no value
@@ -71,15 +71,74 @@ UnassignedVariableError: Cannot evaluate expression Variable('amp'): unassigned 
 Every measure above is computed from `envelope()`, so they all raise the same
 error under the same conditions.
 
-`plot()` takes the axes to draw on: `Waveform.plot(resolution=1, ax=None)`
-returns one `Axes`, and
-`IQWaveform.plot(resolution=1, axes=None)` returns two stacked axes sharing an
-x axis, labeled `I` and `Q`. Passing `None` creates a fresh figure. matplotlib
-is imported inside the call, from the `qprogram[viz]` extra, which keeps the
-rest of the package importable without it; without matplotlib installed the
-call raises `ModuleNotFoundError`. Both bases also define `_repr_html_`, which
-returns the same plot as an inline SVG, so a bare waveform renders in a Jupyter
-cell without an explicit `plot()`.
+`plot()` takes the same three arguments `result.plot` takes, and means the same
+things by them:
+
+<!-- check: skip -->
+
+```python
+Waveform.plot(resolution=1, *, style=None, renderer=None, target=None)
+IQWaveform.plot(resolution=1, *, style=None, renderer=None, target=None)
+```
+
+The envelope is described as a `qp.plotting.Figure` and handed to a renderer,
+which for the default matplotlib one returns the `Axes` it drew on. An IQ shape
+draws two panels stacked on a shared x axis, labeled `I` and `Q` and in the
+theme's first two colours, and returns the two handles as an `(I, Q)` pair.
+matplotlib is imported when it is first drawn with, from the `qprogram[viz]`
+extra, which keeps the rest of the package importable without it; without
+matplotlib installed the call raises `ModuleNotFoundError`.
+[Plotting results](plotting.md) is the walkthrough for all three arguments;
+what follows is what a waveform does differently.
+
+The style defaults to a plain `Style()`, the same as a result's, so a pulse and
+the sweep it produced sit on one palette instead of looking like two libraries:
+
+```python
+import qprogram as qp
+
+pi_pulse = qp.waveforms.Gaussian(amplitude=0.5, duration=40, sigma=8)
+pi_pulse.plot(style=qp.plotting.Style(theme=qp.plotting.DARK))
+```
+
+The one thing a `Style` does not carry by default is a figure size, which is
+what lets the same one suit a measurement and a pulse. A style that names none
+is drawn at `qp.plotting.ENVELOPE_SIZE`, six inches by two, or
+`qp.plotting.IQ_ENVELOPE_SIZE` for the stacked pair, which is an inch taller;
+`Style(size=(4, 1.5))` overrides that, and a `target` you pass in keeps whatever
+size its figure already has.
+
+`target` is one surface for a single-channel shape and an `(I, Q)` pair for an
+IQ one, which is how a pulse composes into a layout of your own:
+
+```python
+import matplotlib.pyplot as plt
+
+drag = qp.waveforms.IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
+
+fig, (top, bottom) = plt.subplots(2, 1, sharex=True)
+drag.plot(target=(top, bottom))
+```
+
+That pair is also the one place a waveform asks for more than a result does. Two
+panels sharing a scale is a matplotlib layout rather than anything the figure
+describes, and it is the only pair the package knows how to build, so a
+registered `renderer` other than the built-in one raises `ValidationError` when
+it is asked for with no `target`: the panels it would otherwise be handed are
+matplotlib's.
+
+Both bases also define `_repr_html_`, so a bare waveform renders in a Jupyter
+cell without an explicit `plot()`. It draws the envelope once per surface and
+returns a `<picture>` holding both, with the dark one behind a
+`prefers-color-scheme` source, so a cell in a dark notebook is not a white
+rectangle. It draws with the default renderer, since what a cell wants is an
+image. That reads the browser's setting, which is the editor's own theme in VS
+Code and the operating system's under JupyterLab; where the two disagree,
+`plot(style=...)` is how to say which surface you are on.
+
+Only the waveform itself takes that path. `wf.plot()` makes the axes the cell's
+value instead, which a notebook shows as `<Axes: ...>` beside the figure, so
+bind it or end the call with a semicolon.
 
 ## Single-channel built-ins
 

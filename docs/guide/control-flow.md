@@ -485,7 +485,9 @@ in, since the inherited walk over the body alone would miss them.
 
 In the result `DataArray` a parallel composition is one dimension, named by
 joining the variable ids with `|` (`"freq|gain"`), and each variable contributes
-its own coordinate array on that shared dimension.
+its own coordinate array on that shared dimension. `plot` reads the first two of
+them on an axis and a twin axis opposite it, in the order the name gives — see
+[Plotting results](plotting.md#two-variables-on-one-axis).
 
 `Parallel` has no context-manager method of its own. Constructing one directly,
 as an analyzer or a code generator might, is `qp.blocks.Parallel(loops=[...])`

@@ -188,24 +188,22 @@ shot count it recorded there. A grid point holds `NaN` when that count is
 zero, which happens only for a measurement inside a conditional arm the
 program never selected at that point.
 
-To plot the chevron, pick the IQ component you want; the array is already on
-the grid, so no reshaping is needed:
+Two swept dimensions besides `IQ` give a heatmap, and the array is already on
+the grid, so no reshaping is needed. A heatmap colours one surface, so name the
+quadrature you want; leaving `channels` out takes the magnitude instead:
 
 ```python
-import matplotlib.pyplot as plt
-
-plt.pcolormesh(data0.coords["dur"], data0.coords["amp"], data0.sel(IQ="I"))
-plt.xlabel("Flux duration (ns)")
-plt.ylabel("Flux amplitude (V)")
+result.plot(m0, channels="i", value=qp.plotting.Quantity("Population transferred"))
 ```
 
 ![Heatmap of transferred population against flux duration and amplitude, with interference fringes converging to a chevron tip at 0.5 V.](../assets/plots/cz-chevron-light.png#only-light)
 ![Heatmap of transferred population against flux duration and amplitude, with interference fringes converging to a chevron tip at 0.5 V.](../assets/plots/cz-chevron-dark.png#only-dark)
 
-`pcolormesh` takes the x axis first, so the inner sweep goes first and the
-outer one second, the opposite of the dimension order in `data0.dims`.
-matplotlib is not a runtime dependency; it comes with the `viz` extra,
-installed with `pip install "qprogram[viz]"`.
+The inner sweep runs along the x axis and the outer one up the y axis, matching
+the loop nesting rather than the dimension order in `data0.dims`; `x=` and `y=`
+say otherwise. matplotlib is not a runtime dependency; it comes with the `viz`
+extra, installed with `pip install "qprogram[viz]"`.
+[Plotting results](../guide/plotting.md) covers the rest.
 
 ## Adapting it
 
@@ -223,7 +221,8 @@ The two sources must then hold the same number of points, and both do here at
 `ValidationError: parallel loops must have the same number of iterations to
 advance in lockstep; got Sweep('amp'): 11, Sweep('dur'): 12`. The results come
 back on one `"amp|dur"` dimension of 101 points carrying `amp` and `dur` as
-coordinates along it. See [Control flow](../guide/control-flow.md).
+coordinates along it, which `plot` draws as one axis with the other above it.
+See [Control flow](../guide/control-flow.md).
 
 For the SNZ flavor of CZ, swap the waveform and leave the rest of the program
 alone:

@@ -47,6 +47,7 @@ qprogram/
     ├── optimization.py             # optimize(): plan-improving program rewrites
     ├── executor.py                 # ReferencePlatform + simulate(): the reference interpreter
     ├── lsp.py                      # check_text(), the check|explain|serve CLI, the language server
+    ├── plotting/                   # the figure model, the themes, and the renderer registry
     ├── operations/                 # one module per leaf op, plus the Operation base
     ├── blocks/                     # Block, Sweep, Average, Parallel, Conditional
     ├── sweeps/                     # SweepSource contract, built-in sources, combinators
@@ -102,13 +103,17 @@ plain string everywhere downstream.
 The rest of the AST layer is supporting structure. `fragments.py` holds
 `Fragment`, `Parameter`, and the `expand_program` lowering that inlines every
 call site. `result.py` holds `MeasurementHandle`, `MeasurementResult`, and
-`QProgramResult`. `waveform_library.py` resolves a waveform alias per bus and
-owns the `.wfl` text format, which is deliberately not part of a `.qp` file:
-calibration state travels alongside a program, not inside it. `errors.py`
-defines the whole exception hierarchy under `QProgramError`, including the
-platform-side classes that core QProgram never raises but every backend shares.
-`_reserved.py` holds `RESERVED_KEYWORDS`, and `_structural.py` the two equality
-helpers described below.
+`QProgramResult`. `plotting/` is what `QProgramResult.plot` runs: `build.py`
+turns a result array into the `Figure` description in `model.py`, and a
+renderer registered in `renderers.py` draws it. Only `matplotlib_renderer.py`
+imports a plotting library, and it is imported on first use, which is what
+keeps `matplotlib` optional. `waveform_library.py` resolves a waveform alias
+per bus and owns the `.wfl` text format, which is deliberately not part of a
+`.qp` file: calibration state travels alongside a program, not inside it.
+`errors.py` defines the whole exception hierarchy under `QProgramError`,
+including the platform-side classes that core QProgram never raises but every
+backend shares. `_reserved.py` holds `RESERVED_KEYWORDS`, and `_structural.py`
+the two equality helpers described below.
 
 Analysis sits above the AST. `protocol.py` defines what a platform declares:
 `PlatformCapabilities` (per-bus profiles plus one platform-wide profile),

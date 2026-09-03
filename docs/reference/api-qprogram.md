@@ -11,9 +11,10 @@ dotted path, so another page can link to a single member:
 
 The supported surface is `qprogram.__all__`, the names that resolve directly on
 the package after `import qprogram as qp`. Three other kinds of name appear
-here under a longer dotted path. The waveform, operation, and block classes
-live in submodules the top level does not re-export, so they are written
-`qp.waveforms.Gaussian`, `qp.operations.Play`, and `qp.blocks.Sweep`. A few
+here under a longer dotted path. The waveform, operation, block, and plotting
+classes live in submodules the top level does not re-export, so they are
+written `qp.waveforms.Gaussian`, `qp.operations.Play`, `qp.blocks.Sweep`, and
+`qp.plotting.Style`. A few
 names the top level does re-export are grouped with the submodule that defines
 them instead, because they read better next to related material: `Call` and
 `MeasurementField` sit with the rest of `qprogram.operations`, `UNASSIGNED` and
@@ -447,6 +448,65 @@ compared, hashed, and serialized in.
 ::: qprogram.QProgramResult
     options:
       show_root_full_path: false
+
+## Plotting
+
+`QProgramResult.plot` above is the front door. It runs `build_figure` to
+describe the figure and a renderer to draw it, and the two halves are separate
+so that a backend other than matplotlib is possible: everything down to
+`Renderer` reads numpy and xarray only. See
+[Plotting results](../guide/plotting.md) for the walkthrough. These names live
+in `qprogram.plotting`, which the top level does not re-export.
+
+::: qprogram.plotting.build_figure
+
+::: qprogram.plotting.Quantity
+    options:
+      show_root_full_path: false
+
+::: qprogram.plotting.Figure
+    options:
+      show_root_full_path: false
+
+::: qprogram.plotting.Line
+    options:
+      show_root_full_path: false
+
+::: qprogram.plotting.Points
+    options:
+      show_root_full_path: false
+
+::: qprogram.plotting.Mesh
+    options:
+      show_root_full_path: false
+
+::: qprogram.plotting.Twin
+    options:
+      show_root_full_path: false
+
+::: qprogram.plotting.Style
+    options:
+      show_root_full_path: false
+
+::: qprogram.plotting.Theme
+    options:
+      show_root_full_path: false
+
+::: qprogram.plotting.LIGHT
+
+::: qprogram.plotting.DARK
+
+::: qprogram.plotting.Renderer
+    options:
+      show_root_full_path: false
+
+::: qprogram.plotting.register_renderer
+
+::: qprogram.plotting.resolve_renderer
+
+::: qprogram.plotting.available_renderers
+
+::: qprogram.plotting.matplotlib_renderer.render
 
 ## Vendor protocol
 

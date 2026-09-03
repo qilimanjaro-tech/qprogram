@@ -200,10 +200,27 @@ against `env["delay"]` is all it takes to give the curve a shape. Without a
 `p_excited` argument every shot classifies as 0.
 
 The curve is the exponential the model was given, sampled a thousand shots per
-point, and the scatter around it is the Bernoulli noise of that count:
+point, and the scatter around it is the Bernoulli noise of that count. `delay`
+was declared in nanoseconds and runs to 40000, which is not how anyone reads a
+T1, so the figure restates it:
+
+```python
+result.plot(
+    m0,
+    field=qp.MeasurementField.STATE,
+    coords={"delay": qp.plotting.Quantity(units="μs", transform=lambda v: v / 1000)},
+    value=qp.plotting.Quantity("Excited-state population"),
+    style=qp.plotting.Style(markers=True),
+)
+```
 
 ![Excited-state population against delay, decaying exponentially from 1 toward 0 over 40 microseconds.](../assets/plots/t1-light.png#only-light)
 ![Excited-state population against delay, decaying exponentially from 1 toward 0 over 40 microseconds.](../assets/plots/t1-dark.png#only-dark)
+
+The `label` the variable was given survives the restatement and only the unit
+moves, so the axis reads `Delay (μs)`. `markers=True` earns its place on a
+41-point sweep, where the points are the measurement and the line between them
+is interpolation. [Plotting results](../guide/plotting.md) covers the rest.
 
 The `STATE` array has no trailing `"IQ"` dimension, because a classified
 outcome is one number per shot rather than a pair. `result.get(m0)` on the same

@@ -21,16 +21,53 @@ identifies a measurement across construction, ``.qp`` serialization, execution, 
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Any
 
 from qprogram.errors import ValidationError
 from qprogram.operations.operation import MeasurementField
+from qprogram.plotting import Quantity, Style, build_figure, resolve_renderer
+from qprogram.plotting.quantity import checked
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     import xarray as xr
 
     from qprogram.variable import _HandleFieldAccess, _UnassignedType
+
+# The label for a field whose meaning the executor defines. ``iq`` and ``raw`` have none: what a
+# demodulated point means is the readout chain's business, so their label comes from the channel.
+_FIELD_LABELS = {MeasurementField.STATE.value: "State"}
+
+
+def _field_value(value: object, field: str, kind: str | None) -> Quantity | None:
+    """Gate the caller's ``value=``, then fill in the label the field implies.
+
+    The gate runs first and unconditionally: reading a field off an unchecked argument is how
+    ``value="Excited population"`` would become a silently discarded argument rather than an error
+    naming the constructor to wrap it in. A scatter takes no label at all, so the field's is not
+    filled in there either.
+
+    Args:
+        value (object): Whatever the caller passed for ``value=``.
+        field (str): The measurement field being drawn.
+        kind (str | None): The figure kind the caller asked for, if any.
+
+    Returns:
+        The [`Quantity`][qprogram.plotting.Quantity] to hand
+        [`build_figure`][qprogram.plotting.build_figure], or ``None``.
+
+    Raises:
+        ValidationError: If ``value`` is neither a [`Quantity`][qprogram.plotting.Quantity] nor ``None``.
+    """
+    quantity = checked(value, "value=")
+    label = _FIELD_LABELS.get(field)
+    if label is None or kind == "scatter":
+        return quantity
+    if quantity is None:
+        return Quantity(label=label)
+    return quantity if quantity.label is not None else replace(quantity, label=label)
 
 
 class MeasurementHandle:
@@ -159,7 +196,7 @@ class QProgramResult:
 
     Results are stored in construction order and addressable by handle, by name string, or by integer
     position via `get`, which returns the `IQ` field unless a
-    different one is named.
+    different one is named. `plot` takes the same arguments and draws what it finds.
     """
 
     def __init__(self) -> None:
@@ -264,6 +301,97 @@ class QProgramResult:
             msg = f"Measurement {record.name!r} has no field {name!r}; available: {available}"
             raise KeyError(msg)
         return record.fields[name]
+
+    def plot(  # ruff: ignore[too-many-arguments]  # every argument is one decision about the figure
+        self,
+        measurement: MeasurementHandle | str | int = 0,
+        bus: str | None = None,
+        field: MeasurementField | str = MeasurementField.IQ,
+        *,
+        kind: str | None = None,
+        x: str | None = None,
+        y: str | None = None,
+        channels: str | None = None,
+        coords: Mapping[str, Quantity] | None = None,
+        value: Quantity | None = None,
+        title: str | None = None,
+        style: Style | None = None,
+        renderer: str | None = None,
+        target: object = None,
+    ) -> Any:  # ruff: ignore[any-type]  # whatever handle the renderer gives back
+        """Draw one measurement field.
+
+        The array is looked up exactly as `get` looks it up, described as a
+        [`Figure`][qprogram.plotting.Figure] by [`build_figure`][qprogram.plotting.build_figure], and handed to a
+        renderer. The default renderer is matplotlib, from the ``viz`` extra, and it returns the
+        `Axes` it drew on, so anything the figure does not decide — a limit, an
+        annotation, a second series from elsewhere — is a call away on the object that comes back.
+
+        The shape of the array chooses the figure. One dimension besides ``"IQ"`` gives a line per
+        quadrature, two give a heatmap of the magnitude, and ``kind="scatter"`` plots I against Q,
+        which no shape implies on its own. A swept variable's ``label`` and ``units`` reach the axis
+        from the coordinate the executor wrote them onto, and a dimension a parallel composition
+        built brings two of them, the second read on a twin axis opposite the first.
+
+        Args:
+            measurement (MeasurementHandle | str | int): Which measurement to draw, by handle, by
+                name, or by position, exactly as in `get`.
+            bus (str | None): Bus name filter, applied before that lookup.
+            field (MeasurementField | str): Which measurement field to draw. Defaults to
+                `IQ`.
+            kind (str | None): ``"line"``, ``"heatmap"`` or ``"scatter"``. Inferred from the shape
+                when omitted.
+            x (str | None): Dimension or coordinate for the x axis, drawn on its own. A dimension a
+                parallel composition built needs no such argument: its loops advanced in lockstep,
+                so its first two coordinates go on the axis and opposite it as a
+                [`Twin`][qprogram.plotting.Twin] scale, in the order the dimension name gives them.
+                Naming one here is how a bare axis is asked for instead.
+            y (str | None): The same for the y axis of a heatmap.
+            channels (str | None): What to make of the ``"IQ"`` dimension — ``"iq"``, ``"i"``,
+                ``"q"``, ``"magnitude"`` or ``"phase"``. Defaults to both quadratures for a line and
+                to the magnitude for a heatmap, which colours one surface.
+            coords (collections.abc.Mapping[str, Quantity] | None): Restatements for the swept
+                coordinates, keyed by the name each axis or twin resolved to — the same string
+                ``x=`` takes.
+                A [`Quantity`][qprogram.plotting.Quantity] carries the arithmetic and the words it
+                produces together, so ``{"freq": Quantity(units="GHz", transform=lambda v: v / 1e9)}``
+                draws the axis in gigahertz and labels it so. The array itself is untouched.
+            value (Quantity | None): The same for the measured quantity — the y axis of a line, the
+                colour bar of a heatmap, both axes of a scatter. Its label defaults to what the
+                field and the channel imply, since what a demodulated point means is the readout
+                chain's business and not the executor's.
+            title (str | None): Title for the figure. None by default.
+            style (Style | None): Palette and drawing weights. Defaults to
+                [`Style`][qprogram.plotting.Style]``()``, which is the light theme.
+            renderer (str | None): A name passed to
+                [`resolve_renderer`][qprogram.plotting.resolve_renderer]. Defaults to ``"matplotlib"``.
+            target (object): An existing surface for the renderer to draw on — a matplotlib
+                `Axes` for the default one. A new figure is made when omitted.
+
+        Returns:
+            Whatever the renderer returns: the `Axes` for the matplotlib one.
+
+        Raises:
+            KeyError: When the measurement or the field has no match, or ``renderer`` names none.
+            IndexError: When ``measurement`` is a position outside the range in scope.
+            ValidationError: When an argument does not suit the array's shape, or a restatement
+                changes the numbers without the unit — see
+                [`build_figure`][qprogram.plotting.build_figure].
+            ModuleNotFoundError: When the matplotlib renderer is used without matplotlib
+                installed — install ``qprogram[viz]``.
+        """
+        data = self.get(measurement, bus=bus, field=field)
+        figure = build_figure(
+            data,
+            kind=kind,
+            x=x,
+            y=y,
+            channels=channels,
+            coords=coords,
+            value=_field_value(value, str(field), kind),
+            title=title,
+        )
+        return resolve_renderer(renderer)(figure, style or Style(), target)
 
     @staticmethod
     def _lookup_by_name(

@@ -52,8 +52,11 @@ with p.average(1000), p.sweep(g, qp.Range(0.0, 1.0, 0.01)):
 
 result = qp.simulate(p, model=model)
 da = result.get("m0")  # dims ("g", "IQ"), coords from the sweep
-da.sel(IQ="I").plot()  # a noisy Rabi oscillation (needs matplotlib, the `viz` extra)
+result.plot("m0")  # a noisy Rabi oscillation (needs matplotlib, the `viz` extra)
 ```
+
+`plot` takes the same arguments `get` does and draws what it finds, choosing
+the figure from the array's shape. [Plotting results](plotting.md) covers it.
 
 `simulate` raises rather than returning a partial result. A program that
 validation rejects raises `UnsupportedOperationError`, an operation whose
@@ -120,6 +123,11 @@ da.dims  # ("a|b", "IQ"), shape (3, 2)
 da.coords["a"].values  # [0.0, 0.5, 1.0]
 da.coords["b"].values  # [10.0, 15.0, 20.0]
 ```
+
+Both coordinates describe the same three samples, which is why a figure of them
+reads one along the axis and the other on a twin scale opposite it rather than
+picking between them. See
+[Plotting results](plotting.md#two-variables-on-one-axis).
 
 The trailing dimensions depend on which field you ask for. Writing `*sweeps` for
 the loop dimensions above:

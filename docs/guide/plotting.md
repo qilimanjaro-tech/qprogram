@@ -201,9 +201,15 @@ one already there has to come with the arithmetic that earns it:
 # On a coordinate that declares units="Hz":
 Quantity(transform=lambda v: v / 1e9)  # raises: the axis would read (Hz) over gigahertz
 Quantity(units="GHz")  # raises: relabels the unit, changes no number
+Quantity(units="")  # raises: calls hertz dimensionless, changes no number
 Quantity(units="GHz", transform=lambda v: v / 1e9)  # both halves, and the figure is drawn
 Quantity(units="Hz", transform=lambda v: v - v[0])  # a shift keeps its unit, and says so
+Quantity(units="", transform=lambda v: v / v[-1])  # a bare ratio, and the arithmetic that made one
 ```
+
+Emptying a unit is a change like any other rather than a way around the rule:
+`units=""` says the numbers carry no unit at all, which over values that
+arrived in hertz needs the arithmetic that made them a ratio.
 
 Both fire only where there is a claim to falsify, so a coordinate that declared
 no unit, or a demodulated magnitude that has none to declare, takes either half

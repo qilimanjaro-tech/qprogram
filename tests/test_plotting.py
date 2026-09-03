@@ -591,8 +591,22 @@ def test_a_label_alone_leaves_the_unit_it_inherited():
     assert build_figure(_hertz(), coords={"freq": Quantity("Frequency")}).x_label == "Frequency (Hz)"
 
 
-def test_an_empty_unit_drops_the_one_it_inherited():
-    assert build_figure(_hertz(), coords={"freq": Quantity(units="")}).x_label == "Drive frequency"
+def test_emptying_a_unit_without_the_arithmetic_is_refused():
+    data = _hertz()
+    quantity = Quantity(units="")
+    with pytest.raises(ValidationError, match="carry no unit at all"):
+        build_figure(data, coords={"freq": quantity})
+
+
+def test_a_transform_that_leaves_a_bare_ratio_says_so_with_an_empty_unit():
+    figure = build_figure(_hertz(), coords={"freq": Quantity(units="", transform=lambda v: v / v[-1])})
+    assert figure.x_label == "Drive frequency"
+    assert figure.marks[0].x[-1] == 1.0
+
+
+def test_an_empty_unit_drops_nothing_where_the_coordinate_declared_none():
+    data = _sweep_iq(attrs={"long_name": "Shot"})
+    assert build_figure(data, coords={"gain": Quantity(units="")}).x_label == "Shot"
 
 
 def test_a_unit_the_coordinate_never_declared_is_taken_as_a_correction():
@@ -909,9 +923,13 @@ def test_a_taken_name_cannot_be_reassigned():
 
 
 def test_an_unknown_renderer_lists_the_known_ones():
-    resolve_renderer()  # make sure the default is registered, so the message is not empty
-    with pytest.raises(KeyError, match="registered: "):
+    with pytest.raises(KeyError, match="registered: matplotlib"):
         resolve_renderer("svg")
+
+
+def test_an_empty_renderer_name_is_a_lost_name_and_not_a_request_for_the_default():
+    with pytest.raises(KeyError, match="No renderer named ''"):
+        resolve_renderer("")
 
 
 # ---------------------------------------------------------------------------

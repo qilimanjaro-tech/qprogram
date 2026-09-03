@@ -60,7 +60,8 @@ class Quantity:
             name the channel implies. ``None`` keeps the inherited one.
         units (str | None): Unit to read the numbers in, replacing the coordinate's ``units``
             attribute. ``None`` keeps the inherited one, and ``""`` says the numbers now carry no
-            unit at all — a ratio, a normalised population.
+            unit at all — a ratio, a normalised population — which over values that arrived with a
+            unit is a change like any other and comes with the ``transform`` that made them one.
         transform (Callable[[numpy.ndarray], numpy.ndarray] | None): Arithmetic on the values,
             called with the whole array that would otherwise have been drawn and returning one real
             number per value. It gets a copy, so an in-place transform cannot reach the stored
@@ -136,9 +137,10 @@ def checked(value: object, where: str) -> Quantity | None:
 def restated(quantity: Quantity | None, values: np.ndarray, where: str) -> np.ndarray:
     """Run one transform over an array and check what came back.
 
-    The input is copied first: the arrays reaching here share memory with the stored result, and the
-    ordinary numpy spelling of a baseline (``v -= v[0]``) would otherwise rewrite the measurement
-    the figure is of.
+    A transform is handed a copy: the arrays reaching here share memory with the stored result, and
+    the ordinary numpy spelling of a baseline (``v -= v[0]``) would otherwise rewrite the
+    measurement the figure is of. Where there is no transform there is nothing to guard against and
+    ``values`` is handed back as it stands, so the copy is the transform's, not the return value's.
 
     What is checked is the transform's shape and dtype, and whether it turned a finite value into a
     non-finite one. A value the measurement itself carries as NaN — the executor writes one into a
@@ -150,7 +152,7 @@ def restated(quantity: Quantity | None, values: np.ndarray, where: str) -> np.nd
         where (str): How to name the argument that carried it, in any error.
 
     Returns:
-        The restated numbers, or ``values`` unchanged when there is no transform.
+        The restated numbers, or ``values`` itself when there is no transform.
 
     Raises:
         ValidationError: If the transform raises, returns a different shape, returns something other
@@ -191,7 +193,9 @@ def text(quantity: Quantity | None, label: str, units: str | None, where: str) -
     This holds the rule the type exists for: a change of unit and a change of numbers travel
     together. It fires only where there is a claim to falsify — a non-empty inherited unit — so a
     coordinate that declared none, or a demodulated magnitude that has none to declare, takes a bare
-    transform or a bare ``units`` without complaint.
+    transform or a bare ``units`` without complaint. Over values that did come with a unit, ``""``
+    is a restatement like any other and needs the arithmetic that earns it: an axis whose numbers
+    are still hertz reads as dimensionless once the unit is dropped from under them.
 
     Args:
         quantity (Quantity | None): The restatement, or ``None`` for none.
@@ -219,12 +223,12 @@ def text(quantity: Quantity | None, label: str, units: str | None, where: str) -
             )
             raise ValidationError(msg)
         return _joined(quantity.label if quantity.label is not None else label, units)
-    if quantity.units and quantity.transform is None and units and quantity.units != units:
+    if quantity.transform is None and units and quantity.units != units:
+        reads = f"read ({quantity.units})" if quantity.units else "carry no unit at all"
         msg = (
-            f"{where} relabels the unit from {units!r} to {quantity.units!r} without changing the "
-            f"numbers, so the axis would read ({quantity.units}) over values still in {units}. Pass "
-            f"the transform= that converts them, or correct the unit on the variable the "
-            f"coordinate came from."
+            f"{where} restates the unit from {units!r} to {quantity.units!r} without changing the "
+            f"numbers, so the axis would {reads} over values still in {units}. Pass the transform= "
+            f"that converts them, or correct the unit on the variable the coordinate came from."
         )
         raise ValidationError(msg)
     return _joined(quantity.label if quantity.label is not None else label, quantity.units)

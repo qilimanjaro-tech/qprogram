@@ -85,6 +85,10 @@ def register_renderer(name: str, renderer: Renderer) -> Renderer:
 def resolve_renderer(name: str | None = None) -> Renderer:
     """Return the renderer registered under ``name``.
 
+    Only ``None`` asks for the default. Every other value has to name something, ``""`` included:
+    an empty ``renderer=`` is a name that got lost on the way rather than a request for whatever is
+    installed, and silently drawing with matplotlib would hide that.
+
     Args:
         name (str | None): A registered name, or ``None`` for `DEFAULT_RENDERER`.
 
@@ -96,14 +100,17 @@ def resolve_renderer(name: str | None = None) -> Renderer:
         ModuleNotFoundError: If the default renderer is asked for without ``matplotlib``
             installed — install ``qprogram[viz]``.
     """
-    name = name or DEFAULT_RENDERER
+    if name is None:
+        name = DEFAULT_RENDERER
     if name == DEFAULT_RENDERER and name not in _renderers:
         # Imported on first use, so that `import qprogram` never pulls in matplotlib.
         from qprogram.plotting import matplotlib_renderer  # ruff: ignore[import-outside-top-level]
 
         register_renderer(DEFAULT_RENDERER, matplotlib_renderer.render)
     if name not in _renderers:
-        available = ", ".join(sorted(_renderers)) or "none"
+        # The default is listed whether or not it has registered itself yet, since it registers on
+        # the first call that asks for it and a reader of the message cannot see that it has not.
+        available = ", ".join(sorted(set(_renderers) | {DEFAULT_RENDERER}))
         msg = f"No renderer named {name!r}; registered: {available}"
         raise KeyError(msg)
     return _renderers[name]

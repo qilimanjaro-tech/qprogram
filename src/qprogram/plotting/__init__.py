@@ -26,6 +26,9 @@ no display attached.
     result.plot(m0, channels="magnitude")  # hypot(I, Q)
     result.plot(m0, x="freq", style=Style(theme=DARK))
 
+[`Waveform.plot`][qprogram.waveforms.Waveform.plot] runs the same two halves over an envelope, so a
+pulse and the sweep it produced sit on one palette rather than looking like two libraries.
+
 Only the drawing half needs matplotlib, which ships in the ``viz`` extra and is imported the first
 time a figure is rendered.
 """
@@ -42,13 +45,24 @@ from qprogram.plotting.renderers import (
     register_renderer,
     resolve_renderer,
 )
-from qprogram.plotting.theme import DARK, LIGHT, Style, Theme
+from qprogram.plotting.theme import (
+    DARK,
+    DEFAULT_SIZE,
+    ENVELOPE_SIZE,
+    IQ_ENVELOPE_SIZE,
+    LIGHT,
+    Style,
+    Theme,
+)
 
 __all__ = [
     "CHANNELS",
     "DARK",
     "DEFAULT_RENDERER",
+    "DEFAULT_SIZE",
+    "ENVELOPE_SIZE",
     "IQ_DIM",
+    "IQ_ENVELOPE_SIZE",
     "KINDS",
     "LIGHT",
     "Figure",

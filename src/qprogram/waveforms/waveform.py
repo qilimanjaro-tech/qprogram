@@ -20,16 +20,21 @@ otherwise hashed, do not mutate its attributes.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
 from qprogram._structural import ast_eq, ast_hash
+from qprogram.errors import ValidationError
+from qprogram.plotting.model import Figure, Line
+from qprogram.plotting.renderers import DEFAULT_RENDERER, resolve_renderer
+from qprogram.plotting.theme import DARK, ENVELOPE_SIZE, IQ_ENVELOPE_SIZE, LIGHT, Style
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from matplotlib.axes import Axes
+    from matplotlib.figure import Figure as MatplotlibFigure
 
 
 class _StructuralEqMixin:
@@ -170,46 +175,62 @@ class Waveform(_StructuralEqMixin, ABC):
 
     # -- visualization -----------------------------------------------------
 
-    def plot(self, resolution: int = 1, ax: Axes | None = None) -> Axes:
-        """Plot the envelope on a matplotlib `Axes`.
+    def plot(
+        self,
+        resolution: int = 1,
+        *,
+        style: Style | None = None,
+        renderer: str | None = None,
+        target: object = None,
+    ) -> Any:  # ruff: ignore[any-type]  # whatever handle the renderer gives back
+        """Plot the envelope.
 
-        Requires ``matplotlib``, which ships in the ``viz`` extra; it is imported inside the call so the
-        rest of the package stays importable without it.
+        The envelope is described as a [`Figure`][qprogram.plotting.Figure] and handed to a renderer,
+        which is how [`QProgramResult.plot`][qprogram.QProgramResult.plot] draws too, so a pulse and
+        the sweep it produced read as one experiment rather than as two libraries. The default
+        renderer is matplotlib, from the ``viz`` extra, and it returns the `Axes` it drew on.
 
         Args:
             resolution (int, optional): Sample period in nanoseconds.
-            ax (Axes | None): Axes to draw on. A fresh figure+axes is created when ``None``.
+            style (Style | None): Palette and drawing weights. Defaults to
+                [`Style`][qprogram.plotting.Style]``()``, which is the light theme; a style that
+                names no size of its own is drawn at
+                [`ENVELOPE_SIZE`][qprogram.plotting.ENVELOPE_SIZE].
+            renderer (str | None): A name passed to
+                [`resolve_renderer`][qprogram.plotting.resolve_renderer]. Defaults to ``"matplotlib"``.
+            target (object): An existing surface for the renderer to draw on — a matplotlib
+                `Axes` for the default one. A new figure is made when omitted.
 
         Returns:
-            The `Axes` containing the plot.
+            Whatever the renderer returns: the `Axes` for the matplotlib one.
 
         Raises:
-            ModuleNotFoundError: When ``matplotlib`` is not installed — install ``qprogram[viz]``.
+            KeyError: When ``renderer`` names none that is registered.
+            ModuleNotFoundError: When the matplotlib renderer is used without matplotlib
+                installed — install ``qprogram[viz]``.
             UnassignedVariableError: If the envelope depends on a variable that has no value.
         """
-        import matplotlib.pyplot as plt  # ruff: ignore[import-outside-top-level]
-
-        if ax is None:
-            _, ax = plt.subplots(figsize=(6, 2))
         env = self.envelope(resolution=resolution)
-        t = np.arange(len(env)) * resolution
-        ax.plot(t, env)
-        ax.set_xlabel("Time (ns)")
-        ax.set_ylabel("Amplitude")
-        ax.set_title(type(self).__name__)
-        return ax
+        figure = Figure(
+            marks=(Line(np.arange(len(env)) * resolution, env),),
+            x_label="Time (ns)",
+            y_label="Amplitude",
+            title=type(self).__name__,
+        )
+        return resolve_renderer(renderer)(figure, (style or Style()).sized(ENVELOPE_SIZE), target)
 
     def _repr_html_(self) -> str:
-        """Return an inline SVG of the envelope for Jupyter display.
+        """Return the envelope as an image for Jupyter display.
 
         Returns:
-            The SVG markup of the envelope plot.
+            The markup for one cell, holding the figure drawn for a light surface and for a dark one.
 
         Raises:
             ModuleNotFoundError: When ``matplotlib`` is not installed — install ``qprogram[viz]``.
             UnassignedVariableError: If the envelope depends on a variable that has no value.
         """
-        return _waveform_svg(self.plot)
+        name = type(self).__name__
+        return _envelope_html(lambda style: self.plot(style=style), f"{name} envelope")
 
 
 class IQWaveform(_StructuralEqMixin, ABC):
@@ -337,80 +358,153 @@ class IQWaveform(_StructuralEqMixin, ABC):
     def plot(
         self,
         resolution: int = 1,
-        axes: tuple[Axes, Axes] | None = None,
-    ) -> tuple[Axes, Axes]:
-        """Plot the I and Q channels on two stacked matplotlib axes.
+        *,
+        style: Style | None = None,
+        renderer: str | None = None,
+        target: tuple[object, object] | None = None,
+    ) -> tuple[Any, Any]:
+        """Plot the I and Q channels on two stacked panels.
 
-        Requires ``matplotlib``, which ships in the ``viz`` extra; it is imported inside the call so the
-        rest of the package stays importable without it.
+        Each channel is described as a [`Figure`][qprogram.plotting.Figure] and handed to a renderer,
+        the second asking for the theme's second colour so the pair does not read as one series. The
+        panels share an x axis, so only the lower one is labelled.
+
+        The panels themselves are the one thing here a renderer does not decide: two axes sharing a
+        scale is a matplotlib layout, and it is the only one this knows how to build, so any other
+        renderer has to be given the surfaces to draw on.
 
         Args:
             resolution (int, optional): Sample period in nanoseconds.
-            axes (tuple[Axes, Axes] | None): Pair of axes to draw on. A fresh figure with two stacked axes
-                is created when ``None``.
+            style (Style | None): Palette and drawing weights. Defaults to
+                [`Style`][qprogram.plotting.Style]``()``, which is the light theme; a style that
+                names no size of its own is drawn at
+                [`IQ_ENVELOPE_SIZE`][qprogram.plotting.IQ_ENVELOPE_SIZE].
+            renderer (str | None): A name passed to
+                [`resolve_renderer`][qprogram.plotting.resolve_renderer]. Defaults to ``"matplotlib"``.
+            target (tuple[object, object] | None): The ``(I, Q)`` surfaces to draw the two panels
+                on — a pair of matplotlib `Axes` for the default renderer. A new two-panel figure is
+                made when omitted.
 
         Returns:
-            The ``(I_axes, Q_axes)`` pair used for the plot.
+            What the renderer gave back for each panel, ``(I, Q)``: the two `Axes` for the matplotlib
+            one.
 
         Raises:
-            ModuleNotFoundError: When ``matplotlib`` is not installed — install ``qprogram[viz]``.
+            KeyError: When ``renderer`` names none that is registered.
+            ValidationError: When a renderer other than the built-in one is asked for with no
+                ``target``, since the panels it would be handed are matplotlib's.
+            ModuleNotFoundError: When the matplotlib renderer is used without matplotlib
+                installed — install ``qprogram[viz]``.
             UnassignedVariableError: If either channel's envelope depends on a variable that has no
                 value.
         """
-        import matplotlib.pyplot as plt  # ruff: ignore[import-outside-top-level]
-
-        if axes is None:
-            _, ax_pair = plt.subplots(2, 1, sharex=True, figsize=(6, 3))
-            axes = (ax_pair[0], ax_pair[1])
+        draw = resolve_renderer(renderer)
+        style = (style or Style()).sized(IQ_ENVELOPE_SIZE)
+        panels = target if target is not None else _stacked_panels(style, renderer)
         i_env = self.get_I().envelope(resolution=resolution)
         q_env = self.get_Q().envelope(resolution=resolution)
         t = np.arange(len(i_env)) * resolution
-        axes[0].plot(t, i_env)
-        axes[0].set_ylabel("I")
-        axes[0].set_title(type(self).__name__)
-        axes[1].plot(t, q_env)
-        axes[1].set_ylabel("Q")
-        axes[1].set_xlabel("Time (ns)")
-        return axes
+        i_figure = Figure(marks=(Line(t, i_env),), x_label="", y_label="I", title=type(self).__name__)
+        q_figure = Figure(marks=(Line(t, q_env),), x_label="Time (ns)", y_label="Q", series=1)
+        return draw(i_figure, style, panels[0]), draw(q_figure, style, panels[1])
 
     def _repr_html_(self) -> str:
-        """Return an inline SVG of the I/Q envelopes for Jupyter display.
+        """Return the I and Q envelopes as an image for Jupyter display.
 
         Returns:
-            The SVG markup of the stacked I and Q plots.
+            The markup for one cell, holding the figure drawn for a light surface and for a dark one.
 
         Raises:
             ModuleNotFoundError: When ``matplotlib`` is not installed — install ``qprogram[viz]``.
             UnassignedVariableError: If either channel's envelope depends on a variable that has no
                 value.
         """
-        return _waveform_svg(self.plot)
+        name = type(self).__name__
+        return _envelope_html(lambda style: self.plot(style=style)[0], f"{name} I and Q envelopes")
 
 
-def _waveform_svg(plot_fn: Callable[[], object]) -> str:
-    """Capture ``plot_fn()``'s output as an inline SVG string for Jupyter ``_repr_html_``.
-
-    The figure is closed after serialization so a notebook cell does not also render it through the
-    pyplot display hook.
+def _stacked_panels(style: Style, renderer: str | None) -> tuple[Axes, Axes]:
+    """Make the two axes an IQ envelope is drawn on, stacked and sharing an x axis.
 
     Args:
-        plot_fn (Callable[[], object]): Plotting callable that leaves the figure it drew as pyplot's
-            current figure — which is what creating one through `matplotlib.pyplot.subplots`
-            does. Its return value is discarded; the figure is picked up with
-            `matplotlib.pyplot.gcf`.
+        style (Style): Read for the figure size and the surface colour behind the panels.
+        renderer (str | None): The renderer the caller asked for, read only to refuse the ones whose
+            surfaces this cannot make.
 
     Returns:
-        The SVG markup of the figure ``plot_fn`` drew.
+        The ``(I, Q)`` axes, in that order.
+
+    Raises:
+        ValidationError: When ``renderer`` names anything but the built-in one.
+        ModuleNotFoundError: When ``matplotlib`` is not installed — install ``qprogram[viz]``.
+    """
+    if renderer is not None and renderer != DEFAULT_RENDERER:
+        msg = (
+            f"renderer {renderer!r} has to be given target=(I, Q) to draw on: two panels sharing an "
+            f"x axis is a matplotlib layout, and it is the only pair this knows how to make"
+        )
+        raise ValidationError(msg)
+    import matplotlib.pyplot as plt  # ruff: ignore[import-outside-top-level]
+
+    figure, axes = plt.subplots(2, 1, sharex=True, figsize=style.size)
+    figure.set_facecolor(style.theme.surface)
+    return axes[0], axes[1]
+
+
+def _envelope_html(draw: Callable[[Style], Axes], alt: str) -> str:
+    """Draw an envelope for both surfaces and wrap the pair for a Jupyter cell.
+
+    A figure drawn for a white surface is a white rectangle in a dark notebook, and the display
+    protocol takes no argument to say which surface is being read on. So both are drawn and the
+    browser picks: ``<picture>`` with a ``prefers-color-scheme`` source is the plain HTML way to ask,
+    which is the notebook's own theme under VS Code and the operating system's under JupyterLab. A
+    host that strips the ``<source>`` is left with the light figure, which is what a cell had before.
+
+    Args:
+        draw (Callable[[Style], Axes]): Draws the envelope with the style it is handed and returns an
+            axes on the figure to serialize. Both styles name no size, so it draws at whichever of
+            the two envelope sizes suits it.
+        alt (str): Alt text naming what the figure shows.
+
+    Returns:
+        The markup for one cell.
 
     Raises:
         ModuleNotFoundError: When ``matplotlib`` is not installed — install ``qprogram[viz]``.
     """
+    dark = _envelope_data_uri(draw, Style(theme=DARK))
+    light = _envelope_data_uri(draw, Style(theme=LIGHT))
+    return (
+        f'<picture><source media="(prefers-color-scheme: dark)" srcset="{dark}">'
+        f'<img src="{light}" alt="{alt}" style="max-width:100%"></picture>'
+    )
+
+
+def _envelope_data_uri(draw: Callable[[Style], Axes], style: Style) -> str:
+    """Draw an envelope once and return the figure as an SVG ``data:`` URI.
+
+    The figure is closed after serialization, so a notebook cell does not also render it through the
+    pyplot display hook and a session that displays many waveforms does not trip matplotlib's
+    open-figure warning.
+
+    Args:
+        draw (Callable[[Style], Axes]): Draws the envelope and returns an axes on the figure wanted.
+        style (Style): The style to draw with.
+
+    Returns:
+        A ``data:image/svg+xml`` URI holding the figure.
+
+    Raises:
+        ModuleNotFoundError: When ``matplotlib`` is not installed — install ``qprogram[viz]``.
+    """
+    import base64  # ruff: ignore[import-outside-top-level]
     import io  # ruff: ignore[import-outside-top-level]
 
     import matplotlib.pyplot as plt  # ruff: ignore[import-outside-top-level]
 
-    plot_fn()
-    buf = io.StringIO()
-    plt.gcf().savefig(buf, format="svg", bbox_inches="tight")
-    plt.close(plt.gcf())
-    return buf.getvalue()
+    # An Axes always belongs to a figure; the annotation admits None for an axes under teardown.
+    figure = cast("MatplotlibFigure", draw(style).get_figure())
+    buf = io.BytesIO()
+    figure.savefig(buf, format="svg", bbox_inches="tight")
+    plt.close(figure)
+    return "data:image/svg+xml;base64," + base64.b64encode(buf.getvalue()).decode("ascii")

@@ -24,6 +24,10 @@ ax.axvline(0.5, linestyle="--")
 ax.set_ylabel("Readout response")
 ```
 
+In a notebook that axes is also the cell's value, so a `result.plot(m0)` on a
+line of its own shows `<Axes: ...>` beside the figure. Bind it the way the
+snippet above does, or end the call with a semicolon.
+
 Behind that call are two halves that never meet. `qp.plotting.build_figure`
 reads the array and returns a `Figure`: marks holding numpy arrays, two axis
 labels, and nothing about colour or canvas. A renderer takes that figure and a
@@ -201,15 +205,9 @@ one already there has to come with the arithmetic that earns it:
 # On a coordinate that declares units="Hz":
 Quantity(transform=lambda v: v / 1e9)  # raises: the axis would read (Hz) over gigahertz
 Quantity(units="GHz")  # raises: relabels the unit, changes no number
-Quantity(units="")  # raises: calls hertz dimensionless, changes no number
 Quantity(units="GHz", transform=lambda v: v / 1e9)  # both halves, and the figure is drawn
 Quantity(units="Hz", transform=lambda v: v - v[0])  # a shift keeps its unit, and says so
-Quantity(units="", transform=lambda v: v / v[-1])  # a bare ratio, and the arithmetic that made one
 ```
-
-Emptying a unit is a change like any other rather than a way around the rule:
-`units=""` says the numbers carry no unit at all, which over values that
-arrived in hertz needs the arithmetic that made them a ratio.
 
 Both fire only where there is a claim to falsify, so a coordinate that declared
 no unit, or a demodulated magnitude that has none to declare, takes either half
@@ -262,6 +260,20 @@ result.plot(m0, style=qp.plotting.Style(theme=house))
 `markers` is worth turning on for a coarse sweep, where the points are the
 measurement and the line between them is interpolation.
 
+`size` is the one field with no default of its own. `None` means the size that
+suits what is being drawn, which is `qp.plotting.DEFAULT_SIZE` for a
+measurement and `ENVELOPE_SIZE` or `IQ_ENVELOPE_SIZE` for a waveform, and it is
+read only when the figure is made here: axes you pass as `target=` keep the size
+they came with.
+
+`Waveform.plot` takes the same `style`, `renderer` and `target`, which is most
+of why the palette and the registry are objects of their own: a pi pulse and the
+Rabi sweep it produced are one experiment, and a pair that speaks two visual
+languages is a papercut. Its style defaults to `Style()` the way this one does,
+and the only differences are the size a figure of a pulse comes out at and the
+`(I, Q)` pair of panels an IQ shape wants for a `target`.
+[Waveforms](waveforms.md) has the rest.
+
 ## Another renderer
 
 A renderer is any callable taking a figure, a `Style`, and a surface to draw
@@ -283,6 +295,7 @@ def to_text(figure, style, target=None):
 
 register_renderer("text", to_text)
 result.plot(m0, renderer="text")
+qp.waveforms.Square(0.5, 100).plot(renderer="text")
 ```
 
 `build_figure` is the half worth reading first when writing one. It returns a
@@ -290,6 +303,12 @@ result.plot(m0, renderer="text")
 dataclass of numpy arrays, and a renderer dispatches on their types. Nothing in
 that half imports a plotting library, so a renderer for any backend reads the
 same description.
+
+A figure hands over everything a renderer needs to draw it and nothing about
+how: the marks, the two labels, a title, either `Twin` scale, and `series`, the
+palette slot its first mark takes. That last one is only ever set when a figure
+is one panel of several that should not repeat a colour, which is what the `Q`
+panel of an IQ envelope is; a renderer drawing in one colour ignores it.
 
 ## What it does not draw
 

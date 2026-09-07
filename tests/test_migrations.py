@@ -117,10 +117,11 @@ def test_a_current_file_is_left_alone():
 def test_a_newer_file_is_refused(offset):
     """Migrations only run forward, so a file from a later release has nothing to bring it back."""
     major, minor = FORMAT_VERSION.split(".")[:2]
+    ahead = f"{major}.{int(minor) + offset}"
     with pytest.raises(qp.ParseError, match="Unsupported format version"):
-        qp.loads(f"#!QProgram {major}.{int(minor) + offset}\n\nbody:\n  sync\n")
+        qp.loads(f"#!QProgram {ahead}\n\nbody:\n  sync\n")
     with pytest.raises(qp.ParseError, match="Unsupported WaveformLibrary format version"):
-        qp.WaveformLibrary.loads(f"#!WaveformLibrary {major}.{int(minor) + offset}\n")
+        qp.WaveformLibrary.loads(f"#!WaveformLibrary {ahead}\n")
 
 
 def test_a_migration_ahead_of_its_release_is_left_out():
@@ -205,8 +206,9 @@ def test_a_migration_that_drops_a_line_is_refused():
     def _drops_a_line(lines):
         return lines[:-1]
 
+    text = f"#!QProgram {_older()}\n\nbody:\n  sync\n"
     with pytest.raises(ValueError, match=r"_drops_a_line.*preserve the line count"):
-        qp.loads(f"#!QProgram {_older()}\n\nbody:\n  sync\n")
+        qp.loads(text)
 
 
 def test_a_migration_that_adds_a_line_is_refused():
@@ -214,8 +216,9 @@ def test_a_migration_that_adds_a_line_is_refused():
     def _adds_a_line(lines):
         return [*lines, "  sync"]
 
+    text = f"#!QProgram {_older()}\n\nbody:\n  sync\n"
     with pytest.raises(ValueError, match=r"_adds_a_line.*preserve the line count"):
-        qp.loads(f"#!QProgram {_older()}\n\nbody:\n  sync\n")
+        qp.loads(text)
 
 
 def test_an_error_after_a_migration_still_names_the_line_of_the_file():

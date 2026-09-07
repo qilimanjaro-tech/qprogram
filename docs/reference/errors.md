@@ -71,7 +71,7 @@ built the offending node.
 | `qprogram.fragments` | A fragment name that is malformed or reserved, a parameter colliding with a local variable, the wrong number of call arguments, an unknown or duplicated keyword, an unsupported argument type, a call cycle, and an expansion result that is not a bus or a waveform |
 | `qprogram.sweeps.builtin` | Non-numeric or non-finite bounds, `num < 1`, a zero step, a step pointing away from `stop`, non-positive `Logspace` bounds, and a `Values` or `File` array that is empty or not 1-D |
 | `qprogram.sweeps.combinators` | A `Repeat` count below 1, a non-integer `Rotate` offset, `Concat` given a single source or none, and any combinator argument that is a callable rather than a `SweepSource` |
-| `qprogram.blocks` | A `Sweep` source that is a callable or not a 1-D sequence, a `Parallel` with fewer than two loops or with mismatched iteration counts, `Average(shots)` below 1, and appending directly to a `Conditional` |
+| `qprogram.blocks` | A `Sweep` source that is not a `SweepSource`, a `Parallel` with fewer than two loops or with mismatched iteration counts, `Average(shots)` below 1, and appending directly to a `Conditional` |
 | `qprogram.operations.operation` | A `fields=` that is a bare string, not iterable, empty, or names a field no capability token registers |
 | `qprogram.waveforms.iq_pair` | An `IQPair` whose I and Q channels have different concrete durations |
 | `qprogram.result` | An empty `MeasurementHandle` name, and `QProgramResult.get(field=None)` |

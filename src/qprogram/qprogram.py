@@ -1311,8 +1311,7 @@ class QProgram:
 
         Args:
             variable (Variable): The [`Variable`][qprogram.Variable] rebound each iteration.
-            source (SweepSource, optional): A [`SweepSource`][qprogram.SweepSource]. A bare 1-D
-                sequence is accepted as shorthand for [`Values`][qprogram.Values]. Omit it to
+            source (SweepSource, optional): A [`SweepSource`][qprogram.SweepSource]. Omit it to
                 get a `_SweepBuilder` and pick the values with a ``from_*`` method instead.
 
         Returns:
@@ -1320,8 +1319,7 @@ class QProgram:
             `_SweepBuilder` that produces one.
 
         Raises:
-            ValidationError: If ``source`` is given but is neither a sweep source nor a 1-D sequence
-                of values.
+            ValidationError: If ``source`` is given but is not a sweep source.
         """
         if isinstance(source, _Unset):
             return _SweepBuilder(self, variable)

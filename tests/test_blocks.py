@@ -193,8 +193,9 @@ def test_sweep_repeats():
 
 def test_sweep_rejects_a_sequence_of_points():
     """The block binds a source, not the points a source would produce."""
+    v = Variable("x")
     with pytest.raises(ValidationError, match="must be a SweepSource"):
-        Sweep(Variable("x"), [0.1, 0.2, 0.3])  # ty:ignore[invalid-argument-type]
+        Sweep(v, [0.1, 0.2, 0.3])  # ty:ignore[invalid-argument-type]
 
 
 def test_sweep_rejects_a_callable_source():

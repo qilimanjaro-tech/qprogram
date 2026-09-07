@@ -53,9 +53,7 @@ than the `rotate` and `repeat` shortcuts below reach.
 
 An omitted source is detected with a sentinel rather than `None`, so
 `sweep(freq, None)`, a source that failed to be computed, is rejected instead of
-quietly returning a builder: `Sweep source must be a SweepSource, got None`. The
-source position takes a source and nothing else, so an explicit list of points
-is written as `qp.Values([...])` or picked with `.from_values([...])`.
+quietly returning a builder: `Sweep source must be a SweepSource, got None`.
 
 A builder is not a context manager, because it has no values yet. Entering one
 raises `ValidationError` listing the `from_*` methods and the two-argument form,

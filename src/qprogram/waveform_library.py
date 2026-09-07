@@ -37,6 +37,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from qprogram._version import library_major_minor
 from qprogram.buses import BusRef
 from qprogram.errors import ValidationError
 
@@ -49,8 +50,9 @@ if TYPE_CHECKING:
 # (element | None, idx | None, kind | None, name) — None in a slot marks a less-specific tier.
 _LibraryKey = tuple["str | None", "int | tuple[int, ...] | None", "str | None", str]
 
-# Version of the ``.wfl`` text format (independent of the ``.qp`` FORMAT_VERSION).
-WAVEFORM_LIBRARY_FORMAT_VERSION = "1.0"
+# Version of the ``.wfl`` text format. Like the ``.qp`` FORMAT_VERSION it is the library version
+# truncated to ``major.minor``, and only the major is compared on load.
+WAVEFORM_LIBRARY_FORMAT_VERSION = library_major_minor()
 
 # Entry coordinate: ``element[idx].kind`` (exact) or ``element[*].kind`` (family). idx may be a tuple
 # (couplers): ``c[0,1].flux``.

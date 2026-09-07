@@ -37,6 +37,7 @@ qprogram/
     ├── errors.py                   # exception hierarchy
     ├── _reserved.py                # RESERVED_KEYWORDS
     ├── _structural.py              # ast_eq / ast_hash helpers
+    ├── _version.py                 # the library version, cut to major.minor for the headers
     ├── vendor.py                   # VendorNamespace base
     ├── platform.py                 # PlatformProtocol: capabilities, validate, plan, explain, execute
     ├── protocol.py                 # capability descriptors, Diagnostic, Profile, token registry
@@ -60,7 +61,7 @@ qprogram/
         ├── parser.py               # loads / load
         ├── registry.py             # registry-driven dispatch
         ├── _specs.py               # per-op serialize/parse callbacks
-        └── _format.py              # the format version constant
+        └── _format.py              # the .qp format version constant
 ```
 
 `qprogram` is the whole language: the AST, the `.qp` format, the capability

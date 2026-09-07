@@ -202,7 +202,7 @@ Fragment definitions are top-level sections before `body:`, and a call site is
 a bare `name(args)` statement. `qp.dumps(p)` on the program above gives:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 fragment x_pulse(drive, amp):
   play drive Gaussian(amplitude=amp, duration=40, sigma=8)
@@ -283,7 +283,7 @@ accepts, is in [the `.qp` format reference](../reference/qp-format.md#fragments)
 untouched. On the program above:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 body:
   var g

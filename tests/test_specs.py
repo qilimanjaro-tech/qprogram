@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from _header import HEADER
 
 from qprogram import (
     MeasurementHandle,
@@ -55,7 +56,7 @@ def _writer() -> _Writer:
 
 
 def _parser(body: str = "") -> _Parser:
-    text = f"#!QProgram 1.0\n\nbody:\n{body}"
+    text = HEADER + f"\n\nbody:\n{body}"
     p = _Parser(text)
     p._parse_header()
     return p

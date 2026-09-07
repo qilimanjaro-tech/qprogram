@@ -107,7 +107,7 @@ A program declaring one annotated variable and one bare one serializes like
 this, and the file round-trips back to a program equal to the original:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 metadata:
   label: "ramsey"

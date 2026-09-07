@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 
 import _dummy_vendor
 import pytest
+from _header import HEADER
 
 import qprogram as qp
 from qprogram.serialization import registry
@@ -60,7 +61,7 @@ def dummy_inactive() -> Iterator[None]:
 
 
 def _require_doc(vendor: str, version: str = "0.0", body: str = "") -> str:
-    return f"#!QProgram 1.0\n\nrequire {vendor} {version}\n\nbody:\n{body}"
+    return HEADER + f"\n\nrequire {vendor} {version}\n\nbody:\n{body}"
 
 
 # ---------------------------------------------------------------------------

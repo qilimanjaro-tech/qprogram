@@ -20,7 +20,7 @@ A file opens with the header, then carries up to four kinds of declaration
 ahead of the body:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 require <vendor> <major.minor>     # zero or more
 metadata:                          # optional
@@ -64,13 +64,13 @@ The header is exactly `#!QProgram <major>.<minor>`, matched by the terminal
 `/#!QProgram[ \t]+[0-9]+\.[0-9]+/`. Blank lines before it are skipped.
 
 Only the major component is binding. The running format version is
-`qprogram.serialization._format.FORMAT_VERSION`, currently `"1.0"`, and a file
-loads when its major matches, whatever its minor: `#!QProgram 1.7` parses under
+`qprogram.serialization._format.FORMAT_VERSION`, currently `"0.2"`, and a file
+loads when its major matches, whatever its minor: `#!QProgram 0.7` parses under
 this release. A different major, or a header with no version at all, stops the
 parse on line 1:
 
 ```
-Line 1: Unsupported format version 2.0
+Line 1: Unsupported format version 1.0
 Line 1: Unsupported format version unknown
 ```
 
@@ -149,7 +149,7 @@ The scan for the comment marker is quote-aware, and honors `\"` inside a
 string, so `play "drive#0" "pi"` keeps its bus name and
 `measure "ro" "w" "wt" name="a\"#b"` keeps the measurement name `a"#b`. The
 header line is the one place `#` never starts a comment: it is taken whole, so
-`#!QProgram 1.0 # note` fails with `Line 1: Unsupported format version note`
+`#!QProgram 0.2 # note` fails with `Line 1: Unsupported format version note`
 rather than parsing as a header with a trailing comment.
 
 ## Indentation
@@ -165,7 +165,7 @@ less than two columns past its header binds to the enclosing block instead, and
 nothing warns:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 body:
   average 10:
@@ -175,7 +175,7 @@ body:
 reloads and rewrites as
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 body:
   average 10:
@@ -414,7 +414,7 @@ writes its target variable after the `->`.
 One line of each, as the writer emits them:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 body:
   var d_lo label="d.lo"
@@ -881,7 +881,7 @@ The writer's output for a program with metadata, a schema, a fragment, an
 averaged sweep, a conditional, and a two-index bus path:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 metadata:
   label: "rabi"
@@ -918,7 +918,7 @@ the property `tests/test_round_trip.py` and the hypothesis strategies in
 ## Two-qubit CZ chevron
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 metadata:
   label: "cz_chevron"
@@ -1092,11 +1092,15 @@ package does not close the parser-to-program import cycle.
 
 ## Versioning
 
-The header version (`#!QProgram 1.0`) is the format version. New minor
+The header version (`#!QProgram 0.2`) is the format version, and it is the
+library version truncated to `major.minor`: `FORMAT_VERSION` reads the
+installed distribution's version, so `qprogram` 0.2.1 writes `0.2`. New minor
 versions add operations, waveforms, control-flow constructs, or sections in
 backward-compatible ways, and a parser accepts any minor within its own major.
 Major version bumps are reserved for breaking changes, and an older parser
-refuses to read a higher major version.
+refuses to read a higher major version. Tying the two together means a release
+that does not touch the format still moves the minor, which costs nothing under
+the contract, and that the library's own major bump is the format's.
 
 Vendor protocol versions (`require myvendor 0.1`) are independent: they
 describe the vendor's operation set, not the file format. The vendor extension
@@ -1117,7 +1121,7 @@ it through its own `dumps`, `loads`, `save`, and `load`, described under
 A document is a header line and one entry per line:
 
 ```
-#!WaveformLibrary 1.0
+#!WaveformLibrary 0.2
 "pi_pulse" q[0].drive = IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
 "pi_pulse" q[1].drive = IQDrag(amplitude=0.9, duration=40, sigma=8, beta=0.1)
 "cz" c[0,1].flux = Square(amplitude=0.3, duration=200)
@@ -1184,15 +1188,18 @@ back with no line number at all: the library parser wraps that lookup failure
 in a `ParseError` that carries one.
 
 The header version comes from `WAVEFORM_LIBRARY_FORMAT_VERSION` in
-`qprogram/waveform_library.py` and is independent of the `.qp`
-`FORMAT_VERSION`; the two formats version separately, and a `.wfl` version says
-nothing about which `.qp` version it accompanies. Only the major component is
-compared, so `#!WaveformLibrary 1`, `1.0.3`, and `1.7` all load on today's
-reader while a different major is refused outright, and the compatibility
-contract is the same as `.qp`'s: a minor version may add entry forms and
-waveform vocabulary, a major bump is reserved for a change an older reader
-cannot handle. The version token is read as the last whitespace-separated token
-on the header line, so a header with anything after the version reports that
-trailing token as an unsupported version. The writer always emits the current
-version, which means rewriting a `1.7` file on a `1.0` reader writes `1.0` and
-drops the claim to have come from a newer minor.
+`qprogram/waveform_library.py`, which follows the library version truncated to
+`major.minor` exactly as the `.qp` `FORMAT_VERSION` does — both call
+`library_major_minor` in `qprogram/_version.py`, so the two headers carry the
+same number on any given release. The formats are still checked separately: a
+`.wfl` file is read by the waveform library's own reader, and its version says
+nothing about the `.qp` grammar. Only the major component is compared, so
+`#!WaveformLibrary 0`, `0.2.3`, and `0.7` all load on today's reader while a
+different major is refused outright, and the compatibility contract is the same
+as `.qp`'s: a minor version may add entry forms and waveform vocabulary, a
+major bump is reserved for a change an older reader cannot handle. The version
+token is read as the last whitespace-separated token on the header line, so a
+header with anything after the version reports that trailing token as an
+unsupported version. The writer always emits the current version, which means
+rewriting a `0.7` file on a `0.2` reader writes `0.2` and drops the claim to
+have come from a newer minor.

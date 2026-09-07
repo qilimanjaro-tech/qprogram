@@ -573,7 +573,7 @@ print(qp.dumps(program))
 ```
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 metadata:
   label: "control-flow-forms"

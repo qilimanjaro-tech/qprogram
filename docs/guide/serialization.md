@@ -53,7 +53,7 @@ This is `qp.dumps` output for a T1 experiment built on
 `qp.BusSchema.transmon()`, with an averaging block around a delay sweep:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 metadata:
   label: "t1"
@@ -167,25 +167,28 @@ the handle is allocated before the path is promoted to a `BusRef`.
 
 Every file opens with the format version, which the writer takes from
 `FORMAT_VERSION` in `qprogram/serialization/_format.py`, the single constant
-both sides read:
+both sides read. It is the installed library version truncated to
+`major.minor`, so a `qprogram` 0.2.1 writes:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 ```
 
 Only the major component is binding. The parser checks the header before
-anything else and rejects a different major, so `#!QProgram 2.0` fails with
-`Line 1: Unsupported format version 2.0` while `#!QProgram 1.7` loads on
+anything else and rejects a different major, so `#!QProgram 1.0` fails with
+`Line 1: Unsupported format version 1.0` while `#!QProgram 0.7` loads on
 today's parser, which reads it with the features it knows. That is the
 compatibility contract: minor versions add sections, operations, and
 constructs without breaking older readers, and a major bump is reserved for a
-change that does.
+change that does. Since the version comes from the library, a release that
+leaves the format alone still moves the minor, and the library's own 1.0 is
+where files written by an 0.x release stop loading.
 
 A program that uses vendor operations or vendor blocks carries one `require`
 line per vendor, directly after the header:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 require myvendor 0.1
 
@@ -464,7 +467,7 @@ library = qp.WaveformLibrary.loads(text)
 exactly. This is the library built above:
 
 ```
-#!WaveformLibrary 1.0
+#!WaveformLibrary 0.2
 "pi_pulse" q[0].drive = IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
 "pi_pulse" q[1].drive = IQDrag(amplitude=0.9, duration=40, sigma=8, beta=0.1)
 "cz" c[0,1].flux = Square(amplitude=0.3, duration=200)

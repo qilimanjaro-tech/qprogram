@@ -76,7 +76,7 @@ transposes the result from `(2, 2000)` to `(2000, 2)` rather than being free.
 ## What it produces
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 metadata:
   label: "single_shot_readout"

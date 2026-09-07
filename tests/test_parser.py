@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from _header import HEADER
 
 from qprogram import (
     Comparison,
@@ -32,6 +33,7 @@ from qprogram import (
     loads,
 )
 from qprogram.buses import BusRef
+from qprogram.serialization._format import FORMAT_VERSION
 from qprogram.serialization.parser import (
     _find_comment,
     _parse_arg,
@@ -115,7 +117,7 @@ def test_split_lines(text, expected):
 @pytest.mark.parametrize("char", ["\n", "\r\n"])
 def test_split_lines_agrees_with_splitlines_on_real_terminators(char):
     """For the terminators the format does have, `_split_lines` is `str.splitlines`."""
-    text = char.join(["#!QProgram 1.0", "", "body:", "  sync", ""])
+    text = char.join([HEADER, "", "body:", "  sync", ""])
     assert _split_lines(text) == text.splitlines()
 
 
@@ -282,13 +284,14 @@ def test_loads_unsupported_major_version_raises():
 
 
 def test_loads_minor_within_major_works():
-    # Same major (1) is accepted regardless of minor.
-    text = "#!QProgram 1.99\n\nbody:\n"
+    # Any minor is accepted as long as the major is the running one.
+    major = FORMAT_VERSION.split(".")[0]
+    text = f"#!QProgram {major}.99\n\nbody:\n"
     loads(text)
 
 
 def test_loads_empty_program():
-    p = loads("#!QProgram 1.0\n\nbody:\n")
+    p = loads(HEADER + "\n\nbody:\n")
     assert p.label == ""
     assert p.variables == []
 
@@ -299,31 +302,31 @@ def test_loads_empty_program():
 
 
 def test_loads_with_vendor_require(dummy_vendor):  # ruff: ignore[unused-function-argument]
-    text = "#!QProgram 1.0\n\nrequire dummy 0.0\n\nbody:\n"
+    text = HEADER + "\n\nrequire dummy 0.0\n\nbody:\n"
     p = loads(text)
     assert p is not None
 
 
 def test_loads_unknown_vendor_require_raises():
-    text = "#!QProgram 1.0\n\nrequire nonexistent_vendor 1.0\n\nbody:\n"
+    text = HEADER + "\n\nrequire nonexistent_vendor 1.0\n\nbody:\n"
     with pytest.raises(ParseError, match="no matching extension"):
         loads(text)
 
 
 def test_loads_require_malformed_raises(dummy_vendor):  # ruff: ignore[unused-function-argument]
-    text = "#!QProgram 1.0\n\nrequire dummy\n\nbody:\n"
+    text = HEADER + "\n\nrequire dummy\n\nbody:\n"
     with pytest.raises(ParseError, match="must specify a version"):
         loads(text)
 
 
 def test_loads_require_major_mismatch_raises(dummy_vendor):  # ruff: ignore[unused-function-argument]
-    text = "#!QProgram 1.0\n\nrequire dummy 99.0\n\nbody:\n"
+    text = HEADER + "\n\nrequire dummy 99.0\n\nbody:\n"
     with pytest.raises(ParseError, match="major versions must match"):
         loads(text)
 
 
 def test_loads_require_minor_too_old_raises(dummy_vendor):  # ruff: ignore[unused-function-argument]
-    text = "#!QProgram 1.0\n\nrequire dummy 0.99\n\nbody:\n"
+    text = HEADER + "\n\nrequire dummy 0.99\n\nbody:\n"
     with pytest.raises(ParseError, match="minor version too old"):
         loads(text)
 
@@ -334,52 +337,52 @@ def test_loads_require_minor_too_old_raises(dummy_vendor):  # ruff: ignore[unuse
 
 
 def test_loads_metadata_label():
-    text = '#!QProgram 1.0\n\nmetadata:\n  label: "rabi"\n\nbody:\n'
+    text = HEADER + '\n\nmetadata:\n  label: "rabi"\n\nbody:\n'
     p = loads(text)
     assert p.label == "rabi"
 
 
 def test_loads_metadata_description():
-    text = '#!QProgram 1.0\n\nmetadata:\n  label: "x"\n  description: "desc"\n\nbody:\n'
+    text = HEADER + '\n\nmetadata:\n  label: "x"\n  description: "desc"\n\nbody:\n'
     p = loads(text)
     assert p.description == "desc"
 
 
 def test_loads_metadata_unescapes_quotes_and_backslashes():
-    text = '#!QProgram 1.0\n\nmetadata:\n  label: "say \\"hi\\""\n  description: "back\\\\slash"\n\nbody:\n'
+    text = HEADER + '\n\nmetadata:\n  label: "say \\"hi\\""\n  description: "back\\\\slash"\n\nbody:\n'
     p = loads(text)
     assert p.label == 'say "hi"'
     assert p.description == "back\\slash"
 
 
 def test_loads_metadata_value_with_colon():
-    text = '#!QProgram 1.0\n\nmetadata:\n  label: "rabi: trial 2"\n\nbody:\n'
+    text = HEADER + '\n\nmetadata:\n  label: "rabi: trial 2"\n\nbody:\n'
     p = loads(text)
     assert p.label == "rabi: trial 2"
 
 
 def test_loads_metadata_hash_inside_string_not_a_comment():
     """A ``#`` inside a quoted value — even after an escaped quote — is content."""
-    text = '#!QProgram 1.0\n\nmetadata:\n  label: "a \\"#1\\""\n\nbody:\n'
+    text = HEADER + '\n\nmetadata:\n  label: "a \\"#1\\""\n\nbody:\n'
     p = loads(text)
     assert p.label == 'a "#1"'
 
 
 def test_loads_metadata_unquoted_label_raises():
-    text = "#!QProgram 1.0\n\nmetadata:\n  label: rabi\n\nbody:\n"
+    text = HEADER + "\n\nmetadata:\n  label: rabi\n\nbody:\n"
     with pytest.raises(ParseError, match="must be a quoted string"):
         loads(text)
 
 
 def test_loads_metadata_invalid_line_raises():
-    text = "#!QProgram 1.0\n\nmetadata:\n  garbage\n\nbody:\n"
+    text = HEADER + "\n\nmetadata:\n  garbage\n\nbody:\n"
     with pytest.raises(ParseError, match="invalid metadata line"):
         loads(text)
 
 
 def test_loads_metadata_unknown_key_tolerated():
     """Unknown metadata keys are forward-compatible — ignored, not an error."""
-    text = '#!QProgram 1.0\n\nmetadata:\n  label: "x"\n  author: "someone"\n\nbody:\n'
+    text = HEADER + '\n\nmetadata:\n  label: "x"\n  author: "someone"\n\nbody:\n'
     p = loads(text)
     assert p.label == "x"
 
@@ -390,98 +393,86 @@ def test_loads_metadata_unknown_key_tolerated():
 
 
 def test_loads_inline_schema():
-    text = "#!QProgram 1.0\n\nschema:\n  element q:\n    drive info=IQ\n    readout info=IQ+acquires\n\nbody:\n"
+    text = HEADER + "\n\nschema:\n  element q:\n    drive info=IQ\n    readout info=IQ+acquires\n\nbody:\n"
     p = loads(text)
     assert p.schema is not None
     assert "q" in p.schema.elements
 
 
 def test_loads_inline_schema_with_naming():
-    text = (
-        '#!QProgram 1.0\n\nschema:\n  naming: "{kind}_{element}{index}_bus"\n  element q:\n    drive info=IQ\n\nbody:\n'
-    )
+    text = HEADER + '\n\nschema:\n  naming: "{kind}_{element}{index}_bus"\n  element q:\n    drive info=IQ\n\nbody:\n'
     p = loads(text)
     assert p.schema.naming.pattern == "{kind}_{element}{index}_bus"
 
 
 def test_loads_rejects_bare_preset_keyword_schema():
-    text = "#!QProgram 1.0\n\nschema: transmon\n\nbody:\n"
+    text = HEADER + "\n\nschema: transmon\n\nbody:\n"
     with pytest.raises(ParseError, match="invalid schema declaration"):
         loads(text)
 
 
 def test_loads_rejects_duplicate_schema():
-    text = (
-        "#!QProgram 1.0\n\n"
-        "schema:\n"
-        "  element q:\n"
-        "    drive info=IQ\n"
-        "schema:\n"
-        "  element r:\n"
-        "    drive info=IQ\n"
-        "\n"
-        "body:\n"
-    )
+    text = HEADER + "\n\nschema:\n  element q:\n    drive info=IQ\nschema:\n  element r:\n    drive info=IQ\n\nbody:\n"
     with pytest.raises(ParseError, match="duplicate schema"):
         loads(text)
 
 
 def test_loads_rejects_empty_schema():
-    text = "#!QProgram 1.0\n\nschema:\nbody:\n"
+    text = HEADER + "\n\nschema:\nbody:\n"
     with pytest.raises(ParseError, match="no element declarations"):
         loads(text)
 
 
 def test_loads_rejects_invalid_naming_unquoted():
-    text = "#!QProgram 1.0\n\nschema:\n  naming: foo\n  element q:\n    drive info=IQ\nbody:\n"
+    text = HEADER + "\n\nschema:\n  naming: foo\n  element q:\n    drive info=IQ\nbody:\n"
     with pytest.raises(ParseError, match="quoted string"):
         loads(text)
 
 
 def test_loads_rejects_unexpected_schema_line():
-    text = "#!QProgram 1.0\n\nschema:\n  garbage\nbody:\n"
+    text = HEADER + "\n\nschema:\n  garbage\nbody:\n"
     with pytest.raises(ParseError, match="unexpected line in schema"):
         loads(text)
 
 
 def test_loads_rejects_bus_info_empty():
-    text = "#!QProgram 1.0\n\nschema:\n  element q:\n    drive info=\nbody:\n"
+    text = HEADER + "\n\nschema:\n  element q:\n    drive info=\nbody:\n"
     with pytest.raises(ParseError):
         loads(text)
 
 
 def test_loads_rejects_bus_info_unknown_token():
-    text = "#!QProgram 1.0\n\nschema:\n  element q:\n    drive info=banana\nbody:\n"
+    text = HEADER + "\n\nschema:\n  element q:\n    drive info=banana\nbody:\n"
     with pytest.raises(ParseError, match="unknown token"):
         loads(text)
 
 
 def test_loads_rejects_bus_info_multiple_channels():
-    text = "#!QProgram 1.0\n\nschema:\n  element q:\n    drive info=IQ+single\nbody:\n"
+    text = HEADER + "\n\nschema:\n  element q:\n    drive info=IQ+single\nbody:\n"
     with pytest.raises(ParseError, match="multiple channel tokens"):
         loads(text)
 
 
 def test_loads_rejects_bus_info_duplicate_flag():
-    text = "#!QProgram 1.0\n\nschema:\n  element q:\n    drive info=IQ+acquires+acquires\nbody:\n"
+    text = HEADER + "\n\nschema:\n  element q:\n    drive info=IQ+acquires+acquires\nbody:\n"
     with pytest.raises(ParseError, match="duplicate flag"):
         loads(text)
 
 
 def test_loads_rejects_bus_info_no_channel():
-    text = "#!QProgram 1.0\n\nschema:\n  element q:\n    drive info=acquires\nbody:\n"
+    text = HEADER + "\n\nschema:\n  element q:\n    drive info=acquires\nbody:\n"
     with pytest.raises(ParseError, match="must specify a channel"):
         loads(text)
 
 
 def test_loads_rejects_duplicate_bus_kind():
-    text = "#!QProgram 1.0\n\nschema:\n  element q:\n    drive info=IQ\n    drive info=single\nbody:\n"
+    text = HEADER + "\n\nschema:\n  element q:\n    drive info=IQ\n    drive info=single\nbody:\n"
     with pytest.raises(ParseError, match="duplicate bus"):
         loads(text)
 
 
 def test_loads_rejects_invalid_bus_line():
-    text = "#!QProgram 1.0\n\nschema:\n  element q:\n    not a bus line\nbody:\n"
+    text = HEADER + "\n\nschema:\n  element q:\n    not a bus line\nbody:\n"
     with pytest.raises(ParseError, match="invalid bus declaration"):
         loads(text)
 
@@ -492,13 +483,13 @@ def test_loads_rejects_invalid_bus_line():
 
 
 def test_loads_variable_bare():
-    text = "#!QProgram 1.0\n\nbody:\n  var freq\n"
+    text = HEADER + "\n\nbody:\n  var freq\n"
     p = loads(text)
     assert p.variables[0].id == "freq"
 
 
 def test_loads_variable_with_metadata():
-    text = '#!QProgram 1.0\n\nbody:\n  var freq label="L" units="Hz"\n'
+    text = HEADER + '\n\nbody:\n  var freq label="L" units="Hz"\n'
     p = loads(text)
     v = p.variables[0]
     assert v.label == "L"
@@ -506,50 +497,50 @@ def test_loads_variable_with_metadata():
 
 
 def test_loads_variable_invalid_id_format():
-    text = "#!QProgram 1.0\n\nbody:\n  var 1bad\n"
+    text = HEADER + "\n\nbody:\n  var 1bad\n"
     with pytest.raises(ParseError, match="must match"):
         loads(text)
 
 
 def test_loads_variable_reserved_id():
-    text = "#!QProgram 1.0\n\nbody:\n  var if\n"
+    text = HEADER + "\n\nbody:\n  var if\n"
     with pytest.raises((ParseError, Exception)):
         loads(text)
 
 
 def test_loads_variable_unquoted_attr_value():
-    text = "#!QProgram 1.0\n\nbody:\n  var x label=foo\n"
+    text = HEADER + "\n\nbody:\n  var x label=foo\n"
     with pytest.raises(ParseError):
         loads(text)
 
 
 def test_loads_variable_unknown_attr():
-    text = '#!QProgram 1.0\n\nbody:\n  var x foo="bar"\n'
+    text = HEADER + '\n\nbody:\n  var x foo="bar"\n'
     with pytest.raises(ParseError, match="unknown variable attribute"):
         loads(text)
 
 
 def test_loads_variable_duplicate_attr():
-    text = '#!QProgram 1.0\n\nbody:\n  var x label="a" label="b"\n'
+    text = HEADER + '\n\nbody:\n  var x label="a" label="b"\n'
     with pytest.raises(ParseError, match="duplicate variable attribute"):
         loads(text)
 
 
 def test_loads_variable_unexpected_token():
-    text = '#!QProgram 1.0\n\nbody:\n  var x label="a" garbage\n'
+    text = HEADER + '\n\nbody:\n  var x label="a" garbage\n'
     with pytest.raises(ParseError, match="unexpected token"):
         loads(text)
 
 
 def test_loads_variable_bare_var_raises():
     """``var`` alone (no id) is a malformed declaration, not a silent no-op."""
-    text = "#!QProgram 1.0\n\nbody:\n  var\n"
+    text = HEADER + "\n\nbody:\n  var\n"
     with pytest.raises(ParseError, match="`var` declaration must have the form"):
         loads(text)
 
 
 def test_loads_variable_duplicate_id():
-    text = "#!QProgram 1.0\n\nbody:\n  var x\n  var x\n"
+    text = HEADER + "\n\nbody:\n  var x\n  var x\n"
     with pytest.raises((ParseError, Exception)):
         loads(text)
 
@@ -560,13 +551,13 @@ def test_loads_variable_duplicate_id():
 
 
 def test_loads_play_with_string_alias():
-    text = '#!QProgram 1.0\n\nbody:\n  play "drive" "pi"\n'
+    text = HEADER + '\n\nbody:\n  play "drive" "pi"\n'
     p = loads(text)
     assert dumps(p) == text
 
 
 def test_loads_play_with_inline_waveform():
-    text = '#!QProgram 1.0\n\nbody:\n  play "drive" Square(amplitude=0.5, duration=100)\n'
+    text = HEADER + '\n\nbody:\n  play "drive" Square(amplitude=0.5, duration=100)\n'
     p = loads(text)
     op = p.body.elements[0]
     assert isinstance(op.waveform, Square)
@@ -574,7 +565,7 @@ def test_loads_play_with_inline_waveform():
 
 def test_loads_measure_name_kwarg():
     """The canonical writer form: the measurement name travels as ``name=``."""
-    text = '#!QProgram 1.0\n\nbody:\n  measure "readout" "r" "w" name="m0"\n'
+    text = HEADER + '\n\nbody:\n  measure "readout" "r" "w" name="m0"\n'
     p = loads(text)
     op = p.body.elements[0]
     assert op.fields == ("iq",)
@@ -583,7 +574,7 @@ def test_loads_measure_name_kwarg():
 
 def test_loads_measure_positional_handle_name():
     """The measurement name is also accepted as a bare 4th positional token."""
-    text = '#!QProgram 1.0\n\nbody:\n  measure "readout" "r" "w" "m0"\n'
+    text = HEADER + '\n\nbody:\n  measure "readout" "r" "w" "m0"\n'
     p = loads(text)
     op = p.body.elements[0]
     assert op.name == "m0"
@@ -591,14 +582,14 @@ def test_loads_measure_positional_handle_name():
 
 def test_loads_measure_without_name_auto_allocates():
     """Hand-written files may omit the name; the parser allocates like the builder."""
-    text = '#!QProgram 1.0\n\nbody:\n  measure "readout" "r" "w"\n  measure "readout" "r" "w"\n'
+    text = HEADER + '\n\nbody:\n  measure "readout" "r" "w"\n  measure "readout" "r" "w"\n'
     p = loads(text)
     names = [op.name for op in p.body.elements]
     assert names == ["m0", "m1"]
 
 
 def test_loads_measure_with_fields_kwarg():
-    text = '#!QProgram 1.0\n\nbody:\n  measure "readout" "r" "w" name="m0" fields=["iq", "raw"]\n'
+    text = HEADER + '\n\nbody:\n  measure "readout" "r" "w" name="m0" fields=["iq", "raw"]\n'
     p = loads(text)
     op = p.body.elements[0]
     assert op.fields == ("iq", "raw")
@@ -606,84 +597,84 @@ def test_loads_measure_with_fields_kwarg():
 
 def test_loads_measure_returns_kwarg_rejected_with_hint():
     """``returns=`` is rejected loudly, and the error says what to write instead."""
-    text = '#!QProgram 1.0\n\nbody:\n  measure "readout" "r" "w" name="m0" returns="iq,raw"\n'
+    text = HEADER + '\n\nbody:\n  measure "readout" "r" "w" name="m0" returns="iq,raw"\n'
     with pytest.raises(ParseError, match=r"`returns=` was replaced by `fields=`"):
         loads(text)
 
 
 def test_loads_measure_fields_canonicalized_on_load():
     """A hand-written file in non-canonical order loads to the canonical tuple."""
-    text = '#!QProgram 1.0\n\nbody:\n  measure "readout" "r" "w" name="m0" fields=["raw", "state", "iq"]\n'
+    text = HEADER + '\n\nbody:\n  measure "readout" "r" "w" name="m0" fields=["raw", "state", "iq"]\n'
     assert loads(text).body.elements[0].fields == ("state", "iq", "raw")
 
 
 def test_loads_measure_unknown_field_raises():
-    text = '#!QProgram 1.0\n\nbody:\n  measure "readout" "r" "w" name="m0" fields=["nope"]\n'
+    text = HEADER + '\n\nbody:\n  measure "readout" "r" "w" name="m0" fields=["nope"]\n'
     with pytest.raises(ParseError, match="unknown measurement field"):
         loads(text)
 
 
 def test_loads_measure_non_string_name_raises():
-    text = '#!QProgram 1.0\n\nbody:\n  measure "readout" "r" "w" name=42\n'
+    text = HEADER + '\n\nbody:\n  measure "readout" "r" "w" name=42\n'
     with pytest.raises(ParseError, match="quoted string"):
         loads(text)
 
 
 def test_loads_wait_with_int():
-    text = '#!QProgram 1.0\n\nbody:\n  wait "bus" 100\n'
+    text = HEADER + '\n\nbody:\n  wait "bus" 100\n'
     p = loads(text)
     assert p.body.elements[0].duration == 100
 
 
 def test_loads_wait_with_variable_ref():
-    text = '#!QProgram 1.0\n\nbody:\n  var t\n  wait "bus" t\n'
+    text = HEADER + '\n\nbody:\n  var t\n  wait "bus" t\n'
     p = loads(text)
     op = p.body.elements[0]
     assert op.duration is p.variables[0]
 
 
 def test_loads_sync_no_args():
-    text = "#!QProgram 1.0\n\nbody:\n  sync\n"
+    text = HEADER + "\n\nbody:\n  sync\n"
     p = loads(text)
     op = p.body.elements[0]
     assert op.targets is None
 
 
 def test_loads_sync_with_buses():
-    text = '#!QProgram 1.0\n\nbody:\n  sync "a" "b"\n'
+    text = HEADER + '\n\nbody:\n  sync "a" "b"\n'
     p = loads(text)
     op = p.body.elements[0]
     assert op.targets == ["a", "b"]
 
 
 def test_loads_set_frequency():
-    text = '#!QProgram 1.0\n\nbody:\n  set_frequency "bus" 5000000000.0\n'
+    text = HEADER + '\n\nbody:\n  set_frequency "bus" 5000000000.0\n'
     p = loads(text)
     op = p.body.elements[0]
     assert op.frequency == 5e9
 
 
 def test_loads_set_phase_with_var():
-    text = '#!QProgram 1.0\n\nbody:\n  var phi\n  set_phase "bus" phi\n'
+    text = HEADER + '\n\nbody:\n  var phi\n  set_phase "bus" phi\n'
     p = loads(text)
     op = p.body.elements[0]
     assert op.phase is p.variables[0]
 
 
 def test_loads_reset_phase():
-    text = '#!QProgram 1.0\n\nbody:\n  reset_phase "bus"\n'
+    text = HEADER + '\n\nbody:\n  reset_phase "bus"\n'
     p = loads(text)
     assert p.body.elements[0].bus == "bus"
 
 
 def test_loads_set_gain():
-    text = '#!QProgram 1.0\n\nbody:\n  set_gain "bus" 0.5\n'
+    text = HEADER + '\n\nbody:\n  set_gain "bus" 0.5\n'
     p = loads(text)
     assert p.body.elements[0].gain == 0.5
 
 
 def test_loads_set_offset_one_path():
-    text = '#!QProgram 1.0\n\nbody:\n  set_offset "bus" 0.1\n'
+    text = HEADER + '\n\nbody:\n  set_offset "bus" 0.1\n'
     p = loads(text)
     op = p.body.elements[0]
     assert op.offset_path0 == 0.1
@@ -691,21 +682,21 @@ def test_loads_set_offset_one_path():
 
 
 def test_loads_set_offset_two_paths_kwarg_form():
-    text = '#!QProgram 1.0\n\nbody:\n  set_offset "bus" 0.1 offset_path1=0.2\n'
+    text = HEADER + '\n\nbody:\n  set_offset "bus" 0.1 offset_path1=0.2\n'
     p = loads(text)
     op = p.body.elements[0]
     assert op.offset_path1 == 0.2
 
 
 def test_loads_set_parameter():
-    text = '#!QProgram 1.0\n\nbody:\n  set_parameter "cluster" "param" 5000000000.0\n'
+    text = HEADER + '\n\nbody:\n  set_parameter "cluster" "param" 5000000000.0\n'
     p = loads(text)
     op = p.body.elements[0]
     assert op.bus == "cluster"
 
 
 def test_loads_get_parameter_arrow():
-    text = '#!QProgram 1.0\n\nbody:\n  get_parameter "cluster" "param" -> result\n'
+    text = HEADER + '\n\nbody:\n  get_parameter "cluster" "param" -> result\n'
     p = loads(text)
     op = p.body.elements[0]
     assert op.bus == "cluster"
@@ -713,13 +704,13 @@ def test_loads_get_parameter_arrow():
 
 
 def test_loads_get_parameter_arrow_missing_var_raises():
-    text = '#!QProgram 1.0\n\nbody:\n  get_parameter "cluster" "param"\n'
+    text = HEADER + '\n\nbody:\n  get_parameter "cluster" "param"\n'
     with pytest.raises(ParseError, match="-> <var>"):
         loads(text)
 
 
 def test_loads_get_parameter_missing_bus_raises():
-    text = "#!QProgram 1.0\n\nbody:\n  get_parameter -> result\n"
+    text = HEADER + "\n\nbody:\n  get_parameter -> result\n"
     with pytest.raises(ParseError, match="bus and parameter"):
         loads(text)
 
@@ -729,27 +720,27 @@ def test_loads_unknown_operation_raises():
 
     Silently skipping the line would load a different program than the file describes.
     """
-    text = '#!QProgram 1.0\n\nbody:\n  unknown_op "bus" 42\n'
+    text = HEADER + '\n\nbody:\n  unknown_op "bus" 42\n'
     with pytest.raises(ParseError, match="unknown operation 'unknown_op'"):
         loads(text)
 
 
 def test_loads_unknown_vendor_operation_raises_with_hint():
     """A dotted op whose vendor namespace isn't registered names the missing extension."""
-    text = '#!QProgram 1.0\n\nbody:\n  ghostvendor.acquire "bus" "w"\n'
+    text = HEADER + '\n\nbody:\n  ghostvendor.acquire "bus" "w"\n'
     with pytest.raises(ParseError, match="Import the 'ghostvendor' extension"):
         loads(text)
 
 
 def test_loads_unknown_block_keyword_raises():
-    text = '#!QProgram 1.0\n\nbody:\n  repeat 5:\n    play "bus" "wf"\n'
+    text = HEADER + '\n\nbody:\n  repeat 5:\n    play "bus" "wf"\n'
     with pytest.raises(ParseError, match="unknown block keyword 'repeat'"):
         loads(text)
 
 
 def test_loads_excess_positional_tokens_raise():
     """Spec-style unparenthesized arithmetic must error, not silently drop tokens."""
-    text = '#!QProgram 1.0\n\nbody:\n  var t\n  wait "bus" 100 - t\n'
+    text = HEADER + '\n\nbody:\n  var t\n  wait "bus" 100 - t\n'
     with pytest.raises(ParseError, match="parenthesize"):
         loads(text)
 
@@ -760,7 +751,7 @@ def test_loads_excess_positional_tokens_raise():
 
 
 def test_loads_average_block():
-    text = '#!QProgram 1.0\n\nbody:\n  average 1000:\n    play "bus" "wf"\n'
+    text = HEADER + '\n\nbody:\n  average 1000:\n    play "bus" "wf"\n'
     p = loads(text)
     avg = p.body.elements[0]
     assert avg.shots == 1000
@@ -768,19 +759,19 @@ def test_loads_average_block():
 
 
 def test_loads_average_invalid_shots_raises():
-    text = "#!QProgram 1.0\n\nbody:\n  average abc:\n"
+    text = HEADER + "\n\nbody:\n  average abc:\n"
     with pytest.raises(ParseError, match="invalid shots"):
         loads(text)
 
 
 def test_loads_average_missing_shots_raises():
-    text = "#!QProgram 1.0\n\nbody:\n  average:\n"
+    text = HEADER + "\n\nbody:\n  average:\n"
     with pytest.raises(ParseError, match="requires a shot count"):
         loads(text)
 
 
 def test_loads_for_range_two_args():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  for x in Range(start=0, stop=10):\n    wait "bus" 100\n'
+    text = HEADER + '\n\nbody:\n  var x\n  for x in Range(start=0, stop=10):\n    wait "bus" 100\n'
     p = loads(text)
     sw = p.body.elements[0]
     assert sw.source.start == 0
@@ -789,19 +780,19 @@ def test_loads_for_range_two_args():
 
 
 def test_loads_for_range_three_args():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  for x in Range(start=0.0, stop=1.0, step=0.1):\n    wait "bus" 100\n'
+    text = HEADER + '\n\nbody:\n  var x\n  for x in Range(start=0.0, stop=1.0, step=0.1):\n    wait "bus" 100\n'
     p = loads(text)
     assert p.body.elements[0].source.step == 0.1
 
 
 def test_loads_for_range_missing_argument_raises():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  for x in Range(1):\n    wait "bus" 100\n'
+    text = HEADER + '\n\nbody:\n  var x\n  for x in Range(1):\n    wait "bus" 100\n'
     with pytest.raises(ParseError, match="cannot construct sweep source Range"):
         loads(text)
 
 
 def test_loads_for_values_list():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  for x in [0.0, 0.5, 1.0]:\n    wait "bus" 100\n'
+    text = HEADER + '\n\nbody:\n  var x\n  for x in [0.0, 0.5, 1.0]:\n    wait "bus" 100\n'
     p = loads(text)
     sw = p.body.elements[0]
     assert isinstance(sw.source, Values)
@@ -809,26 +800,26 @@ def test_loads_for_values_list():
 
 
 def test_loads_for_invalid_header_raises():
-    text = '#!QProgram 1.0\n\nbody:\n  for in Range(start=0, stop=1):\n    wait "bus" 100\n'
+    text = HEADER + '\n\nbody:\n  for in Range(start=0, stop=1):\n    wait "bus" 100\n'
     with pytest.raises(ParseError):
         loads(text)
 
 
 def test_loads_for_unknown_source_raises_and_lists_the_registered_ones():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  for x in bogus(0,1):\n    wait "bus" 100\n'
+    text = HEADER + '\n\nbody:\n  var x\n  for x in bogus(0,1):\n    wait "bus" 100\n'
     with pytest.raises(ParseError, match=r"unknown sweep source \'bogus\'; registered sources are"):
         loads(text)
 
 
 def test_loads_for_unknown_source_form_raises():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  for x in something:\n    wait "bus" 100\n'
+    text = HEADER + '\n\nbody:\n  var x\n  for x in something:\n    wait "bus" 100\n'
     with pytest.raises(ParseError, match="unknown sweep source"):
         loads(text)
 
 
 def test_loads_parallel_loops():
     text = (
-        "#!QProgram 1.0\n\n"
+        HEADER + "\n\n"
         "body:\n"
         "  var x\n"
         "  var y\n"
@@ -841,14 +832,17 @@ def test_loads_parallel_loops():
 
 
 def test_loads_block_scope():
-    text = '#!QProgram 1.0\n\nbody:\n  block:\n    wait "bus" 100\n'
+    text = HEADER + '\n\nbody:\n  block:\n    wait "bus" 100\n'
     p = loads(text)
     block = p.body.elements[0]
     assert len(block.elements) == 1
 
 
 def test_loads_nested_blocks():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  average 100:\n    for x in Range(start=0.0, stop=1.0, step=0.1):\n      wait "bus" 100\n'
+    text = (
+        HEADER
+        + '\n\nbody:\n  var x\n  average 100:\n    for x in Range(start=0.0, stop=1.0, step=0.1):\n      wait "bus" 100\n'
+    )
     p = loads(text)
     assert len(p.body.elements) == 1
 
@@ -859,21 +853,21 @@ def test_loads_nested_blocks():
 
 
 def test_loads_binary_arithmetic():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  set_frequency "bus" (x + 5)\n'
+    text = HEADER + '\n\nbody:\n  var x\n  set_frequency "bus" (x + 5)\n'
     p = loads(text)
     op = p.body.elements[0]
     assert isinstance(op.frequency, BinaryOp)
 
 
 def test_loads_unary_neg():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  set_phase "bus" (-x)\n'
+    text = HEADER + '\n\nbody:\n  var x\n  set_phase "bus" (-x)\n'
     p = loads(text)
     op = p.body.elements[0]
     assert isinstance(op.phase, UnaryOp)
 
 
 def test_loads_comparison():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  set_offset "bus" where((x < 5), x, 0)\n'
+    text = HEADER + '\n\nbody:\n  var x\n  set_offset "bus" where((x < 5), x, 0)\n'
     p = loads(text)
     op = p.body.elements[0]
     assert isinstance(op.offset_path0, Where)
@@ -881,7 +875,7 @@ def test_loads_comparison():
 
 
 def test_loads_logical_and():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  var y\n  set_offset "bus" where(((x == 1) and (y == 1)), 1, 0)\n'
+    text = HEADER + '\n\nbody:\n  var x\n  var y\n  set_offset "bus" where(((x == 1) and (y == 1)), 1, 0)\n'
     p = loads(text)
     op = p.body.elements[0]
     cond = op.offset_path0.condition
@@ -889,14 +883,14 @@ def test_loads_logical_and():
 
 
 def test_loads_logical_not():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  set_offset "bus" where((not (x == 1)), 1, 0)\n'
+    text = HEADER + '\n\nbody:\n  var x\n  set_offset "bus" where((not (x == 1)), 1, 0)\n'
     p = loads(text)
     op = p.body.elements[0]
     assert isinstance(op.offset_path0.condition, LogicalNot)
 
 
 def test_loads_math_func():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  set_frequency "bus" sin(x)\n'
+    text = HEADER + '\n\nbody:\n  var x\n  set_frequency "bus" sin(x)\n'
     p = loads(text)
     op = p.body.elements[0]
     assert isinstance(op.frequency, MathFunc)
@@ -904,32 +898,32 @@ def test_loads_math_func():
 
 
 def test_loads_where():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  set_offset "bus" where((x < 5), 1, 0)\n'
+    text = HEADER + '\n\nbody:\n  var x\n  set_offset "bus" where((x < 5), 1, 0)\n'
     p = loads(text)
     op = p.body.elements[0]
     assert isinstance(op.offset_path0, Where)
 
 
 def test_loads_where_wrong_arity_raises():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  set_offset "bus" where(x, 1)\n'
+    text = HEADER + '\n\nbody:\n  var x\n  set_offset "bus" where(x, 1)\n'
     with pytest.raises(ParseError, match="3 arguments"):
         loads(text)
 
 
 def test_loads_empty_paren_expression_raises():
-    text = '#!QProgram 1.0\n\nbody:\n  set_offset "bus" ()\n'
+    text = HEADER + '\n\nbody:\n  set_offset "bus" ()\n'
     with pytest.raises(ParseError, match="empty expression"):
         loads(text)
 
 
 def test_loads_paren_expression_unrecognized_raises():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  set_offset "bus" (x bogus 5)\n'
+    text = HEADER + '\n\nbody:\n  var x\n  set_offset "bus" (x bogus 5)\n'
     with pytest.raises(ParseError, match="unknown operator"):
         loads(text)
 
 
 def test_loads_paren_expression_single_token_not_unary_raises():
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  set_offset "bus" (x)\n'
+    text = HEADER + '\n\nbody:\n  var x\n  set_offset "bus" (x)\n'
     # ``(x)`` is one token without a binary op and not a leading sign.
     with pytest.raises(ParseError, match="could not parse"):
         loads(text)
@@ -941,33 +935,33 @@ def test_loads_paren_expression_single_token_not_unary_raises():
 
 
 def test_parse_context_parse_value_empty_raises():
-    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p = _Parser(HEADER + "\nbody:\n")
     p._parse_header()
     with pytest.raises(ParseError, match="empty argument token"):
         p.parse_value("")
 
 
 def test_parse_context_parse_value_quoted_string():
-    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p = _Parser(HEADER + "\nbody:\n")
     p._parse_header()
     assert p.parse_value('"hello"') == "hello"
 
 
 def test_parse_context_parse_value_true():
-    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p = _Parser(HEADER + "\nbody:\n")
     p._parse_header()
     assert p.parse_value("true") is True
 
 
 def test_parse_context_get_or_declare_variable_creates_new():
-    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p = _Parser(HEADER + "\nbody:\n")
     p._parse_header()
     v = p.get_or_declare_variable("auto")
     assert v.id == "auto"
 
 
 def test_parse_context_get_or_declare_variable_reuses():
-    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p = _Parser(HEADER + "\nbody:\n")
     p._parse_header()
     v1 = p.get_or_declare_variable("x")
     v2 = p.get_or_declare_variable("x")
@@ -975,7 +969,7 @@ def test_parse_context_get_or_declare_variable_reuses():
 
 
 def test_parse_context_declared_variable():
-    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p = _Parser(HEADER + "\nbody:\n")
     p._parse_header()
     assert p.declared_variable("ghost") is None
     p.get_or_declare_variable("ghost")
@@ -983,7 +977,7 @@ def test_parse_context_declared_variable():
 
 
 def test_parse_context_line_num():
-    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p = _Parser(HEADER + "\nbody:\n")
     assert p.line_num == 1
 
 
@@ -1005,13 +999,13 @@ def test_load_from_file(tmp_path, rabi_program):
 
 
 def test_loads_handles_inline_comments():
-    text = '#!QProgram 1.0\n\nbody:\n  var x   # a comment\n  set_frequency "bus" 5e9  # another\n'
+    text = HEADER + '\n\nbody:\n  var x   # a comment\n  set_frequency "bus" 5e9  # another\n'
     p = loads(text)
     assert len(p.variables) == 1
 
 
 def test_loads_handles_blank_lines():
-    text = "#!QProgram 1.0\n\n\nbody:\n\n  var x\n\n"
+    text = HEADER + "\n\n\nbody:\n\n  var x\n\n"
     p = loads(text)
     assert len(p.variables) == 1
 
@@ -1023,7 +1017,7 @@ def test_loads_handles_blank_lines():
 
 def test_loads_resolves_bus_path_against_schema():
     text = (
-        "#!QProgram 1.0\n\n"
+        HEADER + "\n\n"
         "schema:\n"
         "  element q:\n"
         "    drive info=IQ\n"
@@ -1042,7 +1036,7 @@ def test_loads_resolves_bus_path_against_schema():
 
 
 def test_loads_bus_path_tuple_index():
-    text = "#!QProgram 1.0\n\nschema:\n  element c:\n    flux info=single\n\nbody:\n  set_offset c[0,1].flux 0.5\n"
+    text = HEADER + "\n\nschema:\n  element c:\n    flux info=single\n\nbody:\n  set_offset c[0,1].flux 0.5\n"
     p = loads(text)
 
     op = p.body.elements[0]
@@ -1051,7 +1045,7 @@ def test_loads_bus_path_tuple_index():
 
 
 def test_loads_invalid_bus_path_raises():
-    text = '#!QProgram 1.0\n\nschema:\n  element q:\n    drive info=IQ\n\nbody:\n  play q[0].nonexistent "wf"\n'
+    text = HEADER + '\n\nschema:\n  element q:\n    drive info=IQ\n\nbody:\n  play q[0].nonexistent "wf"\n'
     with pytest.raises(ParseError, match="does not resolve"):
         loads(text)
 
@@ -1064,7 +1058,7 @@ def test_loads_quoted_path_like_bus_stays_string():
     only bare ``element[index].kind`` tokens are.
     """
     text = (
-        "#!QProgram 1.0\n\n"
+        HEADER + "\n\n"
         "schema:\n"
         "  element q:\n"
         "    drive info=IQ\n"
@@ -1107,33 +1101,33 @@ def test_tokenize_bracket_inside_quotes_does_not_nest():
 
 
 def test_parse_value_dict_literal():
-    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p = _Parser(HEADER + "\nbody:\n")
     p._parse_header()
     assert p.parse_value('{"a": 1.0, "b": {"c": null}}') == {"a": 1.0, "b": {"c": None}}
 
 
 def test_parse_value_dict_unquoted_key_raises():
-    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p = _Parser(HEADER + "\nbody:\n")
     p._parse_header()
     with pytest.raises(ParseError, match="quoted strings"):
         p.parse_value("{a: 1.0}")
 
 
 def test_parse_value_dict_missing_colon_raises():
-    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p = _Parser(HEADER + "\nbody:\n")
     p._parse_header()
     with pytest.raises(ParseError, match="invalid dict entry"):
         p.parse_value('{"a" 1.0}')
 
 
 def test_parse_value_list_is_plain_list():
-    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p = _Parser(HEADER + "\nbody:\n")
     p._parse_header()
     assert p.parse_value("[1, 2, 3]") == [1, 2, 3]
 
 
 def test_parse_value_null():
-    p = _Parser("#!QProgram 1.0\nbody:\n")
+    p = _Parser(HEADER + "\nbody:\n")
     p._parse_header()
     assert p.parse_value("null") is None
 

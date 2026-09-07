@@ -82,7 +82,7 @@ Both are the same decisions the [Rabi example](rabi.md) explains at length.
 ## What it produces
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 metadata:
   label: "qubit_spectroscopy"

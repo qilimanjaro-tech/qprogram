@@ -1,6 +1,6 @@
 [project]
 name = "qprogram"
-version = "0.1.0"
+version = "0.2.0"
 description = "A hardware-agnostic domain-specific language for pulse-level quantum programming."
 authors = [{name = "Qilimanjaro Quantum Tech", email = "info@qilimanjaro.tech"}]
 readme = "README.md"

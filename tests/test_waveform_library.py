@@ -19,10 +19,13 @@ Covers per-bus resolution and the portable ``.wfl`` text format.
 from __future__ import annotations
 
 import pytest
+from _header import WFL_HEADER
 from test_round_trip import UNICODE_LINE_BREAKS
 
+import qprogram
 from qprogram import BusSchema, ParseError, QProgram, ValidationError, WaveformLibrary
 from qprogram.errors import SerializationError
+from qprogram.waveform_library import WAVEFORM_LIBRARY_FORMAT_VERSION
 from qprogram.waveforms import Gaussian, IQDrag, IQPair, Square
 
 
@@ -83,6 +86,11 @@ def test_dumps_is_byte_stable_round_trip():
     assert WaveformLibrary.loads(text).dumps() == text
 
 
+def test_format_version_follows_the_library_version():
+    """The header version is the library version truncated to ``major.minor``."""
+    assert ".".join(qprogram.__version__.split(".")[:2]) == WAVEFORM_LIBRARY_FORMAT_VERSION
+
+
 def test_round_trip_preserves_every_tier():
     schema = BusSchema.transmon_coupled()
     q, c = schema.q, schema.c
@@ -107,13 +115,7 @@ def test_save_and_load_file(tmp_path):
 
 
 def test_blank_lines_and_comments_are_ignored():
-    text = (
-        "#!WaveformLibrary 1.0\n"
-        "\n"
-        "# a comment\n"
-        '"pi" q[0].drive = IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)\n'
-        "\n"
-    )
+    text = WFL_HEADER + '\n\n# a comment\n"pi" q[0].drive = IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)\n\n'
     library = WaveformLibrary.loads(text)
     schema = BusSchema.transmon()
     assert library.get(schema.q[0].drive, "pi").amplitude == 0.5
@@ -142,22 +144,22 @@ def test_incompatible_major_version_raises():
 
 def test_unknown_waveform_raises():
     with pytest.raises(ParseError, match="Unknown waveform or sweep source type"):
-        WaveformLibrary.loads('#!WaveformLibrary 1.0\n"x" = Bogus(1, 2)\n')
+        WaveformLibrary.loads(WFL_HEADER + '\n"x" = Bogus(1, 2)\n')
 
 
 def test_unquoted_name_raises():
     with pytest.raises(ParseError, match="quoted waveform name"):
-        WaveformLibrary.loads("#!WaveformLibrary 1.0\nx = Gaussian(0.5, 40, 8)\n")
+        WaveformLibrary.loads(WFL_HEADER + "\nx = Gaussian(0.5, 40, 8)\n")
 
 
 def test_missing_equals_raises():
     with pytest.raises(ParseError, match="must contain '='"):
-        WaveformLibrary.loads('#!WaveformLibrary 1.0\n"x" Gaussian(0.5, 40, 8)\n')
+        WaveformLibrary.loads(WFL_HEADER + '\n"x" Gaussian(0.5, 40, 8)\n')
 
 
 def test_bad_coordinate_raises():
     with pytest.raises(ParseError, match="invalid entry coordinate"):
-        WaveformLibrary.loads('#!WaveformLibrary 1.0\n"x" not_a_coord = Gaussian(0.5, 40, 8)\n')
+        WaveformLibrary.loads(WFL_HEADER + '\n"x" not_a_coord = Gaussian(0.5, 40, 8)\n')
 
 
 def test_non_concrete_waveform_rejected_on_dump():

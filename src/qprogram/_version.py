@@ -33,7 +33,7 @@ def library_major_minor() -> str:
     """
     try:
         release = version("qprogram")
-    except PackageNotFoundError:  # pragma: no cover - source tree without installed metadata
+    except PackageNotFoundError:
         return "0.0"
     major, _, rest = release.partition(".")
     minor = rest.partition(".")[0]

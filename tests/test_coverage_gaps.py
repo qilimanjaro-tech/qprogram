@@ -20,6 +20,7 @@ conditions.
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError
 from typing import cast
 
 import numpy as np
@@ -28,6 +29,7 @@ from _header import HEADER
 
 import qprogram as qp
 from qprogram import BusSchema, ParseError, Variable, serialization
+from qprogram._version import library_major_minor
 from qprogram.blocks import Block, Parallel, Sweep
 from qprogram.buses import BusRef
 from qprogram.operations import Wait
@@ -582,3 +584,23 @@ def test_parse_value_with_bus_path_token_returns_string():
     parser = _Parser(HEADER + "\nbody:\n")
     parser._parse_header()
     assert parser.parse_value("q[0].drive") == "q[0].drive"
+
+
+@pytest.mark.parametrize(
+    ("release", "expected"),
+    [("0.2.0", "0.2"), ("0.2.1.dev3", "0.2"), ("10.11", "10.11"), ("1", "1.0")],
+)
+def test_library_major_minor_truncates_the_release(monkeypatch, release, expected):
+    """The header version is the release's first two components, padded when it carries only one."""
+    monkeypatch.setattr("qprogram._version.version", lambda _name: release)
+    assert library_major_minor() == expected
+
+
+def test_library_major_minor_without_installed_metadata(monkeypatch):
+    """A source tree the package is not installed into has no version to read."""
+
+    def _missing(name: str) -> str:
+        raise PackageNotFoundError(name)
+
+    monkeypatch.setattr("qprogram._version.version", _missing)
+    assert library_major_minor() == "0.0"

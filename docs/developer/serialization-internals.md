@@ -29,10 +29,68 @@ metadata falls back to `"0.0"`. The `.wfl` format's
 `WAVEFORM_LIBRARY_FORMAT_VERSION` is derived the same way, which is why the two
 headers carry the same number.
 
-The version is emitted in the `#!QProgram` header and checked on load. Only the
-major component is binding: a file whose major differs is rejected with
-`Unsupported format version`, and any minor within the same major loads, so a
-`0.4` file opens under a `0.2` runtime.
+The version is emitted in the `#!QProgram` header and checked on load. A file
+from a later release is rejected with `Unsupported format version`, whichever
+component moved; an older file is migrated up to this version. The header
+carries `major.minor` exactly, since a patch release cannot change the format.
+
+## Migrations
+
+`src/qprogram/serialization/migrations.py` holds the rewrites that let today's
+parser read yesterday's syntax. Each one is registered under the version that
+broke something:
+
+```python
+_SWEEP_KEYWORD = re.compile(r"(?<=^  )sweep\b")
+
+
+@register_migration("0.3")
+def _sweep_became_for(lines: list[str]) -> list[str]:
+    return [_SWEEP_KEYWORD.sub("for", line) for line in lines]
+```
+
+`_parse_header` reads the version off the header and, when the file is older
+than the running one, replaces the parser's lines with the result of running
+every migration in `(file version, running version]`, oldest first. Nothing
+else in the parser knows a migration happened, and the file on disk is never
+touched: the rewrite lives as long as the parse. `WaveformLibrary.loads` does
+the same through `_migrated` in `src/qprogram/waveform_library.py`, against the
+`"wfl"` table.
+
+Three rules make that safe to rely on:
+
+- **One migration per breaking change, not per release.** A release that leaves
+  the syntax alone registers nothing, and a file two releases behind collects
+  every step in between. This is why the registry is a sorted list of steps
+  rather than a chain of parent revisions — there is no node to write for a
+  quiet release.
+- **Lines in, as many lines out.** A migration may rewrite a line, and may look
+  at its neighbours, but may not add or drop one. That is what keeps a
+  `ParseError`'s line number and every `source_map` entry naming a line of the
+  file its author opened. `migrate_lines` checks the count and raises
+  `ValueError` naming the migration that broke it. A change that genuinely
+  needs to restructure lines is the point at which this mechanism grows a line
+  map; until then the invariant is worth more than the flexibility.
+- **The header is not a migration's business.** The rewrite is handed every line
+  including the header, so the indices line up with the file, but the reader has
+  already read the version off it and moves past it.
+- **One table per format, one version scale for both.** `FORMAT_VERSION` and
+  `WAVEFORM_LIBRARY_FORMAT_VERSION` are the same library version cut the same
+  way, so `_RUNNING_VERSION` bounds both chains and a release's breaking change
+  carries the same number in either file. The rewrites stay apart, since
+  `"pi" = Square(...)` in a library and `play "drive" Square(...)` in a program
+  are not the same text; a change to the vocabulary they do share is one
+  function registered under both formats, which is what the stacked decorator
+  in `register_migration`'s docstring shows.
+
+A migration registered under a version that has not shipped yet is skipped,
+since the runner only applies steps up to the running version. That makes it
+safe to write the migration in the same commit as the change that needs it,
+before the release is cut.
+
+The same problem exists one level down, for a `require <vendor>` line whose
+extension renamed an operation, and the mechanism there is the vendor's own:
+nothing in this module is keyed by vendor yet.
 
 ## The registries
 

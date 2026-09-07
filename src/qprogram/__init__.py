@@ -79,6 +79,7 @@ from qprogram.qprogram import QProgram
 from qprogram.result import MeasurementHandle, MeasurementResult, QProgramResult
 from qprogram.serialization import (
     dumps,
+    register_migration,
     register_sweep_source,
     register_vendor_block,
     register_vendor_operation,
@@ -224,6 +225,7 @@ __all__ = [
     "or_",
     "reference_capabilities",
     "register_capability_tokens",
+    "register_migration",
     "register_profile",
     "register_sweep_source",
     "register_vendor_block",

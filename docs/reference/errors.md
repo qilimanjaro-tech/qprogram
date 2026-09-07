@@ -251,8 +251,8 @@ program. Nothing in the writer checks this for you.
 does not follow the grammar or fails a compatibility check, and what
 `WaveformLibrary.load` and `WaveformLibrary.loads` raise on a `.wfl`
 document. Compatibility accounts for the first group of `.qp` cases: a
-missing `#!QProgram` header, a header whose major version differs from the
-parser's, a `require` declaration that cannot be satisfied, and `require`
+missing `#!QProgram` header, a header whose version is newer than the parser's
+or is not `major.minor`, a `require` declaration that cannot be satisfied, and `require`
 lines that do not sit directly after the header. The rest are grammar:
 a second `schema:` declaration, a schema with no elements or a malformed
 `info=` value, a bus path that does not resolve against the schema, a

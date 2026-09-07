@@ -191,7 +191,7 @@ Use this when you are not sure which file to touch.
 | New sweep source | `src/qprogram/sweeps/builtin.py` or `combinators.py`, exported from `sweeps/__init__.py`, and added to the `register_sweep_source` loop in `src/qprogram/serialization/_specs.py`. That call also registers the class's `TOKEN` with the capability registry. |
 | Parser change | `src/qprogram/serialization/parser.py`. |
 | Writer change | `src/qprogram/serialization/writer.py`. |
-| Grammar change | `src/qprogram/grammar/qp.lark`, kept in step with the parser by `tests/test_grammar.py`. |
+| Grammar change | `src/qprogram/grammar/qp.lark`, kept in step with the parser by `tests/test_grammar.py`. A change that stops an existing file from parsing also needs a migration in `src/qprogram/serialization/migrations.py`, registered under the version that ships it, so files written before it keep loading. |
 | New vendor operation | The vendor's own package. See [Building a vendor extension](vendor-extensions.md). |
 | New vendor package | A separate package depending on `qprogram`. Same guide. |
 | Docs | `docs/`, with the nav in `zensical.toml`. |

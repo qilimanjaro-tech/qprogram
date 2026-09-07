@@ -571,6 +571,32 @@ call site: `qp.loads` is read off the package like any other attribute.
 ::: qprogram.serialization.parser.loads
 ::: qprogram.serialization.parser.load
 
+### Migrations
+
+A file whose header declares an earlier format version is rewritten in memory
+on the way in, by the migrations registered for the versions in between. One
+migration covers one breaking change to the syntax, so a release that breaks
+nothing registers none, and a file two releases behind collects both steps. The
+rewrite works on lines and must return as many as it was given, which is what
+keeps a `ParseError`'s line number and the source map pointing at lines of the
+file on disk.
+
+Both text formats read this way. `.qp` and `.wfl` carry the same version, since
+each is the library version cut to `major.minor`, so one running version bounds
+both chains; the tables are separate, because the same line of text means one
+thing in a program body and another in a library entry. `file_format` picks the
+table, and a rewrite that both formats need is registered twice. See
+[Migrations](../developer/serialization-internals.md#migrations) for how to
+write one.
+
+::: qprogram.serialization.migrations.register_migration
+::: qprogram.serialization.migrations.known_migrations
+::: qprogram.serialization.migrations.migrate_lines
+
+::: qprogram.serialization.migrations.Migration
+    options:
+      show_root_full_path: false
+
 ## Platform protocol
 
 ::: qprogram.PlatformProtocol

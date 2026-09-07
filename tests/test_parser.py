@@ -283,11 +283,11 @@ def test_loads_unsupported_major_version_raises():
         loads("#!QProgram 99.0\n\nbody:\n")
 
 
-def test_loads_minor_within_major_works():
-    # Any minor is accepted as long as the major is the running one.
+def test_loads_newer_minor_raises():
+    # Nothing from the future loads: this release cannot know what a later minor changed.
     major = FORMAT_VERSION.split(".")[0]
-    text = f"#!QProgram {major}.99\n\nbody:\n"
-    loads(text)
+    with pytest.raises(ParseError, match="Unsupported format version"):
+        loads(f"#!QProgram {major}.99\n\nbody:\n")
 
 
 def test_loads_empty_program():

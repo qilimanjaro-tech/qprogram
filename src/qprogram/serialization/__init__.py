@@ -21,6 +21,7 @@ the parser (which constructs [`QProgram`][qprogram.QProgram] instances) and the 
 """
 
 from qprogram.serialization import _specs as _core_specs
+from qprogram.serialization.migrations import Migration, known_migrations, register_migration
 from qprogram.serialization.registry import (
     BlockSpec,
     OperationSpec,
@@ -41,13 +42,16 @@ _core_specs._register_core_specs()  # ruff: ignore[private-member-access]
 
 __all__ = [
     "BlockSpec",
+    "Migration",
     "OperationSpec",
     "ParseError",
     "dumps",
+    "known_migrations",
     "known_sweep_sources",
     "load",
     "loads",
     "register_block",
+    "register_migration",
     "register_operation",
     "register_sweep_source",
     "register_vendor_block",

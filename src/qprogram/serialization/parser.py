@@ -28,6 +28,8 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, cast
 
+from qprogram._version import parse_file_version
+from qprogram._version import parse_major_minor as _parse_major_minor
 from qprogram.blocks.conditional import Conditional
 from qprogram.blocks.parallel import Parallel
 from qprogram.blocks.sweep import Sweep
@@ -41,6 +43,7 @@ from qprogram.result import MeasurementHandle
 from qprogram.serialization import _specs as _core_specs
 from qprogram.serialization._format import FORMAT_VERSION
 from qprogram.serialization._specs import _parse_number
+from qprogram.serialization.migrations import migrate_lines
 from qprogram.serialization.registry import (
     get_block_spec,
     get_operation_spec,
@@ -102,6 +105,9 @@ class _QuotedStr(str):
 def loads(text: str, *, auto_activate: bool = True) -> QProgram:
     """Parse a ``.qp``-format string into a [`QProgram`][qprogram.QProgram].
 
+    A document written against an earlier format version is migrated in memory first, by the
+    rewrites registered for the versions in between (see `qprogram.serialization.migrations`).
+
     Args:
         text (str): The ``.qp`` document to parse.
         auto_activate (bool, optional): Whether a ``require <vendor>`` line whose extension is not
@@ -120,6 +126,8 @@ def loads(text: str, *, auto_activate: bool = True) -> QProgram:
             such as a variable id that is a reserved ``.qp`` keyword.
         TypeError: If a constructor call in the file does not fit its class's signature — an inline
             waveform, or a sweep source nested inside a combinator's argument list.
+        ValueError: If a migration this load runs returns a different number of lines than it was
+            given, which would take every line number in the file's diagnostics with it.
     """
     return _Parser(text, auto_activate=auto_activate).parse()
 
@@ -143,6 +151,8 @@ def load(path: str, *, auto_activate: bool = True) -> QProgram:
             such as a variable id that is a reserved ``.qp`` keyword.
         TypeError: If a constructor call in the file does not fit its class's signature — an inline
             waveform, or a sweep source nested inside a combinator's argument list.
+        ValueError: If a migration this load runs returns a different number of lines than it was
+            given. See `loads`.
     """
     return loads(Path(path).read_text(encoding="utf-8"), auto_activate=auto_activate)
 
@@ -298,11 +308,16 @@ class _Parser:
     def _parse_header(self) -> None:
         """Consume the leading ``#!QProgram <version>`` header, skipping any blank lines before it.
 
-        Only the major component of the version is binding: a file whose major matches the running
-        format version loads whatever its minor is.
+        The version is exactly ``major.minor``; a file carries no patch, since a release that only
+        moves the patch cannot have changed the format. A file older than the running version is
+        migrated in place: the registered migrations for every version in between rewrite the
+        lines this parser goes on to read (see `qprogram.serialization.migrations`). A newer
+        version is refused, having been written by a release this one knows nothing about.
 
         Raises:
-            ParseError: If the header is missing or declares a different major format version.
+            ParseError: If the header is missing, its version is not ``major.minor``, or it
+                declares a version newer than this release writes.
+            ValueError: If a migration returns a different number of lines than it was given.
         """
         while self._pos < len(self._lines) and not self._stripped():
             self._pos += 1
@@ -311,9 +326,17 @@ class _Parser:
             msg = "Missing #!QProgram header"
             raise ParseError(msg, self._pos + 1)
         version = line.split()[-1] if len(line.split()) > 1 else "unknown"
-        if version.split(".")[0] != FORMAT_VERSION.split(".", maxsplit=1)[0]:
+        try:
+            declared = parse_file_version(version)
+        except ValueError as e:
+            msg = f"Unsupported format version {version}"
+            raise ParseError(msg, self._pos + 1) from e
+        current = parse_file_version(FORMAT_VERSION)
+        if declared > current:
             msg = f"Unsupported format version {version}"
             raise ParseError(msg, self._pos + 1)
+        if declared < current:
+            self._lines = migrate_lines(self._lines, version)
         self._pos += 1
 
     def _parse_requires(self) -> None:
@@ -1691,31 +1714,6 @@ def _unescape_str(s: str) -> str:
         out.append(c)
         i += 1
     return "".join(out)
-
-
-def _parse_major_minor(version: str) -> tuple[int, int]:
-    """Split a version string into its major and minor components.
-
-    A patch component is accepted and ignored: vendor compatibility is decided at major.minor.
-
-    Args:
-        version (str): Version text from a ``require`` line or a registered vendor.
-
-    Returns:
-        The ``(major, minor)`` pair.
-
-    Raises:
-        ValueError: If the string has no minor component, or either component is not an integer.
-    """
-    parts = version.split(".")
-    if len(parts) < 2:
-        msg = f"version {version!r} must have at least major.minor"
-        raise ValueError(msg)
-    try:
-        return int(parts[0]), int(parts[1])
-    except ValueError as e:
-        msg = f"version {version!r} has non-integer major/minor components"
-        raise ValueError(msg) from e
 
 
 def _to_expression(value: object) -> Expression:

@@ -26,7 +26,7 @@ qprogram/
 │   ├── conftest.py                 # shared schema / program / waveform fixtures
 │   └── _dummy_vendor.py            # a complete in-tree vendor extension, used as a fixture
 └── src/qprogram/
-    ├── __init__.py                 # the public surface: 105 names, parser entry points lazy
+    ├── __init__.py                 # the public surface: 106 names, parser entry points lazy
     ├── py.typed                    # PEP 561 marker: the package ships its own annotations
     ├── qprogram.py                 # QProgram builder, control-flow contexts, vendor registry
     ├── buses.py                    # BusSchema, BusRef, BusNaming, typed presets
@@ -61,6 +61,7 @@ qprogram/
         ├── parser.py               # loads / load
         ├── registry.py             # registry-driven dispatch
         ├── _specs.py               # per-op serialize/parse callbacks
+        ├── migrations.py           # rewrites that load a file from an older version
         └── _format.py              # the .qp format version constant
 ```
 

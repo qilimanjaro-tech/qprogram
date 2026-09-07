@@ -174,15 +174,29 @@ both sides read. It is the installed library version truncated to
 #!QProgram 0.2
 ```
 
-Only the major component is binding. The parser checks the header before
-anything else and rejects a different major, so `#!QProgram 1.0` fails with
-`Line 1: Unsupported format version 1.0` while `#!QProgram 0.7` loads on
-today's parser, which reads it with the features it knows. That is the
-compatibility contract: minor versions add sections, operations, and
-constructs without breaking older readers, and a major bump is reserved for a
-change that does. Since the version comes from the library, a release that
-leaves the format alone still moves the minor, and the library's own 1.0 is
-where files written by an 0.x release stop loading.
+The parser checks the header before anything else, and what it does next
+depends on which side of the running version the file is on.
+
+An older file is migrated. A release that changes the syntax registers one
+migration under its own version, and loading applies every migration newer than
+the file's version, oldest first, to the lines in memory — the file on disk is
+never rewritten. So a program saved by any earlier release parses against
+today's grammar, and a release that broke nothing registers nothing. The
+rewrites work line for line, which is what keeps a `ParseError`'s line number
+and `source_map` pointing at lines of the file you opened;
+[Migrations](../developer/serialization-internals.md#migrations) is how one is
+written.
+
+A newer file is refused: `#!QProgram 0.9` fails with `Line 1: Unsupported
+format version 0.9`, because a release cannot know what a later one changed, and
+there is no migration that runs backwards. The version is `major.minor` exactly
+— a patch release changes code, never the format, so a file has no patch to
+declare, and `#!QProgram 0.2.3` is refused with the same message.
+
+That is the compatibility contract: a minor adds sections, operations, and
+constructs, a major is reserved for a change that breaks the older spelling
+outright, and either way the file that a release wrote goes on loading under
+every release after it.
 
 A program that uses vendor operations or vendor blocks carries one `require`
 line per vendor, directly after the header:
@@ -482,6 +496,14 @@ looked up in the same registry, so a class registered with
 `qp.register_waveform` needs no further work to appear in a `.wfl` file, and a
 vendor waveform needs its package imported before the file loads. An empty
 library writes as the header alone and loads back empty.
+
+The header carries a version, and it is the same number a `.qp` file written by
+the same release carries. It is read the same way too: `major.minor` exactly, a
+later version refused, and an earlier one migrated by the rewrites registered
+for the `"wfl"` format. The two formats keep separate tables, since
+`"pi" = Square(...)` in a library and `play "drive" Square(...)` in a program
+are not the same line, so a release that changes both registers its rewrite
+under both.
 
 What `dumps` refuses to write is a waveform that is not concrete, since a
 calibration set that carries a `Variable` is not something an instrument can be

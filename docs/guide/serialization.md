@@ -218,16 +218,20 @@ installed extension registered, truncated to `major.minor`, because that is
 the granularity the compatibility check works at.
 
 The parser resolves each line against the extension registered in this
-environment, and does it before reading the body. The majors must be equal and
-the installed minor must be at least the file's, which gives two failures with
-distinct messages:
+environment, and does it before reading the body. The rule is the header's, one
+level down: the line asks for a `major.minor`, anything the installed extension
+cannot provide is refused, and anything older loads with the extension's own
+migrations applied to the body first.
 
 ```
-Line 3: file requires myvendor 2.0 (major 2); installed myvendor is 0.1.0 (major 0) — major versions must match
-Line 3: file requires myvendor 0.7 or compatible; installed myvendor is 0.1.0 — minor version too old
+Line 3: file requires myvendor 2.0, newer than the installed myvendor 0.1.0 — install myvendor 2.0 or newer
+Line 3: file version '0.7.1' must be exactly major.minor
 ```
 
-A patch component is informational and is ignored by the comparison. A
+So an extension that renames an operation registers a rewrite for it —
+`qp.register_vendor_migration("myvendor", "0.4")` — and the files its users
+already have keep loading. A patch component in the line is refused rather than
+ignored, since a patch release of an extension has no wire form of its own. A
 `require` line that appears after the first section is rejected outright, so
 the dependency list is always readable off the top of the file:
 

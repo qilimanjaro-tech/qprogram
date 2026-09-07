@@ -96,33 +96,33 @@ already imported. Write the line anyway; it is what makes the file
 self-contained.
 
 What the parser does with the lines it finds is resolve each one against the
-installed extension. The major version must match exactly, the installed minor
-must be greater than or equal to the file's, and a patch component is accepted
-and ignored, since compatibility is decided at major.minor. The writer
-truncates the version it emits to `major.minor` for the same reason. A vendor
-that is not imported yet is activated on the spot through its
-`qprogram.vendors` entry point. That discovery is the reason to write the line:
-a file missing it never triggers the import, and the first dotted operation
-then fails as an unknown vendor operation instead.
+installed extension, by the rule the header follows one level up. The version in
+the line is exactly `major.minor`: a patch release of an extension changes code,
+not the wire form, so `require myvendor 0.1.9` is refused rather than rounded
+down. A line asking for more than the installed extension provides is refused. An
+older line loads, and the migrations that extension registered between the two
+versions rewrite the body first, so a program saved against any earlier release
+of the extension goes on loading — an earlier major included. The writer emits
+`major.minor` for the same reason the check reads it. A vendor that is not
+imported yet is activated on the spot through its `qprogram.vendors` entry point.
+That discovery is the reason to write the line: a file missing it never triggers
+the import, and the first dotted operation then fails as an unknown vendor
+operation instead.
 
 Each failure stops the parse before the body is read, and names both versions.
 Against an installed `myvendor 0.1.3`, the three shapes are:
 
 ```
-Line 3: file requires myvendor 1.0 (major 1); installed myvendor is 0.1.3
-(major 0) — major versions must match
+Line 3: file requires myvendor 1.0, newer than the installed myvendor 0.1.3
+— install myvendor 1.0 or newer
 
-Line 3: file requires myvendor 0.2 or compatible; installed myvendor is 0.1.3
-— minor version too old
+Line 3: file version '0.1.9' must be exactly major.minor
 
 Line 3: file requires vendor 'othervendor' 0.1 but no matching extension is
 registered in this environment — install the package that declares the
 'qprogram.vendors' entry point for 'othervendor', or import the extension
 before loading
 ```
-
-`require myvendor 0.1.9` against that same installation loads, since the
-file's patch component is ignored.
 
 `qp.loads(text, auto_activate=False)` turns entry-point discovery off, and the
 third message then ends differently:

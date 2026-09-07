@@ -43,7 +43,7 @@ from qprogram.result import MeasurementHandle
 from qprogram.serialization import _specs as _core_specs
 from qprogram.serialization._format import FORMAT_VERSION
 from qprogram.serialization._specs import _parse_number
-from qprogram.serialization.migrations import migrate_lines
+from qprogram.serialization.migrations import migrate_lines, migrate_vendor_lines
 from qprogram.serialization.registry import (
     get_block_spec,
     get_operation_spec,
@@ -371,18 +371,27 @@ class _Parser:
     def _check_vendor_compat(self, vendor: str, file_version: str) -> None:
         """Check one ``require`` line against the vendor extension registered in this environment.
 
-        Majors must match exactly and the file's minor must be no newer than the installed
-        extension's; a patch component is informational and ignored. When auto-activation is on and
-        the vendor is not registered yet, its ``qprogram.vendors`` entry point is imported first so
-        the comparison runs against the extension the file expects.
+        The rule is the header's, against the extension's version instead of the library's. The
+        version in the line is exactly ``major.minor``, since a patch release of an extension
+        changes code and not the wire form. A line asking for more than the installed extension
+        provides is refused. An older one is accepted, and the migrations that extension
+        registered in between rewrite the body before it is read, so a program saved against any
+        earlier release of the extension still loads (see `qprogram.serialization.migrations`).
+
+        When auto-activation is on and the vendor is not registered yet, its ``qprogram.vendors``
+        entry point is imported first, so the comparison runs against the extension the file
+        expects.
 
         Args:
             vendor (str): Vendor name from the ``require`` line.
             file_version (str): Version the file requires, as ``major.minor``.
 
         Raises:
-            ParseError: If the vendor cannot be resolved, either version is malformed, the majors
-                differ, or the file needs a newer minor than the installed extension provides.
+            ParseError: If the vendor cannot be resolved, the line's version is not
+                ``major.minor``, the installed version does not parse, or the file asks for a
+                newer extension than this environment has.
+            ValueError: If one of the vendor's migrations returns a different number of lines than
+                it was given.
         """
         installed = get_vendor_version(vendor)
         if installed is None and self._auto_activate:
@@ -407,23 +416,21 @@ class _Parser:
             )
             raise ParseError(msg, self._pos + 1)
         try:
-            file_major, file_minor = _parse_major_minor(file_version)
-            inst_major, inst_minor = _parse_major_minor(installed)
+            required = parse_file_version(file_version)
         except ValueError as e:
             raise ParseError(str(e), self._pos + 1) from e
-        if file_major != inst_major:
+        try:
+            available = _parse_major_minor(installed)
+        except ValueError as e:
+            raise ParseError(str(e), self._pos + 1) from e
+        if required > available:
             msg = (
-                f"file requires {vendor} {file_version} (major {file_major}); "
-                f"installed {vendor} is {installed} (major {inst_major}) — "
-                f"major versions must match"
+                f"file requires {vendor} {file_version}, newer than the installed "
+                f"{vendor} {installed} — install {vendor} {file_version} or newer"
             )
             raise ParseError(msg, self._pos + 1)
-        if file_minor > inst_minor:
-            msg = (
-                f"file requires {vendor} {file_version} or compatible; "
-                f"installed {vendor} is {installed} — minor version too old"
-            )
-            raise ParseError(msg, self._pos + 1)
+        if required < available:
+            self._lines = migrate_vendor_lines(self._lines, vendor, file_version, installed)
 
     # -- metadata ------------------------------------------------------------
 

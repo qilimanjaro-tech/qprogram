@@ -32,7 +32,9 @@ headers carry the same number.
 The version is emitted in the `#!QProgram` header and checked on load. A file
 from a later release is rejected with `Unsupported format version`, whichever
 component moved; an older file is migrated up to this version. The header
-carries `major.minor` exactly, since a patch release cannot change the format.
+carries `major.minor` exactly, since a patch release cannot change the format,
+and a `require <vendor>` line is read the same way against its extension's
+version.
 
 ## Migrations
 
@@ -88,9 +90,15 @@ since the runner only applies steps up to the running version. That makes it
 safe to write the migration in the same commit as the change that needs it,
 before the release is cut.
 
-The same problem exists one level down, for a `require <vendor>` line whose
-extension renamed an operation, and the mechanism there is the vendor's own:
-nothing in this module is keyed by vendor yet.
+One level down, a `require <vendor>` line has the same problem: an extension
+that renames an operation orphans the files its users already have.
+`register_vendor_migration(vendor, version)` is the same mechanism against that
+extension's version — `_check_vendor_compat` runs the vendor's chain over the
+lines when the line asks for an earlier release than the one installed, which is
+why an earlier vendor major is no longer refused. The ceiling there is the
+installed extension, not the library, so `migrate_vendor_lines` takes it as an
+argument rather than reading `_RUNNING_VERSION`. `.wfl` files declare no vendor,
+having no `require` line, so vendor tables are consulted for `.qp` only.
 
 ## The registries
 

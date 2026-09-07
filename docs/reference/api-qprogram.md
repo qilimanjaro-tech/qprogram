@@ -589,9 +589,18 @@ table, and a rewrite that both formats need is registered twice. See
 [Migrations](../developer/serialization-internals.md#migrations) for how to
 write one.
 
+A vendor extension has the same problem for the wire form of its own
+operations, and `register_vendor_migration` is the same mechanism against the
+version in the file's `require` line: an older line loads, with that extension's
+rewrites applied to the body first. Those chains are per vendor and bounded by
+the installed extension rather than by the library.
+
 ::: qprogram.serialization.migrations.register_migration
+::: qprogram.serialization.migrations.register_vendor_migration
 ::: qprogram.serialization.migrations.known_migrations
+::: qprogram.serialization.migrations.known_vendor_migrations
 ::: qprogram.serialization.migrations.migrate_lines
+::: qprogram.serialization.migrations.migrate_vendor_lines
 
 ::: qprogram.serialization.migrations.Migration
     options:

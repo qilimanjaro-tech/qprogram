@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pytest
 from _header import HEADER
@@ -319,15 +321,18 @@ def test_loads_require_malformed_raises(dummy_vendor):  # ruff: ignore[unused-fu
         loads(text)
 
 
-def test_loads_require_major_mismatch_raises(dummy_vendor):  # ruff: ignore[unused-function-argument]
-    text = HEADER + "\n\nrequire dummy 99.0\n\nbody:\n"
-    with pytest.raises(ParseError, match="major versions must match"):
+@pytest.mark.parametrize("required", ["99.0", "0.99"])
+def test_loads_require_newer_than_installed_raises(dummy_vendor, required):  # ruff: ignore[unused-function-argument]
+    """Whichever component is ahead, the environment cannot provide what the file asks for."""
+    text = HEADER + f"\n\nrequire dummy {required}\n\nbody:\n"
+    with pytest.raises(ParseError, match=f"install dummy {re.escape(required)} or newer"):
         loads(text)
 
 
-def test_loads_require_minor_too_old_raises(dummy_vendor):  # ruff: ignore[unused-function-argument]
-    text = HEADER + "\n\nrequire dummy 0.99\n\nbody:\n"
-    with pytest.raises(ParseError, match="minor version too old"):
+def test_loads_require_with_a_patch_raises(dummy_vendor):  # ruff: ignore[unused-function-argument]
+    """A `require` line names a wire form, and a patch release of an extension has none of its own."""
+    text = HEADER + "\n\nrequire dummy 0.1.0\n\nbody:\n"
+    with pytest.raises(ParseError, match=r"must be exactly major\.minor"):
         loads(text)
 
 

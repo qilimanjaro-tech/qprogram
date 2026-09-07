@@ -29,18 +29,29 @@ from _header import HEADER, WFL_HEADER
 import qprogram as qp
 from qprogram.serialization import migrations
 from qprogram.serialization._format import FORMAT_VERSION
-from qprogram.serialization.migrations import known_migrations, migrate_lines, register_migration
+from qprogram.serialization.migrations import (
+    known_migrations,
+    known_vendor_migrations,
+    migrate_lines,
+    register_migration,
+    register_vendor_migration,
+)
+from qprogram.serialization.registry import get_vendor_version, register_vendor_version
 
 
 @pytest.fixture(autouse=True)
 def _empty_registry():
     """Register into empty tables and restore whatever the package shipped afterwards."""
     saved = {file_format: list(table) for file_format, table in migrations._migrations.items()}
+    saved_vendors = {vendor: list(table) for vendor, table in migrations._vendor_migrations.items()}
     for table in migrations._migrations.values():
         table.clear()
+    migrations._vendor_migrations.clear()
     yield
     for file_format, table in saved.items():
         migrations._migrations[file_format][:] = table
+    migrations._vendor_migrations.clear()
+    migrations._vendor_migrations.update(saved_vendors)
 
 
 def _older(offset: int = 1) -> str:
@@ -318,6 +329,93 @@ def test_known_migrations_reports_one_format_at_a_time():
     register_migration(FORMAT_VERSION)(lambda lines: lines)
     assert len(known_migrations()) == 1
     assert known_migrations("wfl") == ()
+
+
+# ---------------------------------------------------------------------------
+# Vendor extensions
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _dummy_at(request, dummy_vendor):  # ruff: ignore[unused-function-argument]
+    """Register the dummy vendor at the version the test asks for, restoring the real one after."""
+    saved = get_vendor_version("dummy")
+    register_vendor_version("dummy", request.param)
+    yield request.param
+    register_vendor_version("dummy", saved)
+
+
+@pytest.mark.parametrize("_dummy_at", ["0.5.0"], indirect=True)
+def test_an_older_require_line_migrates_the_body(_dummy_at):
+    """A file written against dummy 0.3 loads on dummy 0.5, through the steps in between."""
+    steps: list[str] = []
+
+    @register_vendor_migration("dummy", "0.4")
+    def _markers_became_set_markers(lines):
+        steps.append("0.4")
+        return [line.replace("dummy.markers", 'dummy.set_markers "bus" "0001"') for line in lines]
+
+    @register_vendor_migration("dummy", "0.5")
+    def _later_still(lines):
+        steps.append("0.5")
+        return lines
+
+    p = qp.loads(f"{HEADER}\n\nrequire dummy 0.3\n\nbody:\n  dummy.markers\n")
+    assert steps == ["0.4", "0.5"]
+    assert p.body.elements
+
+
+@pytest.mark.parametrize("_dummy_at", ["2.1.0"], indirect=True)
+def test_an_older_require_major_loads_now(_dummy_at):
+    """An earlier major used to be refused outright; it migrates like any other older version."""
+
+    @register_vendor_migration("dummy", "1.0")
+    def _markers_became_set_markers(lines):
+        return [line.replace("dummy.markers", 'dummy.set_markers "bus" "0001"') for line in lines]
+
+    assert qp.loads(f"{HEADER}\n\nrequire dummy 0.9\n\nbody:\n  dummy.markers\n").body.elements
+
+
+@pytest.mark.parametrize("_dummy_at", ["0.5.0"], indirect=True)
+def test_a_require_line_at_the_installed_version_migrates_nothing(_dummy_at):
+    register_vendor_migration("dummy", "0.5")(lambda lines: [line.replace("dummy.", "bogus.") for line in lines])
+    assert qp.loads(f'{HEADER}\n\nrequire dummy 0.5\n\nbody:\n  dummy.set_markers "bus" "0001"\n').body.elements
+
+
+@pytest.mark.parametrize("_dummy_at", ["0.5.0"], indirect=True)
+def test_a_vendor_migration_ahead_of_the_installed_release_is_left_out(_dummy_at):
+    """The ceiling is the installed extension, so a rewrite for its next release waits."""
+    register_vendor_migration("dummy", "0.6")(lambda lines: [line.replace("dummy.", "bogus.") for line in lines])
+    assert qp.loads(f'{HEADER}\n\nrequire dummy 0.3\n\nbody:\n  dummy.set_markers "bus" "0001"\n').body.elements
+
+
+def test_a_vendor_with_no_migrations_is_no_obstacle(dummy_vendor):  # ruff: ignore[unused-function-argument]
+    """The common case: nothing registered, so an older require line loads as it is."""
+    assert qp.loads(f'{HEADER}\n\nrequire dummy 0.0\n\nbody:\n  dummy.set_markers "bus" "0001"\n').body.elements
+
+
+@pytest.mark.parametrize("_dummy_at", ["0.5.0"], indirect=True)
+def test_a_vendor_migration_must_preserve_the_line_count(_dummy_at):
+    @register_vendor_migration("dummy", "0.5")
+    def _drops_a_line(lines):
+        return lines[:-1]
+
+    with pytest.raises(ValueError, match=r"_drops_a_line.*preserve the line count"):
+        qp.loads(f'{HEADER}\n\nrequire dummy 0.3\n\nbody:\n  dummy.set_markers "bus" "0001"\n')
+
+
+def test_vendor_tables_are_separate_from_the_format_table(dummy_vendor):  # ruff: ignore[unused-function-argument]
+    register_migration(FORMAT_VERSION)(lambda lines: lines)
+    register_vendor_migration("dummy", "0.1")(lambda lines: lines)
+    assert [m.name for m in known_vendor_migrations("dummy")] == ["<lambda>"]
+    assert known_vendor_migrations("nonexistent_vendor") == ()
+    assert len(known_migrations()) == 1
+
+
+def test_known_vendor_migrations_is_ordered_oldest_first():
+    register_vendor_migration("dummy", "0.9")(lambda lines: lines)
+    register_vendor_migration("dummy", "0.2")(lambda lines: lines)
+    assert [m.version for m in known_vendor_migrations("dummy")] == [(0, 2), (0, 9)]
 
 
 # ---------------------------------------------------------------------------

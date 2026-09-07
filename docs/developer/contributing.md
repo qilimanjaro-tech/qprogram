@@ -192,7 +192,7 @@ Use this when you are not sure which file to touch.
 | Parser change | `src/qprogram/serialization/parser.py`. |
 | Writer change | `src/qprogram/serialization/writer.py`. |
 | Grammar change | `src/qprogram/grammar/qp.lark`, kept in step with the parser by `tests/test_grammar.py`. A change that stops an existing file from parsing also needs a migration in `src/qprogram/serialization/migrations.py`, registered under the version that ships it, so files written before it keep loading. |
-| New vendor operation | The vendor's own package. See [Building a vendor extension](vendor-extensions.md). |
+| New vendor operation | The vendor's own package. See [Building a vendor extension](vendor-extensions.md). A change to an existing operation's wire form also needs a `register_vendor_migration` in that package, registered under the version that ships it. |
 | New vendor package | A separate package depending on `qprogram`. Same guide. |
 | Docs | `docs/`, with the nav in `zensical.toml`. |
 | Changelog entry | One fragment in `changelog/`. Never edit `CHANGELOG.md` by hand. |

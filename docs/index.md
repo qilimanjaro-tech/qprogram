@@ -179,10 +179,11 @@ release cannot change the format, so a file has no patch to declare — and a fi
 with no header at all fails immediately with `Missing #!QProgram header`.
 
 Vendor compatibility is checked one `require` line at a time, before any of the
-body is built, so a rejected file leaves no partially loaded program: the majors
-must match, the installed minor must be at least the one the file asks for, a
-patch component is accepted and ignored, and a vendor that is installed but not
-yet imported is activated through its `qprogram.vendors` entry point.
+body is built, so a rejected file leaves no partially loaded program: the line
+asks for a `major.minor`, anything the installed extension cannot provide is
+refused, anything older loads with that extension's own migrations applied to
+the body first, and a vendor that is installed but not yet imported is activated
+through its `qprogram.vendors` entry point.
 [Format version and the require line](guide/serialization.md#format-version-and-the-require-line)
 has the message each failure produces and the argument that turns activation
 off.

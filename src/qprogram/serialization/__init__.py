@@ -21,7 +21,13 @@ the parser (which constructs [`QProgram`][qprogram.QProgram] instances) and the 
 """
 
 from qprogram.serialization import _specs as _core_specs
-from qprogram.serialization.migrations import Migration, known_migrations, register_migration
+from qprogram.serialization.migrations import (
+    Migration,
+    known_migrations,
+    known_vendor_migrations,
+    register_migration,
+    register_vendor_migration,
+)
 from qprogram.serialization.registry import (
     BlockSpec,
     OperationSpec,
@@ -48,6 +54,7 @@ __all__ = [
     "dumps",
     "known_migrations",
     "known_sweep_sources",
+    "known_vendor_migrations",
     "load",
     "loads",
     "register_block",
@@ -55,6 +62,7 @@ __all__ = [
     "register_operation",
     "register_sweep_source",
     "register_vendor_block",
+    "register_vendor_migration",
     "register_vendor_operation",
     "register_vendor_version",
     "register_waveform",

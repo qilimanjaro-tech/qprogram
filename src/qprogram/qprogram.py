@@ -1311,9 +1311,8 @@ class QProgram:
 
         Args:
             variable (Variable): The [`Variable`][qprogram.Variable] rebound each iteration.
-            source (SweepSource, optional): A [`SweepSource`][qprogram.SweepSource]; an explicit
-                list of points is [`Values`][qprogram.Values]. Omit it to get a `_SweepBuilder` and
-                pick the values with a ``from_*`` method instead.
+            source (SweepSource, optional): A [`SweepSource`][qprogram.SweepSource]. Omit it to
+                get a `_SweepBuilder` and pick the values with a ``from_*`` method instead.
 
         Returns:
             A context manager opening the sweep block, or — when ``source`` is omitted — the

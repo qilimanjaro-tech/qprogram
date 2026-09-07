@@ -34,8 +34,7 @@ class Sweep(Block):
 
     Args:
         variable (Variable): The [`Variable`][qprogram.Variable] rebound on each iteration.
-        source (SweepSource): The [`SweepSource`][qprogram.SweepSource] describing the values. An
-            explicit list of points is [`Values`][qprogram.Values].
+        source (SweepSource): The [`SweepSource`][qprogram.SweepSource] describing the values.
 
     Raises:
         ValidationError: If ``source`` is not a [`SweepSource`][qprogram.SweepSource].
@@ -113,8 +112,5 @@ def _require_source(source: object) -> SweepSource:
             "SweepSource subclass with the parameters it needs."
         )
         raise ValidationError(msg)
-    msg = (
-        f"Sweep source must be a SweepSource, got {source!r}. An explicit list of points is "
-        f"Values(...) — sweep(variable, qp.Values([...])) or sweep(variable).from_values([...])."
-    )
+    msg = f"Sweep source must be a SweepSource, got {source!r}"
     raise ValidationError(msg)

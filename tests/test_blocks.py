@@ -192,7 +192,7 @@ def test_sweep_repeats():
 
 
 def test_sweep_rejects_a_sequence_of_points():
-    """An explicit list of points is a `Values`, which the message says."""
+    """The block binds a source, not the points a source would produce."""
     with pytest.raises(ValidationError, match="must be a SweepSource"):
         Sweep(Variable("x"), [0.1, 0.2, 0.3])  # ty:ignore[invalid-argument-type]
 

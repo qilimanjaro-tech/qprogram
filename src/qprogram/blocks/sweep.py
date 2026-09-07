@@ -34,11 +34,11 @@ class Sweep(Block):
 
     Args:
         variable (Variable): The [`Variable`][qprogram.Variable] rebound on each iteration.
-        source (SweepSource): The [`SweepSource`][qprogram.SweepSource] describing the values. A bare
-            1-D sequence is accepted as a shorthand for [`Values`][qprogram.Values].
+        source (SweepSource): The [`SweepSource`][qprogram.SweepSource] describing the values. An
+            explicit list of points is [`Values`][qprogram.Values].
 
     Raises:
-        ValidationError: If ``source`` is neither a source nor a sequence of values.
+        ValidationError: If ``source`` is not a [`SweepSource`][qprogram.SweepSource].
     """
 
     REPEATS: ClassVar[bool] = True
@@ -47,7 +47,7 @@ class Sweep(Block):
     def __init__(self, variable: Variable, source: SweepSource) -> None:
         super().__init__()
         self.variable = variable
-        self.source = _coerce_source(source)
+        self.source = _require_source(source)
 
     def num_iterations(self) -> int:
         """Return the number of sweep points, delegated to the source.
@@ -87,25 +87,22 @@ class Sweep(Block):
         return {"block.sweep"} | self.source.tokens()
 
 
-def _coerce_source(source: object) -> SweepSource:
-    """Return ``source`` as a [`SweepSource`][qprogram.SweepSource], wrapping a bare sequence.
+def _require_source(source: object) -> SweepSource:
+    """Return ``source`` unchanged, refusing anything that is not a [`SweepSource`][qprogram.SweepSource].
 
-    A sequence is the shorthand spelling of [`Values`][qprogram.Values]. A callable is refused
-    outright: a deferred function can report neither its length nor its kind before the program runs,
-    and cannot be serialized to ``.qp``.
+    The block holds a description of the values, never the values themselves: a source answers its
+    length and its kind before the program runs, and writes itself back out to ``.qp``. A callable
+    gets its own message, since it answers none of that at any point.
 
     Args:
-        source (object): A sweep source, or a 1-D sequence of values to wrap.
+        source (object): The value offered as the sweep's source.
 
     Returns:
-        The source unchanged, or a [`Values`][qprogram.Values] over the given points.
+        ``source``, once it is known to be a sweep source.
 
     Raises:
-        ValidationError: If ``source`` is a callable, or is not a 1-D sequence of values.
+        ValidationError: If ``source`` is not a [`SweepSource`][qprogram.SweepSource].
     """
-    # qprogram.sweeps imports this module, so the shorthand's import stays lazy.
-    from qprogram.sweeps.builtin import Values  # ruff: ignore[import-outside-top-level]
-
     if isinstance(source, SweepSource):
         return source
     if callable(source):
@@ -116,8 +113,8 @@ def _coerce_source(source: object) -> SweepSource:
             "SweepSource subclass with the parameters it needs."
         )
         raise ValidationError(msg)
-    try:
-        return Values(source)  # ty:ignore[invalid-argument-type]
-    except (ValidationError, TypeError, ValueError) as e:
-        msg = f"Sweep source must be a SweepSource or a 1-D sequence of values, got {source!r}"
-        raise ValidationError(msg) from e
+    msg = (
+        f"Sweep source must be a SweepSource, got {source!r}. An explicit list of points is "
+        f"Values(...) — sweep(variable, qp.Values([...])) or sweep(variable).from_values([...])."
+    )
+    raise ValidationError(msg)

@@ -191,10 +191,10 @@ def test_sweep_repeats():
     assert Sweep.REPEATS is True
 
 
-def test_sweep_accepts_a_bare_sequence_as_values_shorthand():
-    sw = Sweep(Variable("x"), [0.1, 0.2, 0.3])
-    assert isinstance(sw.source, Values)
-    assert sw.num_iterations() == 3
+def test_sweep_rejects_a_sequence_of_points():
+    """An explicit list of points is a `Values`, which the message says."""
+    with pytest.raises(ValidationError, match="must be a SweepSource"):
+        Sweep(Variable("x"), [0.1, 0.2, 0.3])  # ty:ignore[invalid-argument-type]
 
 
 def test_sweep_rejects_a_callable_source():
@@ -204,9 +204,9 @@ def test_sweep_rejects_a_callable_source():
         Sweep(v, lambda i: i)  # ty:ignore[invalid-argument-type]
 
 
-def test_sweep_rejects_a_non_source_non_sequence():
+def test_sweep_rejects_a_non_source():
     v = Variable("x")
-    with pytest.raises(ValidationError, match="SweepSource or a 1-D sequence"):
+    with pytest.raises(ValidationError, match="must be a SweepSource"):
         Sweep(v, object())  # ty:ignore[invalid-argument-type]
 
 

@@ -63,14 +63,15 @@ unexpected top-level line 'bodyy:'; expected `metadata:`, `schema:`,
 The header is exactly `#!QProgram <major>.<minor>`, matched by the terminal
 `/#!QProgram[ \t]+[0-9]+\.[0-9]+/`. Blank lines before it are skipped.
 
-Only the major component is binding. The running format version is
-`qprogram.serialization._format.FORMAT_VERSION`, currently `"0.2"`, and a file
-loads when its major matches, whatever its minor: `#!QProgram 0.7` parses under
-this release. A different major, or a header with no version at all, stops the
-parse on line 1:
+The running format version is `qprogram.serialization._format.FORMAT_VERSION`,
+currently `"0.2"`. A file at that version parses directly, and an older one is
+migrated on the way in (see [Versioning](#versioning)). A newer version, or a
+header whose version is not exactly two integer components — a bare major, a
+patch, anything else — stops the parse on line 1:
 
 ```
-Line 1: Unsupported format version 1.0
+Line 1: Unsupported format version 0.9
+Line 1: Unsupported format version 0.2.3
 Line 1: Unsupported format version unknown
 ```
 
@@ -95,33 +96,33 @@ already imported. Write the line anyway; it is what makes the file
 self-contained.
 
 What the parser does with the lines it finds is resolve each one against the
-installed extension. The major version must match exactly, the installed minor
-must be greater than or equal to the file's, and a patch component is accepted
-and ignored, since compatibility is decided at major.minor. The writer
-truncates the version it emits to `major.minor` for the same reason. A vendor
-that is not imported yet is activated on the spot through its
-`qprogram.vendors` entry point. That discovery is the reason to write the line:
-a file missing it never triggers the import, and the first dotted operation
-then fails as an unknown vendor operation instead.
+installed extension, by the rule the header follows one level up. The version in
+the line is exactly `major.minor`: a patch release of an extension changes code,
+not the wire form, so `require myvendor 0.1.9` is refused rather than rounded
+down. A line asking for more than the installed extension provides is refused. An
+older line loads, and the migrations that extension registered between the two
+versions rewrite the body first, so a program saved against any earlier release
+of the extension goes on loading — an earlier major included. The writer emits
+`major.minor` for the same reason the check reads it. A vendor that is not
+imported yet is activated on the spot through its `qprogram.vendors` entry point.
+That discovery is the reason to write the line: a file missing it never triggers
+the import, and the first dotted operation then fails as an unknown vendor
+operation instead.
 
 Each failure stops the parse before the body is read, and names both versions.
 Against an installed `myvendor 0.1.3`, the three shapes are:
 
 ```
-Line 3: file requires myvendor 1.0 (major 1); installed myvendor is 0.1.3
-(major 0) — major versions must match
+Line 3: file requires myvendor 1.0, newer than the installed myvendor 0.1.3
+— install myvendor 1.0 or newer
 
-Line 3: file requires myvendor 0.2 or compatible; installed myvendor is 0.1.3
-— minor version too old
+Line 3: file version '0.1.9' must be exactly major.minor
 
 Line 3: file requires vendor 'othervendor' 0.1 but no matching extension is
 registered in this environment — install the package that declares the
 'qprogram.vendors' entry point for 'othervendor', or import the extension
 before loading
 ```
-
-`require myvendor 0.1.9` against that same installation loads, since the
-file's patch component is ignored.
 
 `qp.loads(text, auto_activate=False)` turns entry-point discovery off, and the
 third message then ends differently:
@@ -1096,11 +1097,30 @@ The header version (`#!QProgram 0.2`) is the format version, and it is the
 library version truncated to `major.minor`: `FORMAT_VERSION` reads the
 installed distribution's version, so `qprogram` 0.2.1 writes `0.2`. New minor
 versions add operations, waveforms, control-flow constructs, or sections in
-backward-compatible ways, and a parser accepts any minor within its own major.
-Major version bumps are reserved for breaking changes, and an older parser
-refuses to read a higher major version. Tying the two together means a release
-that does not touch the format still moves the minor, which costs nothing under
-the contract, and that the library's own major bump is the format's.
+backward-compatible ways, and major version bumps are reserved for changes that
+break the older spelling outright. A reader refuses any version above its own,
+whichever component moved, since it cannot know what a later release did. Tying
+the format version to the library's means a release that does not touch the
+format still moves the minor, which costs nothing under the contract, and that
+the library's own major bump is the format's. A patch release moves neither: a
+file's version is `major.minor` and carries no patch component, because a patch
+cannot have changed the format.
+
+A file older than the running version is not refused, whatever its major.
+Loading migrates it: a release that changes the syntax registers one migration
+under its own version with
+[`register_migration`][qprogram.serialization.migrations.register_migration],
+and the reader applies every registered migration newer than the file's version,
+oldest first, to the lines it is about to read. Both formats work this way, each
+with its own table — `file_format="qp"` for a program, `"wfl"` for a waveform
+library — bounded by the one version they share. The file on disk is untouched,
+and writing the program back out writes today's version. A migration rewrites
+lines one for one — it may not add or drop any — so a diagnostic's line number
+and every `source_map` entry still name a line of the original file; a migration
+that breaks that count raises `ValueError` and names itself. Two migrations may
+share a version, and run in registration order. Since the chain has an entry per
+breaking change rather than per release, a version with no migration behind it
+needs none, and a file from a release that changed nothing loads as it is.
 
 Vendor protocol versions (`require myvendor 0.1`) are independent: they
 describe the vendor's operation set, not the file format. The vendor extension
@@ -1193,13 +1213,22 @@ The header version comes from `WAVEFORM_LIBRARY_FORMAT_VERSION` in
 `library_major_minor` in `qprogram/_version.py`, so the two headers carry the
 same number on any given release. The formats are still checked separately: a
 `.wfl` file is read by the waveform library's own reader, and its version says
-nothing about the `.qp` grammar. Only the major component is compared, so
-`#!WaveformLibrary 0`, `0.2.3`, and `0.7` all load on today's reader while a
-different major is refused outright, and the compatibility contract is the same
-as `.qp`'s: a minor version may add entry forms and waveform vocabulary, a
-major bump is reserved for a change an older reader cannot handle. The version
-token is read as the last whitespace-separated token on the header line, so a
-header with anything after the version reports that trailing token as an
-unsupported version. The writer always emits the current version, which means
-rewriting a `0.7` file on a `0.2` reader writes `0.2` and drops the claim to
-have come from a newer minor.
+nothing about the `.qp` grammar.
+
+The rules that reader applies are `.qp`'s. A later version is refused, whichever
+component moved, and an earlier one is migrated rather than refused, by the
+migrations registered for the `"wfl"` format (see [Versioning](#versioning)). The two formats share the version scale but not
+their rewrites, since the same line of text means one thing in a program body
+and another in a library entry: a migration names the format it reads, and
+vocabulary the two files do share — a renamed waveform constructor — is one
+rewrite registered twice. The compatibility contract is the same as `.qp`'s
+too: a minor version may add entry forms and waveform vocabulary, and a major
+bump is reserved for a change an older reader cannot handle.
+
+The version is `major.minor` in both formats, so `#!WaveformLibrary 0.2.3` and a
+bare `#!WaveformLibrary 0` are refused for the same reasons `#!QProgram 0.2.3`
+and `#!QProgram 0` are. The token itself is the last whitespace-separated one on
+the header line, so a header with anything after the version reports that
+trailing token as an unsupported version. The writer always emits the current
+version, which means an older file that is read and written back out comes back
+carrying today's number.

@@ -251,8 +251,8 @@ program. Nothing in the writer checks this for you.
 does not follow the grammar or fails a compatibility check, and what
 `WaveformLibrary.load` and `WaveformLibrary.loads` raise on a `.wfl`
 document. Compatibility accounts for the first group of `.qp` cases: a
-missing `#!QProgram` header, a header whose major version differs from the
-parser's, a `require` declaration that cannot be satisfied, and `require`
+missing `#!QProgram` header, a header whose version is newer than the parser's
+or is not `major.minor`, a `require` declaration that cannot be satisfied, and `require`
 lines that do not sit directly after the header. The rest are grammar:
 a second `schema:` declaration, a schema with no elements or a malformed
 `info=` value, a bus path that does not resolve against the schema, a
@@ -269,14 +269,14 @@ ParseError: Line 2: file requires vendor 'nosuchvendor' 1.0 but no matching
 extension is registered in this environment — install the package that
 declares the 'qprogram.vendors' entry point for 'nosuchvendor', or import the
 extension before loading
-ParseError: Line 2: file requires myvendor 99.0 (major 99); installed
-myvendor is 1.2.0 (major 1) — major versions must match
-ParseError: Line 2: file requires myvendor 1.9 or compatible; installed
-myvendor is 1.2.0 — minor version too old
+ParseError: Line 2: file requires myvendor 99.0, newer than the installed
+myvendor 1.2.0 — install myvendor 99.0 or newer
+ParseError: Line 2: file version '1.9.1' must be exactly major.minor
 ```
 
-Majors must match exactly, the file's minor must be no newer than the
-installed extension's, and a patch component is read but ignored.
+A `require` line asks for a `major.minor`, and anything the installed extension
+cannot provide is refused. An older version loads, with that extension's
+migrations applied to the body first.
 
 An id declared in a `.qp` file is checked twice, and the two failures come
 back differently. A malformed id is rejected by the parser's own pattern

@@ -245,6 +245,9 @@ _SYNTACTIC_REJECTS = {
     "else-with-condition": (HEADER + "\n\nbody:\n  if m0.state == 0:\n    sync\n  else m0.state:\n    sync\n"),
     "dangling-dict": HEADER + '\n\nbody:\n  set_parameter "a" "b" matrix={"a": 1.0\n',
     "fragment-missing-parens": HEADER + "\n\nfragment f1:\n  sync\n\nbody:\n",
+    # A header version is two integer components: the terminal says so, and so does the parser.
+    "header-version-with-patch": "#!QProgram 0.2.3\n\nbody:\n",
+    "header-version-bare-major": "#!QProgram 0\n\nbody:\n",
 }
 
 

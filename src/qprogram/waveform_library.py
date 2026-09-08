@@ -37,7 +37,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from qprogram._version import library_major_minor
+from qprogram._version import library_major_minor, parse_file_version
 from qprogram.buses import BusRef
 from qprogram.errors import ValidationError
 
@@ -51,7 +51,7 @@ if TYPE_CHECKING:
 _LibraryKey = tuple["str | None", "int | tuple[int, ...] | None", "str | None", str]
 
 # Version of the ``.wfl`` text format. Like the ``.qp`` FORMAT_VERSION it is the library version
-# truncated to ``major.minor``, and only the major is compared on load.
+# truncated to ``major.minor``: an earlier file is migrated on load, a later one is refused.
 WAVEFORM_LIBRARY_FORMAT_VERSION = library_major_minor()
 
 # Entry coordinate: ``element[idx].kind`` (exact) or ``element[*].kind`` (family). idx may be a tuple
@@ -247,6 +247,11 @@ class WaveformLibrary:
         comment ahead of it is an error. After the header, blank lines and ``#`` comment lines are
         skipped and every other line must be an entry.
 
+        A document written against an earlier version of the format is migrated in memory first,
+        by the rewrites registered for the ``"wfl"`` format between its version and this one (see
+        `qprogram.serialization.migrations`). A later version is refused, having been written by a
+        release this one knows nothing about.
+
         Args:
             text (str): The ``.wfl`` document to parse.
 
@@ -254,11 +259,13 @@ class WaveformLibrary:
             The reconstructed library, entries in file order.
 
         Raises:
-            ParseError: On a missing or incompatible header, a malformed entry, or an unknown
-                waveform type. Waveform types are looked up in the global serialization registry, so
-                every built-in is always available while a vendor waveform needs its package
-                imported first.
+            ParseError: On a missing or unreadable header, a header from a newer release, a
+                malformed entry, or an unknown waveform type. Waveform types are looked up in the global
+                serialization registry, so every built-in is always available while a vendor
+                waveform needs its package imported first.
             ValidationError: If an entry names an empty waveform name.
+            ValueError: If a migration this read runs returns a different number of lines than it
+                was given.
         """
         from qprogram.serialization.parser import (  # ruff: ignore[import-outside-top-level]
             ParseError,
@@ -276,11 +283,7 @@ class WaveformLibrary:
         if pos >= len(lines) or not lines[pos].strip().startswith("#!WaveformLibrary"):
             msg = "Missing #!WaveformLibrary header"
             raise ParseError(msg, pos + 1)
-        header = lines[pos].split()
-        version = header[-1] if len(header) > 1 else "unknown"
-        if version.split(".", maxsplit=1)[0] != WAVEFORM_LIBRARY_FORMAT_VERSION.split(".", maxsplit=1)[0]:
-            msg = f"Unsupported WaveformLibrary format version {version}"
-            raise ParseError(msg, pos + 1)
+        lines = _migrated(lines, pos)
         pos += 1
 
         for offset, raw in enumerate(lines[pos:], start=pos):
@@ -343,6 +346,44 @@ class WaveformLibrary:
 
     def __repr__(self) -> str:
         return f"WaveformLibrary({len(self._entries)} entries)"
+
+
+def _migrated(lines: list[str], pos: int) -> list[str]:
+    """Check the version on a ``.wfl`` header and bring older lines up to this release.
+
+    The rule is the one `qprogram.serialization.parser` applies to a ``.qp`` header, against the
+    same number: the version is exactly ``major.minor``, an earlier one is migrated, and a later
+    one is refused, having been written by a release this one knows nothing about.
+
+    Args:
+        lines (list[str]): The document's lines.
+        pos (int): Index of the header line.
+
+    Returns:
+        The lines to parse: the argument itself, or what the migrations between the version the
+        header declares and the running one made of it.
+
+    Raises:
+        ParseError: If the version is not ``major.minor``, or is newer than this release writes.
+        ValueError: If a migration returns a different number of lines than it was given.
+    """
+    from qprogram.serialization.migrations import migrate_lines  # ruff: ignore[import-outside-top-level]
+    from qprogram.serialization.parser import ParseError  # ruff: ignore[import-outside-top-level]
+
+    header = lines[pos].split()
+    version = header[-1] if len(header) > 1 else "unknown"
+    try:
+        declared = parse_file_version(version)
+    except ValueError as e:
+        msg = f"Unsupported WaveformLibrary format version {version}"
+        raise ParseError(msg, pos + 1) from e
+    current = parse_file_version(WAVEFORM_LIBRARY_FORMAT_VERSION)
+    if declared > current:
+        msg = f"Unsupported WaveformLibrary format version {version}"
+        raise ParseError(msg, pos + 1)
+    if declared < current:
+        return migrate_lines(lines, version, file_format="wfl")
+    return lines
 
 
 def _format_coord(element: str | None, idx: int | tuple[int, ...] | None, kind: str | None) -> str:

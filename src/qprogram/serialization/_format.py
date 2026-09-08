@@ -28,6 +28,7 @@ FORMAT_VERSION: Final[str] = library_major_minor()
 """``major.minor`` version emitted in the ``#!QProgram`` header and accepted by the parser.
 
 The format version follows the library version truncated to ``major.minor``, so ``qprogram``
-0.2.1 writes ``#!QProgram 0.2``. Compatibility contract: the parser rejects files whose
-*major* version differs from this one; minor differences within the same major are accepted.
+0.2.1 writes ``#!QProgram 0.2``. Compatibility contract: a file at an earlier version is migrated
+up to this one on load, and a file at a later version is refused, since a release cannot know what
+a later one changed. A patch never appears in a file, having no way to change the format.
 """

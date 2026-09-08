@@ -29,10 +29,159 @@ metadata falls back to `"0.0"`. The `.wfl` format's
 `WAVEFORM_LIBRARY_FORMAT_VERSION` is derived the same way, which is why the two
 headers carry the same number.
 
-The version is emitted in the `#!QProgram` header and checked on load. Only the
-major component is binding: a file whose major differs is rejected with
-`Unsupported format version`, and any minor within the same major loads, so a
-`0.4` file opens under a `0.2` runtime.
+The version is emitted in the `#!QProgram` header and checked on load. A file
+from a later release is rejected with `Unsupported format version`, whichever
+component moved; an older file is migrated up to this version. The header
+carries `major.minor` exactly, since a patch release cannot change the format,
+and a `require <vendor>` line is read the same way against its extension's
+version.
+
+## Migrations
+
+`src/qprogram/serialization/migrations.py` holds the rewrites that let today's
+parser read yesterday's syntax. Each one is registered under the version that
+broke something:
+
+```python
+_SWEEP_KEYWORD = re.compile(r"(?<=^  )sweep\b")
+
+
+@register_migration("0.3")
+def _sweep_became_for(lines: list[str]) -> list[str]:
+    return [_SWEEP_KEYWORD.sub("for", line) for line in lines]
+```
+
+`_parse_header` reads the version off the header and, when the file is older
+than the running one, replaces the parser's lines with the result of running
+every migration in `(file version, running version]`, oldest first. Nothing
+else in the parser knows a migration happened, and the file on disk is never
+touched: the rewrite lives as long as the parse. `WaveformLibrary.loads` does
+the same through `_migrated` in `src/qprogram/waveform_library.py`, against the
+`"wfl"` table.
+
+Three rules make that safe to rely on:
+
+- **One migration per breaking change, not per release.** A release that leaves
+  the syntax alone registers nothing, and a file two releases behind collects
+  every step in between. This is why the registry is a sorted list of steps
+  rather than a chain of parent revisions: there is no node to write for a
+  quiet release.
+- **Lines in, as many lines out.** A migration may rewrite a line, and may look
+  at its neighbours, but may not add or drop one. That is what keeps a
+  `ParseError`'s line number and every `source_map` entry naming a line of the
+  file its author opened. `migrate_lines` checks the count and raises
+  `ValueError` naming the migration that broke it. A change that genuinely
+  needs to restructure lines is the point at which this mechanism grows a line
+  map; until then the invariant is worth more than the flexibility.
+- **The header is not a migration's business.** The rewrite is handed every line
+  including the header, so the indices line up with the file, but the reader has
+  already read the version off it and moves past it.
+- **One table per format, one version scale for both.** `FORMAT_VERSION` and
+  `WAVEFORM_LIBRARY_FORMAT_VERSION` are the same library version cut the same
+  way, so `_RUNNING_VERSION` bounds both chains and a release's breaking change
+  carries the same number in either file. The rewrites stay apart, since
+  `"pi" = Square(...)` in a library and `play "drive" Square(...)` in a program
+  are not the same text; a change to the vocabulary they do share is one
+  function registered under both formats, which is what the stacked decorator
+  in `register_migration`'s docstring shows.
+
+A migration registered under a version that has not shipped yet is skipped,
+since the runner only applies steps up to the running version. That makes it
+safe to write the migration in the same commit as the change that needs it,
+before the release is cut.
+
+### Adding a migration
+
+Say 0.3 renames the `Rectangular` waveform to `Square`. Waveform constructors
+are keyed by class name in the registry, so one rename changes how a pulse is
+spelled in a program body and in a library entry at once, and both of these are
+files somebody already has on disk:
+
+<!-- check: skip -->
+```
+#!QProgram 0.2
+
+body:
+  play "drive_q0" Rectangular(amplitude=0.5, duration=200)
+```
+
+```
+#!WaveformLibrary 0.2
+"pi_pulse" q[0].drive = Rectangular(amplitude=0.5, duration=200)
+```
+
+The rewrite goes at the bottom of
+`src/qprogram/serialization/migrations.py`, below the runners, so that
+registration happens on the import both readers already perform. The module
+imports no `re` today, so the first migration brings it:
+
+```python
+# src/qprogram/serialization/migrations.py
+_RECTANGULAR = re.compile(r"\bRectangular\(")
+
+
+@register_migration("0.3")
+@register_migration("0.3", file_format="wfl")
+def _rectangular_became_square(lines: list[str]) -> list[str]:
+    """Rewrite the constructor 0.3 renamed, in a program body and in a library entry alike."""
+    return [_RECTANGULAR.sub("Square(", line) for line in lines]
+```
+
+Two decisions are worth spelling out. The decorator is stacked because a
+waveform constructor is vocabulary the two formats share; a change to the body
+grammar, a block header or an operation keyword, is `"qp"` alone, and the
+`"alias" coord = waveform` entry line is `"wfl"` alone. The pattern is anchored
+because a migration is text in and text out with no parse in between:
+`\bRectangular\(` matches the constructor call and nothing else on the line,
+leaving a waveform aliased `"Rectangular"` and a program label reading
+`Rectangular pulse calibration` alone, where a pattern matching the bare word
+would rewrite both.
+
+The rewrite earns two tests in two places, because `tests/test_migrations.py`
+empties both tables around every test so that its fixtures can register
+throwaway rewrites without the shipped chain running underneath them. That puts
+the registered chain out of reach there, so what that file tests is the function
+itself, called on the lines it would be handed:
+
+```python
+# tests/test_migrations.py
+def test_rectangular_became_square_leaves_an_alias_of_the_same_name_alone():
+    entry = '"Rectangular" q[0].drive = Rectangular(amplitude=0.5, duration=200)'
+    assert _rectangular_became_square([entry]) == ['"Rectangular" q[0].drive = Square(amplitude=0.5, duration=200)']
+```
+
+Whether it runs on the file that needs it is the other half, and belongs
+wherever the registered chain is left in place, such as
+`tests/test_serialization.py`:
+
+```python
+# tests/test_serialization.py
+def test_a_file_written_before_the_waveform_rename_still_loads():
+    text = '#!QProgram 0.2\n\nbody:\n  play "drive_q0" Rectangular(amplitude=0.5, duration=200)\n'
+    assert isinstance(qp.loads(text).body.elements[0].waveform, qp.waveforms.Square)
+```
+
+The version there is written out rather than taken from `tests/_header.py`,
+since the point of the test is that one particular older version still loads. It
+starts passing when 0.3 is cut: until then the file it writes carries the
+running version rather than an earlier one, so nothing runs and the assertion
+fails. That is the one claim about a migration its own release has to make true,
+which is why the unit test above it is what guards the rewrite in review.
+
+### Vendor migrations
+
+One level down, a `require <vendor>` line has the same problem: an extension
+that renames an operation orphans the files its users already have.
+`register_vendor_migration(vendor, version)` is the same mechanism against that
+extension's version. `_check_vendor_compat` runs the vendor's chain over the
+lines when the line asks for an earlier release than the one installed, which is
+why an earlier vendor major is no longer refused. The ceiling there is the
+installed extension, not the library, so `migrate_vendor_lines` takes it as an
+argument rather than reading `_RUNNING_VERSION`. `.wfl` files declare no vendor,
+having no `require` line, so vendor tables are consulted for `.qp` only. The
+same worked example from inside an extension package, registration site and test
+included, is under [keeping older files
+loading](vendor-extensions.md#keeping-older-files-loading).
 
 ## The registries
 

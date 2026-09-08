@@ -435,16 +435,16 @@ class under the same name is a no-op.
 
 `register_vendor_version(vendor, version)` takes a semver string with at least
 integer `major.minor`; `"0.1"` and `"0.1.0"` are both accepted and the patch
-component is informational. A version with fewer components raises `vendor
-version '1' must have at least major.minor components`, and a non-integer
-component raises `vendor version '0.x' has non-integer major/minor
-components`. Reading the value from `importlib.metadata` keeps a single source
-of truth in `pyproject.toml`, but note what the fallback does: when the package
-is not installed as a distribution, `__version__` becomes `"0.0.0"` and the
-extension advertises major 0, minor 0, so any file written as
-`require fake_inst 0.1` is rejected as "minor version too old". Registering the
-version is also what marks the vendor as active, which is the check
-`try_activate_vendor` makes.
+component is informational, since what an extension registers is a package
+version. A version with fewer components raises `vendor version '1' must have at
+least major.minor components`, and a non-integer component raises `vendor
+version '0.x' has non-integer major/minor components`. Reading the value from
+`importlib.metadata` keeps a single source of truth in `pyproject.toml`, but note
+what the fallback does: when the package is not installed as a distribution,
+`__version__` becomes `"0.0.0"` and the extension advertises major 0, minor 0, so
+a file written as `require fake_inst 0.1` asks for more than it provides and is
+refused. Registering the version is also what marks the vendor as active, which
+is the check `try_activate_vendor` makes.
 
 `register_vendor_operation(vendor, name, cls, *, serialize=None, parse=None)`
 keys on `(vendor, name)`. Re-registering the same class refreshes its
@@ -678,18 +678,75 @@ backwards-compatible keyword arguments. Bump the major when you remove or
 rename an operation, rename or reorder a constructor parameter, or change
 semantics in a way that would break older files.
 
-The parser enforces exactly two conditions, on major.minor with the patch
-component ignored: the majors must match, and the installed minor must be at
-least the file's. The two failures read:
+The parser enforces one condition, on the `major.minor` the line spells out:
+the installed extension must be able to provide what the file asks for.
 
 ```
-Line 3: file requires fake_inst 1.0 (major 1); installed fake_inst is 0.1.0 (major 0) — major versions must match
-Line 3: file requires fake_inst 0.9 or compatible; installed fake_inst is 0.1.0 — minor version too old
+Line 3: file requires fake_inst 1.0, newer than the installed fake_inst 0.1.0 — install fake_inst 1.0 or newer
+Line 3: file version '0.9.1' must be exactly major.minor
 ```
 
-An existing file therefore keeps parsing as long as you only add to the
-operation set on the same major, and a newer extension on that major always
-reads older files.
+### Keeping older files loading
+
+An older line always loads. When the release that broke the wire form also
+registers a migration for it, the body is rewritten on the way in and the older
+file parses as if it had been written today.
+
+Say 1.0 gives `beep` a second required argument, `volume`, which by the rule
+above is a major bump. Every file written against 0.3 or earlier is one token
+short of what the constructor now takes:
+
+```
+#!QProgram 0.2
+
+require fake_inst 0.3
+
+body:
+  fake_inst.beep "drive_q0" 100
+```
+
+The rewrite goes in `__init__.py` beside the `register_vendor_operation` calls,
+so that the import a `require` line triggers is what registers it:
+
+```python
+# qprogram-fakeinst/src/qprogram_fakeinst/__init__.py
+_BEEP = re.compile(r"^\s*fake_inst\.beep\b.*$")
+
+
+@qp.register_vendor_migration("fake_inst", "1.0")
+def _beep_took_a_volume(lines: list[str]) -> list[str]:
+    """Give a pre-1.0 beep line the volume that release made required."""
+    return [_BEEP.sub(r"\g<0> volume=0.5", line) for line in lines]
+```
+
+The parser binds a keyword token by name, so the rewritten line arrives at
+`Beep.__init__` carrying a value the file never held. Match the operation
+keyword and append, rather than matching the argument list: a hand-written line
+whose duration is an expression, `fake_inst.beep "drive_q0" (100 - t)`, has
+spaces where the writer's own output has none.
+
+Key it to the version that shipped the change, one per breaking change; a
+release that only adds operations needs none, since an older file never mentions
+what it does not have. The version is your extension's rather than the format's:
+the chain is bounded by the installed extension, so what runs is decided by the
+`require fake_inst <major.minor>` line against the version your package
+registered. The rewrite is handed every line of the file, header and `require`
+lines included, and has to hand back as many as it received, which is what keeps
+a diagnostic's line number pointing at the file the user wrote. A `.wfl`
+library declares no vendor, so it never sees a vendor rewrite at all.
+
+What proves it is a load rather than a direct call to the function, since the
+registration and the version check are half of what is being tested:
+
+```python
+def test_a_0_3_file_gets_the_volume_1_0_made_required():
+    text = '#!QProgram 0.2\n\nrequire fake_inst 0.3\n\nbody:\n  fake_inst.beep "drive_q0" 100\n'
+    assert qp.loads(text).body.elements[0].volume == 0.5
+```
+
+Without a migration nothing is lost either: an older file still loads, on the
+assumption that nothing between the two versions broke. The migration is what
+turns that assumption into a guarantee.
 
 When the vendor is not registered at all, the message depends on whether
 auto-activation is on. The default suggests installing the package that
@@ -726,7 +783,7 @@ mistakes in a vendor package on the path between installed and usable.
 | No `qprogram.vendors` entry point | A `.qp` file using `fake_inst.*` loads only in a process that already imported the package. Elsewhere: `no matching extension is registered in this environment` |
 | Entry point present, no `register_vendor_version` call | `VendorActivationError: ... imported from entry point 'qprogram_fakeinst' but did not register a protocol version` |
 | `register_vendor` called on the pre-combined class | `ValueError: vendor name 'fake_inst' collides with a QProgram attribute` |
-| Package not installed as a distribution | `__version__` falls back to `"0.0.0"`, so every `require fake_inst 0.1` fails as "minor version too old" |
+| Package not installed as a distribution | `__version__` falls back to `"0.0.0"`, so every `require fake_inst 0.1` asks for more than is installed and is refused |
 | Operation class not registered | `SerializationError: Cannot serialize operation class 'Beep': it is not registered with the .qp serializer.` |
 | Constructor parameter renamed without a major bump | Older files fail to parse, or bind the value to the wrong parameter |
 | Constructor parameter name differs from the attribute | The value is silently omitted from the written file |

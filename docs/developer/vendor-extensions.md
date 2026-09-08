@@ -686,26 +686,67 @@ Line 3: file requires fake_inst 1.0, newer than the installed fake_inst 0.1.0 �
 Line 3: file version '0.9.1' must be exactly major.minor
 ```
 
+### Keeping older files loading
+
 An older line always loads. When the release that broke the wire form also
 registers a migration for it, the body is rewritten on the way in and the older
-file parses as if it had been written today:
+file parses as if it had been written today.
+
+Say 1.0 gives `beep` a second required argument, `volume`, which by the rule
+above is a major bump. Every file written against 0.3 or earlier is one token
+short of what the constructor now takes:
+
+```
+#!QProgram 0.2
+
+require fake_inst 0.3
+
+body:
+  fake_inst.beep "drive_q0" 100
+```
+
+The rewrite goes in `__init__.py` beside the `register_vendor_operation` calls,
+so that the import a `require` line triggers is what registers it:
 
 ```python
-_PLAY = re.compile(r'^(\s*fake_inst\.play\s+"[^"]+"\s+\S+)$')
+# qprogram-fakeinst/src/qprogram_fakeinst/__init__.py
+_BEEP = re.compile(r"^\s*fake_inst\.beep\b.*$")
 
 
-@register_vendor_migration("fake_inst", "0.4")
-def _play_took_a_dwell(lines: list[str]) -> list[str]:
-    return [_PLAY.sub(r"\g<1> dwell=1", line) for line in lines]
+@qp.register_vendor_migration("fake_inst", "1.0")
+def _beep_took_a_volume(lines: list[str]) -> list[str]:
+    """Give a pre-1.0 beep line the volume that release made required."""
+    return [_BEEP.sub(r"\g<0> volume=0.5", line) for line in lines]
 ```
+
+The parser binds a keyword token by name, so the rewritten line arrives at
+`Beep.__init__` carrying a value the file never held. Match the operation
+keyword and append, rather than matching the argument list: a hand-written line
+whose duration is an expression, `fake_inst.beep "drive_q0" (100 - t)`, has
+spaces where the writer's own output has none.
 
 Key it to the version that shipped the change, one per breaking change; a
 release that only adds operations needs none, since an older file never mentions
-what it does not have. The rewrite works on lines and has to hand back as many
-as it received, which is what keeps a diagnostic's line number pointing at the
-file the user wrote. Without a migration nothing is lost either — an older file
-still loads, on the assumption that nothing between the two versions broke — so
-the migration is what turns that assumption into a guarantee.
+what it does not have. The version is your extension's rather than the format's:
+the chain is bounded by the installed extension, so what runs is decided by the
+`require fake_inst <major.minor>` line against the version your package
+registered. The rewrite is handed every line of the file, header and `require`
+lines included, and has to hand back as many as it received, which is what keeps
+a diagnostic's line number pointing at the file the user wrote. A `.wfl`
+library declares no vendor, so it never sees a vendor rewrite at all.
+
+What proves it is a load rather than a direct call to the function, since the
+registration and the version check are half of what is being tested:
+
+```python
+def test_a_0_3_file_gets_the_volume_1_0_made_required():
+    text = '#!QProgram 0.2\n\nrequire fake_inst 0.3\n\nbody:\n  fake_inst.beep "drive_q0" 100\n'
+    assert qp.loads(text).body.elements[0].volume == 0.5
+```
+
+Without a migration nothing is lost either: an older file still loads, on the
+assumption that nothing between the two versions broke. The migration is what
+turns that assumption into a guarantee.
 
 When the vendor is not registered at all, the message depends on whether
 auto-activation is on. The default suggests installing the package that

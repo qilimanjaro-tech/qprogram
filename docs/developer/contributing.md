@@ -173,12 +173,12 @@ then reported as unused on 3.11.
 Tests are functions, not methods on a class, and use fixtures and
 parametrization for shared setup.
 
-New runtime dependencies need discussion first. `qprogram` depends on
-`numpy>=2.1` and `xarray>=2026.4.0` and nothing else, which is what lets it
-install next to whatever a lab already has; anything heavier belongs in an
-extra, the way `matplotlib` sits behind `qprogram[viz]` and `pygls` behind
-`qprogram[lsp]`. Supported Python versions are 3.11 through 3.14, so anything
-that only works on a newer interpreter needs a fallback.
+New runtime dependencies need discussion first. `qprogram` depends on `numpy`
+and `xarray` and nothing else, which is what lets it install next to whatever
+a lab already has; anything heavier belongs in an extra, the way `matplotlib`
+sits behind `qprogram[viz]` and `pygls` behind `qprogram[lsp]`. Supported
+Python versions are 3.11 through 3.14, so anything that only works on a newer
+interpreter needs a fallback.
 
 ## What goes where
 

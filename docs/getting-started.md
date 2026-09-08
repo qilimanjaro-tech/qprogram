@@ -10,12 +10,12 @@ the test matrix covers.
 pip install qprogram
 ```
 
-`numpy` (2.1 or newer) and `xarray` (2026.4.0 or newer) are the only runtime
-dependencies. Two extras add optional pieces:
+`numpy` and `xarray` are the only runtime dependencies. Two extras add
+optional pieces:
 
 ```bash
-pip install "qprogram[viz]"   # matplotlib >= 3.10.9
-pip install "qprogram[lsp]"   # pygls >= 2, < 3
+pip install "qprogram[viz]"   # matplotlib
+pip install "qprogram[lsp]"   # pygls
 ```
 
 The `viz` extra is what `QProgramResult.plot()`, `Waveform.plot()`, and

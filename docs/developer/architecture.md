@@ -66,12 +66,12 @@ qprogram/
 ```
 
 `qprogram` is the whole language: the AST, the `.qp` format, the capability
-protocol, the validator, and the reference executor. It depends on `numpy>=2.1`
-and `xarray>=2026.4.0` at runtime and nothing else; `matplotlib` (the `viz`
-extra) and `pygls` (the `lsp` extra) are optional, and `lark` is a development
-dependency used only to cross-check the grammar. A vendor extension is a
-separate package in its own repository that depends on `qprogram` and registers
-itself on import. See [Building a vendor extension](vendor-extensions.md).
+protocol, the validator, and the reference executor. It depends on `numpy` and
+`xarray` at runtime and nothing else; `matplotlib` (the `viz` extra) and
+`pygls` (the `lsp` extra) are optional, and `lark` is a development dependency
+used only to cross-check the grammar. A vendor extension is a separate package
+in its own repository that depends on `qprogram` and registers itself on
+import. See [Building a vendor extension](vendor-extensions.md).
 
 `tests/_dummy_vendor.py` is a complete vendor extension living in the test
 suite. Its `activate()` runs the same registration calls an installed extension

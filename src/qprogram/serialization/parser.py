@@ -1641,7 +1641,7 @@ def _find_comment(line: str) -> int:
     ``#`` following an escaped quote is still recognized as string content rather than a comment.
 
     A line whose first two characters are ``#!`` is the format header, and no ``#`` on it starts a
-    comment: the header is taken whole, so ``#!QProgram 1.0 # note`` keeps its trailing text and
+    comment: the header is taken whole, so ``#!QProgram 0.2 # note`` keeps its trailing text and
     fails version parsing.
 
     Args:

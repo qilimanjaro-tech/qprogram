@@ -419,7 +419,7 @@ arrays are written in full, because the parser has no way to recover dropped
 samples.
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 body:
   play "drive_q0" IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)

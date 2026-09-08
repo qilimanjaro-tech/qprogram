@@ -74,7 +74,7 @@ number. Four measurements on four buses are all `m0`; three on one bus would be
 ## What it produces
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 metadata:
   label: "multiplexed_rabi"
@@ -187,7 +187,7 @@ library.save("chip.wfl")
 ```
 
 ```
-#!WaveformLibrary 1.0
+#!WaveformLibrary 0.2
 "readout" q[0].readout = IQPair(I=Square(amplitude=0.9, duration=1000), Q=Square(amplitude=0.0, duration=1000))
 "readout" q[2].readout = IQPair(I=Square(amplitude=0.7, duration=3000), Q=Square(amplitude=0.0, duration=3000))
 "readout" q[*].readout = IQPair(I=Square(amplitude=0.5, duration=2000), Q=Square(amplitude=0.0, duration=2000))

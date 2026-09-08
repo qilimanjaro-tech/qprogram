@@ -13,17 +13,26 @@ source and keep their intra-package imports, since `import qprogram` from
 inside the package would close an import cycle. Anything written against the
 installed package uses `import qprogram as qp`.
 
-The format version is one constant, shared by both directions:
+The format version is one constant, shared by both directions, and it follows
+the library version truncated to `major.minor`:
 
 ```python
 # src/qprogram/serialization/_format.py
-FORMAT_VERSION: Final[str] = "1.0"
+FORMAT_VERSION: Final[str] = library_major_minor()
 ```
 
-It is emitted in the `#!QProgram` header and checked on load. Only the major
-component is binding: a file whose major differs is rejected with
+`library_major_minor` lives in `src/qprogram/_version.py` and reads the
+installed distribution version through `importlib.metadata`, not
+`qprogram.__version__`, so `_format` stays a leaf importing one stdlib-only
+module and nothing else in the package. A source tree with no installed
+metadata falls back to `"0.0"`. The `.wfl` format's
+`WAVEFORM_LIBRARY_FORMAT_VERSION` is derived the same way, which is why the two
+headers carry the same number.
+
+The version is emitted in the `#!QProgram` header and checked on load. Only the
+major component is binding: a file whose major differs is rejected with
 `Unsupported format version`, and any minor within the same major loads, so a
-`1.4` file opens under a `1.0` runtime.
+`0.4` file opens under a `0.2` runtime.
 
 ## The registries
 
@@ -242,7 +251,7 @@ Put together, a program with metadata, a schema, a fragment, an `average`, and
 a sweep writes as:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 metadata:
   label: "ordering demo"
@@ -483,7 +492,7 @@ For a sweep whose values are large or live outside the program, use the file
 source instead. The path, not the data, is what the `.qp` file carries:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 body:
   var amp

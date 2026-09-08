@@ -90,7 +90,7 @@ per-bus counter, so both come out as `m0` under different bus prefixes:
 ## What it looks like on disk
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 metadata:
   label: "cz_chevron"

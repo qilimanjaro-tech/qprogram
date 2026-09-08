@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import pytest
+from _header import HEADER
 
 import qprogram as qp
 from qprogram import QProgram, format_path, node_path, resolve_path
@@ -177,7 +178,7 @@ def test_source_map_empty_for_python_built_programs():
 
 
 def test_source_map_cleared_by_expand():
-    text = '#!QProgram 1.0\n\nfragment f1(bus):\n  sync\n\nbody:\n  f1("drive")\n'
+    text = HEADER + '\n\nfragment f1(bus):\n  sync\n\nbody:\n  f1("drive")\n'
     p = qp.loads(text)
     assert p.source_map  # the call statement is mapped
     assert p.expand().source_map == {}

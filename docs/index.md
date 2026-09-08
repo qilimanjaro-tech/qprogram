@@ -167,13 +167,13 @@ pattern.
 ## Versions and compatibility
 
 The package is pre-1.0, so the Python API can change between releases without a
-deprecation cycle. The `.qp` format carries its own version and is at `1.0`,
-where only the major component is binding: the writer emits `#!QProgram 1.0`, a
-`1.1` file still loads on this parser, and a `2.0` file raises `ParseError` with
-`Unsupported format version 2.0`. Accepting a newer minor is deliberate, and the
-cost is that a file using grammar this parser does not know fails somewhere in
-its body instead of at the header. A file with no header at all fails
-immediately with `Missing #!QProgram header`.
+deprecation cycle. The `.qp` format version follows the library version
+truncated to `major.minor`, so this release writes `#!QProgram 0.2`. Only the
+major component is binding: a `0.7` file still loads on this parser, and a `1.0`
+file raises `ParseError` with `Unsupported format version 1.0`. Accepting a
+newer minor is deliberate, and the cost is that a file using grammar this parser
+does not know fails somewhere in its body instead of at the header. A file with
+no header at all fails immediately with `Missing #!QProgram header`.
 
 Vendor compatibility is checked one `require` line at a time, before any of the
 body is built, so a rejected file leaves no partially loaded program: the majors

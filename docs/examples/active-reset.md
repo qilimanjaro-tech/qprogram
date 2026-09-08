@@ -88,7 +88,7 @@ from.
 ## What it produces
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 metadata:
   label: "active_reset"

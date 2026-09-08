@@ -61,7 +61,7 @@ coarse enough to find the dip in one pass. The fine scan comes after.
 ## What the platform makes of it
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 metadata:
   label: "resonator_spectroscopy"

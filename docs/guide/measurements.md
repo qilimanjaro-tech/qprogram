@@ -201,7 +201,7 @@ The writer always emits the measurement name as a `name=` keyword, so nothing is
 inferred on the way back in:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 schema:
   element q:

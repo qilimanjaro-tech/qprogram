@@ -288,11 +288,11 @@ information:
 ```python
 import qprogram as qp
 
-qp.loads("#!QProgram 1.0\n\nbody:\n  var 1x\n")
+qp.loads("#!QProgram 0.2\n\nbody:\n  var 1x\n")
 # ParseError: Line 4: variable id '1x' is invalid: must match
 # [A-Za-z_][A-Za-z0-9_]* (no spaces or special characters)
 
-qp.loads("#!QProgram 1.0\n\nbody:\n  var if\n")
+qp.loads("#!QProgram 0.2\n\nbody:\n  var if\n")
 # InvalidVariableIdError: Variable id 'if' is reserved for future QProgram
 # syntax ...
 ```
@@ -305,7 +305,7 @@ class's own `TypeError`:
 ```python
 import qprogram as qp
 
-qp.loads('#!QProgram 1.0\n\nbody:\n  play "b" Gaussian(amplitude=0.5)\n')
+qp.loads('#!QProgram 0.2\n\nbody:\n  play "b" Gaussian(amplitude=0.5)\n')
 # TypeError: Gaussian.__init__() missing 2 required positional arguments:
 # 'duration' and 'sigma'
 ```
@@ -332,17 +332,17 @@ almost identical mistakes read differently:
 ```python
 import qprogram as qp
 
-qp.loads('#!QProgram 1.0\n\nbody:\n  play "b" Bogus(amplitude=0.5)\n')
+qp.loads('#!QProgram 0.2\n\nbody:\n  play "b" Bogus(amplitude=0.5)\n')
 # ParseError: Unknown waveform or sweep source type: Bogus
 # ... with line_num == 0, even though the offending line is line 4
 
-qp.loads("#!QProgram 1.0\n\nbody:\n  var x\n  for x in Bogus(start=1):\n    sync\n")
+qp.loads("#!QProgram 0.2\n\nbody:\n  var x\n  for x in Bogus(start=1):\n    sync\n")
 # ParseError: Line 5: unknown sweep source 'Bogus'; registered sources are
 # ['Concat', 'File', 'Linspace', 'Logspace', 'Range', 'Repeat', 'Rotate',
 # 'Values']
 # ... with line_num == 5
 
-qp.loads('#!QProgram 1.0\n\nbody:\n  var x\n  set_phase "b" ("a" + x)\n')
+qp.loads('#!QProgram 0.2\n\nbody:\n  var x\n  set_phase "b" ("a" + x)\n')
 # ParseError: cannot use 'a' (_QuotedStr) as an expression operand
 # ... with line_num == 0
 ```

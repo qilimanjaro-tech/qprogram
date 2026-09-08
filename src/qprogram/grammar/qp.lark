@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Canonical machine-readable grammar for the .qp file format (format version 1.x).
+// Canonical machine-readable grammar for the .qp file format, whose version follows the
+// library's, truncated to major.minor. The HEADER terminal admits any major.minor: which
+// ones load is the parser's compatibility check, not the grammar's.
 //
 // ROLE — this file is the *normative grammar* and a CI artifact, not the production parser.
 // The shipping parser stays the hand-written recursive-descent one in

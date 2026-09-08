@@ -19,7 +19,9 @@ import re
 
 import numpy as np
 import pytest
+from _header import HEADER
 
+import qprogram
 from qprogram import (
     BusNaming,
     BusSchema,
@@ -37,6 +39,7 @@ from qprogram.blocks import Block
 from qprogram.operations import Play
 from qprogram.operations.operation import Operation
 from qprogram.serialization import registry
+from qprogram.serialization._format import FORMAT_VERSION
 from qprogram.serialization.registry import register_vendor_block, register_vendor_version
 from qprogram.serialization.writer import _escape_str, _major_minor, _Writer
 from qprogram.sweeps import Range, Values
@@ -86,7 +89,12 @@ def test_escape_str(raw, expected):
 
 def test_dumps_starts_with_format_header():
     text = dumps(QProgram())
-    assert text.startswith("#!QProgram 1.0\n")
+    assert text.startswith(HEADER + "\n")
+
+
+def test_format_version_follows_the_library_version():
+    """The header version is the library version truncated to ``major.minor``."""
+    assert ".".join(qprogram.__version__.split(".")[:2]) == FORMAT_VERSION
 
 
 def test_dumps_includes_body_section():

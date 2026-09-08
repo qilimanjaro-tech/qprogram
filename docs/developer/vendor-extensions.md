@@ -588,7 +588,7 @@ in the program but no version is registered.`
 A complete file for a two-operation program looks like this:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 require fake_inst 0.1
 

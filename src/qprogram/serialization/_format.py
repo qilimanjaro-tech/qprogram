@@ -14,17 +14,20 @@
 """Shared ``.qp`` format constants.
 
 The single source of truth for the format version emitted by the writer and accepted by the
-parser. Lives in its own leaf module (no qprogram imports) so both sides can import it without
-touching the writer↔parser import cycle.
+parser. Lives in its own leaf module, importing only `qprogram._version`, which is itself
+stdlib-only, so both sides can import it without touching the writer↔parser import cycle.
 """
 
 from __future__ import annotations
 
 from typing import Final
 
-FORMAT_VERSION: Final[str] = "1.0"
+from qprogram._version import library_major_minor
+
+FORMAT_VERSION: Final[str] = library_major_minor()
 """``major.minor`` version emitted in the ``#!QProgram`` header and accepted by the parser.
 
-Compatibility contract: the parser rejects files whose
+The format version follows the library version truncated to ``major.minor``, so ``qprogram``
+0.2.1 writes ``#!QProgram 0.2``. Compatibility contract: the parser rejects files whose
 *major* version differs from this one; minor differences within the same major are accepted.
 """

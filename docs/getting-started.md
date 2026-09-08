@@ -89,7 +89,7 @@ that is how you address the measurement's data after a run.
 No platform is involved yet. The output is the program in `.qp` form:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 metadata:
   label: "rabi"

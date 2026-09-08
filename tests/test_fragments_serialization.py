@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from _header import HEADER
 
 import qprogram as qp
 from qprogram import Fragment, QProgram, fragment
@@ -100,7 +101,7 @@ def test_fragment_defs_emitted_in_dependency_order():
 
 
 def test_unused_fragment_definition_round_trips():
-    text = '#!QProgram 1.0\n\nfragment unused(bus):\n  sync\n\nbody:\n  wait "drive" 4\n'
+    text = HEADER + '\n\nfragment unused(bus):\n  sync\n\nbody:\n  wait "drive" 4\n'
     p = qp.loads(text)
     assert "unused" in p.fragments
     assert qp.dumps(qp.loads(qp.dumps(p))) == qp.dumps(p)
@@ -179,7 +180,7 @@ def test_quoted_path_like_argument_stays_string():
 
 
 def test_keyword_arguments_parse():
-    text = '#!QProgram 1.0\n\nfragment f1(bus, t):\n  wait bus t\n\nbody:\n  f1(t=8, bus="drive")\n'
+    text = HEADER + '\n\nfragment f1(bus, t):\n  wait bus t\n\nbody:\n  f1(t=8, bus="drive")\n'
     p = qp.loads(text)
     call = p.body.elements[0]
     assert isinstance(call, Call)
@@ -188,7 +189,7 @@ def test_keyword_arguments_parse():
 
 def test_expression_and_waveform_arguments_parse():
     text = (
-        "#!QProgram 1.0\n"
+        HEADER + "\n"
         "\n"
         "fragment f1(wf, t):\n"
         '  play "drive" wf\n'
@@ -221,7 +222,7 @@ def test_fragment_with_vendor_op_emits_require(dummy_vendor):  # ruff: ignore[un
 
 def test_fragment_measurement_auto_name_allocates_per_fragment():
     text = (
-        "#!QProgram 1.0\n"
+        HEADER + "\n"
         "\n"
         "fragment ro(bus):\n"
         '  measure bus "wf" "w"\n'  # no name= -> auto-allocated within the fragment
@@ -241,67 +242,67 @@ def test_fragment_measurement_auto_name_allocates_per_fragment():
 
 
 def test_unknown_fragment_call_raises():
-    text = '#!QProgram 1.0\n\nbody:\n  mystery("drive", 4)\n'
+    text = HEADER + '\n\nbody:\n  mystery("drive", 4)\n'
     with pytest.raises(ParseError, match="unknown fragment 'mystery'"):
         qp.loads(text)
 
 
 def test_waveform_constructor_as_statement_raises():
-    text = "#!QProgram 1.0\n\nbody:\n  Gaussian(amplitude=0.5, duration=40, sigma=8)\n"
+    text = HEADER + "\n\nbody:\n  Gaussian(amplitude=0.5, duration=40, sigma=8)\n"
     with pytest.raises(ParseError, match="cannot stand alone as a statement"):
         qp.loads(text)
 
 
 def test_fragment_after_body_raises():
-    text = '#!QProgram 1.0\n\nbody:\n  wait "d" 4\n\nfragment f1(bus):\n  sync\n'
+    text = HEADER + '\n\nbody:\n  wait "d" 4\n\nfragment f1(bus):\n  sync\n'
     with pytest.raises(ParseError, match="before the `body:` section"):
         qp.loads(text)
 
 
 def test_duplicate_fragment_definition_raises():
-    text = "#!QProgram 1.0\n\nfragment f1(a):\n  sync\n\nfragment f1(b):\n  sync\n\nbody:\n  f1(1)\n"
+    text = HEADER + "\n\nfragment f1(a):\n  sync\n\nfragment f1(b):\n  sync\n\nbody:\n  f1(1)\n"
     with pytest.raises(ParseError, match="duplicate fragment definition"):
         qp.loads(text)
 
 
 def test_malformed_fragment_header_raises():
-    text = "#!QProgram 1.0\n\nfragment f1 a b:\n  sync\n\nbody:\n"
+    text = HEADER + "\n\nfragment f1 a b:\n  sync\n\nbody:\n"
     with pytest.raises(ParseError, match="invalid fragment header"):
         qp.loads(text)
 
 
 def test_reserved_fragment_name_raises():
-    text = "#!QProgram 1.0\n\nfragment match(a):\n  sync\n\nbody:\n"
+    text = HEADER + "\n\nfragment match(a):\n  sync\n\nbody:\n"
     with pytest.raises(ParseError, match="reserved"):
         qp.loads(text)
 
 
 def test_invalid_parameter_name_raises():
-    text = "#!QProgram 1.0\n\nfragment f1(2bad):\n  sync\n\nbody:\n"
+    text = HEADER + "\n\nfragment f1(2bad):\n  sync\n\nbody:\n"
     with pytest.raises(ParseError, match="invalid fragment parameter"):
         qp.loads(text)
 
 
 def test_duplicate_parameter_raises():
-    text = "#!QProgram 1.0\n\nfragment f1(a, a):\n  sync\n\nbody:\n"
+    text = HEADER + "\n\nfragment f1(a, a):\n  sync\n\nbody:\n"
     with pytest.raises(ParseError, match="already declared"):
         qp.loads(text)
 
 
 def test_argument_count_mismatch_raises():
-    text = "#!QProgram 1.0\n\nfragment f1(a, b):\n  wait a b\n\nbody:\n  f1(1)\n"
+    text = HEADER + "\n\nfragment f1(a, b):\n  wait a b\n\nbody:\n  f1(1)\n"
     with pytest.raises(ParseError, match="missing argument"):
         qp.loads(text)
 
 
 def test_unknown_keyword_argument_raises():
-    text = "#!QProgram 1.0\n\nfragment f1(a):\n  wait a 4\n\nbody:\n  f1(a=1, b=2)\n"
+    text = HEADER + "\n\nfragment f1(a):\n  wait a 4\n\nbody:\n  f1(a=1, b=2)\n"
     with pytest.raises(ParseError, match="no parameter 'b'"):
         qp.loads(text)
 
 
 def test_positional_after_keyword_raises():
-    text = "#!QProgram 1.0\n\nfragment f1(a, b):\n  wait a b\n\nbody:\n  f1(a=1, 2)\n"
+    text = HEADER + "\n\nfragment f1(a, b):\n  wait a b\n\nbody:\n  f1(a=1, 2)\n"
     with pytest.raises(ParseError, match="positional argument after keyword"):
         qp.loads(text)
 
@@ -309,23 +310,14 @@ def test_positional_after_keyword_raises():
 def test_call_to_later_defined_fragment_raises():
     """Define-before-use also applies between fragments — gives topological order for free."""
     text = (
-        "#!QProgram 1.0\n"
-        "\n"
-        "fragment outer(bus):\n"
-        "  inner(bus)\n"
-        "\n"
-        "fragment inner(bus):\n"
-        "  sync\n"
-        "\n"
-        "body:\n"
-        '  outer("drive")\n'
+        HEADER + '\n\nfragment outer(bus):\n  inner(bus)\n\nfragment inner(bus):\n  sync\n\nbody:\n  outer("drive")\n'
     )
     with pytest.raises(ParseError, match="unknown fragment 'inner'"):
         qp.loads(text)
 
 
 def test_fragment_keyword_inside_body_raises():
-    text = "#!QProgram 1.0\n\nbody:\n  fragment f1(a):\n    sync\n"
+    text = HEADER + "\n\nbody:\n  fragment f1(a):\n    sync\n"
     with pytest.raises(ParseError, match="unknown block keyword 'fragment'"):
         qp.loads(text)
 
@@ -344,7 +336,7 @@ def test_dumps_rejects_bare_fragment():
 
 def test_hand_written_file_matches_python_built_program():
     text = (
-        "#!QProgram 1.0\n"
+        HEADER + "\n"
         "\n"
         "fragment x_pulse(drive, amp):\n"
         "  play drive Gaussian(amplitude=amp, duration=40, sigma=8)\n"

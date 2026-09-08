@@ -28,6 +28,7 @@ from __future__ import annotations
 import lark
 import numpy as np
 import pytest
+from _header import HEADER
 from hypothesis import given, settings
 from test_round_trip import UNICODE_LINE_BREAKS
 from test_round_trip_property import fragment_programs, programs
@@ -164,14 +165,14 @@ def test_vendor_program_is_grammatical(dummy_vendor):  # ruff: ignore[unused-fun
 
 
 def test_empty_body_and_header_only_forms():
-    assert_grammatical("#!QProgram 1.0\n\nbody:\n")
-    assert_grammatical("#!QProgram 1.0\nbody:\n")
-    assert_grammatical("\n\n#!QProgram 1.0\n\nbody:\n")  # leading blank lines tolerated
+    assert_grammatical(HEADER + "\n\nbody:\n")
+    assert_grammatical(HEADER + "\nbody:\n")
+    assert_grammatical("\n\n" + HEADER + "\n\nbody:\n")  # leading blank lines tolerated
 
 
 def test_comments_anywhere_are_transparent():
     text = (
-        "#!QProgram 1.0\n"
+        HEADER + "\n"
         "# top comment\n"
         "\n"
         "body:\n"
@@ -191,7 +192,7 @@ def test_comments_anywhere_are_transparent():
 
 def test_hand_written_spacing_variants():
     # The parser tolerates a space before the fragment paren; so does the grammar.
-    assert_grammatical('#!QProgram 1.0\n\nfragment f1 (bus):\n  sync\n\nbody:\n  f1("drive")\n')
+    assert_grammatical(HEADER + '\n\nfragment f1 (bus):\n  sync\n\nbody:\n  f1("drive")\n')
 
 
 @pytest.mark.parametrize("char", UNICODE_LINE_BREAKS)
@@ -232,18 +233,18 @@ def test_property_fragment_programs_are_grammatical(p: QProgram) -> None:
 
 _SYNTACTIC_REJECTS = {
     "missing-header": 'body:\n  play "d" "p"\n',
-    "require-without-version": "#!QProgram 1.0\n\nrequire qblox\n\nbody:\n",
-    "block-missing-colon": '#!QProgram 1.0\n\nbody:\n  average 10\n    play "d" "p"\n',
-    "unquoted-metadata-label": "#!QProgram 1.0\n\nmetadata:\n  label: rabi experiment\n\nbody:\n",
-    "var-with-spaces": "#!QProgram 1.0\n\nbody:\n  var Wait Duration (ns)\n",
-    "var-id-starts-digit": "#!QProgram 1.0\n\nbody:\n  var 1freq\n",
-    "unparenthesized-expression": '#!QProgram 1.0\n\nbody:\n  wait "d" 100 - t\n',
-    "unterminated-string": '#!QProgram 1.0\n\nbody:\n  play "drive\n',
-    "for-without-in": "#!QProgram 1.0\n\nbody:\n  for g range(0, 1, 0.1):\n    sync\n",
-    "if-without-condition": "#!QProgram 1.0\n\nbody:\n  if:\n    sync\n",
-    "else-with-condition": ("#!QProgram 1.0\n\nbody:\n  if m0.state == 0:\n    sync\n  else m0.state:\n    sync\n"),
-    "dangling-dict": '#!QProgram 1.0\n\nbody:\n  set_parameter "a" "b" matrix={"a": 1.0\n',
-    "fragment-missing-parens": "#!QProgram 1.0\n\nfragment f1:\n  sync\n\nbody:\n",
+    "require-without-version": HEADER + "\n\nrequire qblox\n\nbody:\n",
+    "block-missing-colon": HEADER + '\n\nbody:\n  average 10\n    play "d" "p"\n',
+    "unquoted-metadata-label": HEADER + "\n\nmetadata:\n  label: rabi experiment\n\nbody:\n",
+    "var-with-spaces": HEADER + "\n\nbody:\n  var Wait Duration (ns)\n",
+    "var-id-starts-digit": HEADER + "\n\nbody:\n  var 1freq\n",
+    "unparenthesized-expression": HEADER + '\n\nbody:\n  wait "d" 100 - t\n',
+    "unterminated-string": HEADER + '\n\nbody:\n  play "drive\n',
+    "for-without-in": HEADER + "\n\nbody:\n  for g range(0, 1, 0.1):\n    sync\n",
+    "if-without-condition": HEADER + "\n\nbody:\n  if:\n    sync\n",
+    "else-with-condition": (HEADER + "\n\nbody:\n  if m0.state == 0:\n    sync\n  else m0.state:\n    sync\n"),
+    "dangling-dict": HEADER + '\n\nbody:\n  set_parameter "a" "b" matrix={"a": 1.0\n',
+    "fragment-missing-parens": HEADER + "\n\nfragment f1:\n  sync\n\nbody:\n",
 }
 
 

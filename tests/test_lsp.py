@@ -19,10 +19,12 @@ import json
 import subprocess
 import sys
 
+from _header import HEADER
+
 from qprogram.lsp import FileDiagnostic, check_text, create_server, main
 
 _WARNY = (
-    "#!QProgram 1.0\n"
+    HEADER + "\n"
     "\n"
     "body:\n"
     "  var v\n"
@@ -41,11 +43,11 @@ _WARNY = (
 
 
 def test_clean_program_has_no_diagnostics():
-    assert check_text('#!QProgram 1.0\n\nbody:\n  play "d" "p"\n') == []
+    assert check_text(HEADER + '\n\nbody:\n  play "d" "p"\n') == []
 
 
 def test_parse_error_lands_on_its_line():
-    text = '#!QProgram 1.0\n\nbody:\n  play "d" "p"\n  bogus_op "x"\n'
+    text = HEADER + '\n\nbody:\n  play "d" "p"\n  bogus_op "x"\n'
     diagnostics = check_text(text)
     assert len(diagnostics) == 1
     d = diagnostics[0]
@@ -81,7 +83,7 @@ def test_whole_file_parse_error_lands_on_line_zero():
 def test_validation_error_is_reported():
     # Conditional on m0.state while the measurement doesn't request state classification:
     # parses fine, fails capability validation.
-    text = '#!QProgram 1.0\n\nbody:\n  measure "r" "wf" "w" name="m0" fields=["iq"]\n  if m0.state == 0:\n    sync\n'
+    text = HEADER + '\n\nbody:\n  measure "r" "wf" "w" name="m0" fields=["iq"]\n  if m0.state == 0:\n    sync\n'
     diagnostics = check_text(text)
     assert any(d.code == "missing-classification" and d.severity == "error" for d in diagnostics)
 
@@ -103,7 +105,7 @@ def _run_cli(*args: str, stdin: str) -> tuple[int, str]:
 
 
 def test_cli_check_outputs_json_and_exit_code():
-    code, out = _run_cli("check", "-", stdin='#!QProgram 1.0\n\nbody:\n  nope "x"\n')
+    code, out = _run_cli("check", "-", stdin=HEADER + '\n\nbody:\n  nope "x"\n')
     assert code == 1  # errors -> non-zero
     payload = json.loads(out)
     assert payload[0]["code"] == "parse-error"
@@ -112,7 +114,7 @@ def test_cli_check_outputs_json_and_exit_code():
 
 def test_cli_check_clean_file_exits_zero(tmp_path):
     f = tmp_path / "ok.qp"
-    f.write_text("#!QProgram 1.0\n\nbody:\n  sync\n", encoding="utf-8")
+    f.write_text(HEADER + "\n\nbody:\n  sync\n", encoding="utf-8")
     code, out = _run_cli("check", str(f), stdin="")
     assert code == 0
     assert json.loads(out) == []
@@ -139,7 +141,7 @@ def test_cli_explain_reports_parse_error():
 
 def test_main_callable_directly(tmp_path, capsys):
     f = tmp_path / "p.qp"
-    f.write_text("#!QProgram 1.0\n\nbody:\n  sync\n", encoding="utf-8")
+    f.write_text(HEADER + "\n\nbody:\n  sync\n", encoding="utf-8")
     assert main(["check", "--no-validate", str(f)]) == 0
     assert json.loads(capsys.readouterr().out) == []
 

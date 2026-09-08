@@ -20,13 +20,16 @@ conditions.
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError
 from typing import cast
 
 import numpy as np
 import pytest
+from _header import HEADER
 
 import qprogram as qp
 from qprogram import BusSchema, ParseError, Variable, serialization
+from qprogram._version import library_major_minor
 from qprogram.blocks import Block, Parallel, Sweep
 from qprogram.buses import BusRef
 from qprogram.operations import Wait
@@ -170,7 +173,7 @@ def test_default_parse_operation_skips_empty_tokens():
 
     spec = get_operation_spec(None, "reset_phase")
     assert spec is not None
-    parser = _Parser("#!QProgram 1.0\nbody:\n")
+    parser = _Parser(HEADER + "\nbody:\n")
     parser._parse_header()
     op = default_parse_operation(spec, ['"bus"', "  ", ""], parser)
     assert getattr(op, "bus") == "bus"  # ruff: ignore[get-attr-with-constant]
@@ -206,7 +209,7 @@ def test_resolve_bus_path_returns_none_for_non_path():
     """Token that doesn't match the bus-path regex returns None (not a parse error)."""
 
     schema = BusSchema.transmon()
-    parser = _Parser("#!QProgram 1.0\nbody:\n")
+    parser = _Parser(HEADER + "\nbody:\n")
     parser._parse_header()
     parser._program._schema = schema
     assert parser._resolve_bus_path("not_a_path") is None
@@ -214,7 +217,7 @@ def test_resolve_bus_path_returns_none_for_non_path():
 
 def test_resolve_bus_path_no_schema_returns_none():
 
-    parser = _Parser("#!QProgram 1.0\nbody:\n")
+    parser = _Parser(HEADER + "\nbody:\n")
     parser._parse_header()
     # program.schema is None — no resolution.
     assert parser._resolve_bus_path("q[0].drive") is None
@@ -327,7 +330,7 @@ def test_typed_element_factory_base_getitem_via_subclass():
 def test_parser_blank_line_inside_block():
     """An indented blank line within a block body is skipped, not parsed."""
     text = (
-        "#!QProgram 1.0\n\n"
+        HEADER + "\n\n"
         "body:\n"
         "  average 100:\n"
         "\n"  # blank line at deeper indent — should be ignored
@@ -343,7 +346,7 @@ def test_parser_non_block_non_var_line_falls_to_operation():
 
     An unregistered operation name is a hard ``ParseError`` there, never a silent skip.
     """
-    text = '#!QProgram 1.0\n\nbody:\n  unknown_op "bus"\n'
+    text = HEADER + '\n\nbody:\n  unknown_op "bus"\n'
     with pytest.raises(ParseError, match="unknown operation 'unknown_op'"):
         qp.loads(text)
 
@@ -351,7 +354,7 @@ def test_parser_non_block_non_var_line_falls_to_operation():
 def test_parse_operation_empty_line_raises():
     """The empty-tokens branch of ``_parse_operation`` raises."""
 
-    parser = _Parser("#!QProgram 1.0\nbody:\n")
+    parser = _Parser(HEADER + "\nbody:\n")
     parser._parse_header()
     with pytest.raises(ParseError, match="empty operation line"):
         parser._parse_operation("")
@@ -360,7 +363,7 @@ def test_parse_operation_empty_line_raises():
 def test_parse_value_returns_bare_identifier_as_string():
     """An unknown bare identifier — not a variable, not a number — returns the string."""
 
-    parser = _Parser("#!QProgram 1.0\nbody:\n")
+    parser = _Parser(HEADER + "\nbody:\n")
     parser._parse_header()
     assert parser.parse_value("not_a_var") == "not_a_var"
 
@@ -368,7 +371,7 @@ def test_parse_value_returns_bare_identifier_as_string():
 def test_parse_value_finds_declared_variable():
     """A declared variable is resolved to the Variable object."""
 
-    parser = _Parser("#!QProgram 1.0\nbody:\n")
+    parser = _Parser(HEADER + "\nbody:\n")
     parser._parse_header()
     v = parser.get_or_declare_variable("x")
     assert parser.parse_value("x") is v
@@ -376,7 +379,7 @@ def test_parse_value_finds_declared_variable():
 
 def test_parse_value_number():
 
-    parser = _Parser("#!QProgram 1.0\nbody:\n")
+    parser = _Parser(HEADER + "\nbody:\n")
     parser._parse_header()
     assert parser.parse_value("42") == 42
 
@@ -420,7 +423,7 @@ def test_parallel_rejects_fewer_than_two_loops():
 def test_parse_var_decl_with_only_var_token_raises():
     """``_parse_var_decl`` called directly with a one-token line raises."""
 
-    parser = _Parser("#!QProgram 1.0\nbody:\n")
+    parser = _Parser(HEADER + "\nbody:\n")
     parser._parse_header()
     with pytest.raises(qp.ParseError):
         parser._parse_var_decl("var")
@@ -432,7 +435,7 @@ def test_parse_var_decl_with_only_var_token_raises():
 
 
 def test_parser_top_level_blank_lines_skipped():
-    text = "#!QProgram 1.0\n\n\n\nbody:\n  var freq\n\n\n"
+    text = HEADER + "\n\n\n\nbody:\n  var freq\n\n\n"
     p = qp.loads(text)
     assert p.variables[0].id == "freq"
 
@@ -443,7 +446,7 @@ def test_parser_top_level_unknown_line_raises():
     A mistyped section header (``bodyy:``) must not silently produce an empty program.
     """
     text = (
-        "#!QProgram 1.0\n\n"
+        HEADER + "\n\n"
         "some_unknown_section: stuff\n"  # not a known section header
         "\n"
         "body:\n"
@@ -455,7 +458,7 @@ def test_parser_top_level_unknown_line_raises():
 
 def test_parser_require_after_section_raises():
     """A ``require`` line after a section is a hard error with a placement hint."""
-    text = '#!QProgram 1.0\n\nmetadata:\n  label: "x"\n\nrequire dummy 0.0\n\nbody:\n'
+    text = HEADER + '\n\nmetadata:\n  label: "x"\n\nrequire dummy 0.0\n\nbody:\n'
     with pytest.raises(ParseError, match="before any section"):
         qp.loads(text)
 
@@ -463,7 +466,7 @@ def test_parser_require_after_section_raises():
 def test_parser_indent_past_end_returns_zero():
     """``_indent()`` returns 0 when pos is past the end of the file."""
 
-    parser = _Parser("#!QProgram 1.0\nbody:\n")
+    parser = _Parser(HEADER + "\nbody:\n")
     parser._parse_header()
     parser._pos = 999
     assert parser._indent() == 0
@@ -471,7 +474,7 @@ def test_parser_indent_past_end_returns_zero():
 
 def test_parser_stripped_past_end_returns_empty():
 
-    parser = _Parser("#!QProgram 1.0\nbody:\n")
+    parser = _Parser(HEADER + "\nbody:\n")
     parser._pos = 999
     assert parser._stripped() == ""
 
@@ -482,7 +485,7 @@ def test_parser_require_malformed_version_raises(dummy_vendor):  # ruff: ignore[
     original = registry._vendor_versions.get("dummy")
     registry._vendor_versions["dummy"] = "not-a-version"
     try:
-        text = "#!QProgram 1.0\n\nrequire dummy 0.1\n\nbody:\n"
+        text = HEADER + "\n\nrequire dummy 0.1\n\nbody:\n"
         with pytest.raises(qp.ParseError):
             qp.loads(text)
     finally:
@@ -493,7 +496,7 @@ def test_parser_require_malformed_version_raises(dummy_vendor):  # ruff: ignore[
 def test_parser_blank_line_inside_nested_block():
     """A blank indented line inside a control-flow block is consumed."""
     text = (
-        "#!QProgram 1.0\n\n"
+        HEADER + "\n\n"
         "body:\n"
         "  var freq\n"
         "  average 100:\n"
@@ -511,20 +514,20 @@ def test_parser_blank_line_inside_nested_block():
 
 def test_parser_block_header_without_colon():
     """A block keyword without the trailing ``:`` errors with a missing-colon hint."""
-    text = "#!QProgram 1.0\n\nbody:\n  average 100\n"
+    text = HEADER + "\n\nbody:\n  average 100\n"
     with pytest.raises(ParseError, match="trailing colon"):
         qp.loads(text)
 
 
 def test_parser_var_decl_attr_unquoted_value_message():
     """The unquoted-value path uses a specific message; check it."""
-    text = "#!QProgram 1.0\n\nbody:\n  var x label=foo\n"
+    text = HEADER + "\n\nbody:\n  var x label=foo\n"
     with pytest.raises(qp.ParseError, match="quoted string"):
         qp.loads(text)
 
 
 def test_parser_blank_lines_before_header():
-    text = "\n\n\n#!QProgram 1.0\n\nbody:\n"
+    text = "\n\n\n" + HEADER + "\n\nbody:\n"
     p = qp.loads(text)
     assert p is not None
 
@@ -532,7 +535,7 @@ def test_parser_blank_lines_before_header():
 def test_parser_blank_lines_in_inline_schema():
     """Inline schema parsing tolerates blank lines between element blocks."""
     text = (
-        "#!QProgram 1.0\n\n"
+        HEADER + "\n\n"
         "schema:\n"
         "  element q:\n"
         "    drive info=IQ\n"
@@ -549,7 +552,7 @@ def test_parser_blank_lines_in_inline_schema():
 
 def test_parser_blank_lines_in_element_bus_list():
     """The element-bus inline parser tolerates blank lines."""
-    text = "#!QProgram 1.0\n\nschema:\n  element q:\n    drive info=IQ\n\n    readout info=IQ+acquires\n\nbody:\n"
+    text = HEADER + "\n\nschema:\n  element q:\n    drive info=IQ\n\n    readout info=IQ+acquires\n\nbody:\n"
     p = qp.loads(text)
     assert set(p.schema.elements["q"].buses.keys()) == {"drive", "readout"}
 
@@ -566,7 +569,7 @@ def test_writer_serialize_math_func_args_recursive():
 def test_parser_unknown_operator_in_paren_expression():
     """A parenthesized expression with an unknown operator raises with a clear message."""
     # Use a custom operator that gets through _tokenize (3 tokens) but doesn't match.
-    text = '#!QProgram 1.0\n\nbody:\n  var x\n  set_offset "bus" (x ?? 5)\n'
+    text = HEADER + '\n\nbody:\n  var x\n  set_offset "bus" (x ?? 5)\n'
     with pytest.raises(qp.ParseError, match="unknown operator"):
         qp.loads(text)
 
@@ -578,6 +581,26 @@ def test_parse_value_with_bus_path_token_returns_string():
     which runs once the enclosing operation exists and knows which of its attributes are buses.
     """
 
-    parser = _Parser("#!QProgram 1.0\nbody:\n")
+    parser = _Parser(HEADER + "\nbody:\n")
     parser._parse_header()
     assert parser.parse_value("q[0].drive") == "q[0].drive"
+
+
+@pytest.mark.parametrize(
+    ("release", "expected"),
+    [("0.2.0", "0.2"), ("0.2.1.dev3", "0.2"), ("10.11", "10.11"), ("1", "1.0")],
+)
+def test_library_major_minor_truncates_the_release(monkeypatch, release, expected):
+    """The header version is the release's first two components, padded when it carries only one."""
+    monkeypatch.setattr("qprogram._version.version", lambda _name: release)
+    assert library_major_minor() == expected
+
+
+def test_library_major_minor_without_installed_metadata(monkeypatch):
+    """A source tree the package is not installed into has no version to read."""
+
+    def _missing(name: str) -> str:
+        raise PackageNotFoundError(name)
+
+    monkeypatch.setattr("qprogram._version.version", _missing)
+    assert library_major_minor() == "0.0"

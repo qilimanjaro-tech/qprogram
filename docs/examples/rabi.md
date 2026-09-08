@@ -78,7 +78,7 @@ after a `.qp` round-trip still finds the right record.
 `qp.dumps(program)` returns this, and it is the whole file:
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 metadata:
   label: "rabi"

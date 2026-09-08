@@ -76,7 +76,7 @@ times so that the tail is flat enough to fit a baseline against.
 ## What it produces
 
 ```
-#!QProgram 1.0
+#!QProgram 0.2
 
 metadata:
   label: "t1"

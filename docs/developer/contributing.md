@@ -139,6 +139,15 @@ Use this when you are not sure which file to touch.
 4. Read the rendered section and edit it. Fragments are written weeks apart by different people and rarely read as one voice when they land together.
 5. Open the release pull request, and merge it once CI is green.
 6. Create the GitHub Release on the merge commit, with a tag matching the version now in `pyproject.toml`, and use the new changelog section as the release body.
+7. Bump `main` to the next patch as a development version, so a checkout of `main` stops being indistinguishable from the release that just went out. `uv sync` matters as much as the bump: the format version is read from the installed metadata, not from `pyproject.toml`.
+
+   ```bash
+   uv version 0.2.1.dev0
+   uv sync
+   ```
+
+Bump the patch, not the minor. The version is not only what PyPI serves: both file headers carry it truncated to `major.minor`, so the minor *is* the format version. `0.2.1.dev0` still writes `#!QProgram 0.2`, which is what the release writes, while `0.3.0.dev0` would stamp `#!QProgram 0.3` into every file written from `main` for the rest of the cycle. If that cycle then ships as 0.2.1, the release refuses those files, since 0.3 reads as later than 0.2 and nothing runs backwards. Move the minor in the pull request that actually changes the format, next to the migration it registers, rather than in advance.
+
 Publishing the release triggers `publish.yml`. Its `build` job runs `uv build`, which produces one wheel and one sdist; `qprogram` is pure Python, so a single wheel covers every interpreter and platform, and a package with compiled extensions would need a build matrix here instead. The publish job downloads those artifacts, lists them, validates them with `twine check`, and uploads them with `uv publish --trusted-publishing always`. The `--check-url` pointing at `https://pypi.org/simple/qprogram/` lets a retried run skip files that already landed. Pre-releases publish the same way, so a version such as `0.2.0rc1` reaches PyPI and `pip` installs it only when asked with `--pre`.
 
 The upload job runs in the `pypi` GitHub environment, so any protection rule on that environment (a required reviewer, a wait timer) gates the upload. PyPI never lets a file be replaced, so that gate is the last point at which a wrong version can be stopped. The workflow's concurrency group is keyed on the release tag with `cancel-in-progress: false`, because a publish cancelled mid-upload can leave an index in a state that is hard to recover from.

@@ -1,20 +1,8 @@
 # Errors
 
-QProgram has a single-rooted exception hierarchy. Everything the library raises
-about a program, and everything a platform raises through the contract, is a
-subclass of `QProgramError`, so one `except` covers the lot. Catch the level of
-granularity you need.
+QProgram has a single-rooted exception hierarchy. Everything the library raises about a program, and everything a platform raises through the contract, is a subclass of `QProgramError`, so one `except` covers the lot. Catch the level of granularity you need.
 
-Argument types are the exception, and they raise a plain `TypeError` on purpose,
-because a value with no expression or waveform form is a Python type error
-rather than a fact about a program. Two families are documented. Expression
-construction rejects an operand it cannot represent, so a `bool` where an
-`Expression` belongs, or a `Variable` in a context that calls `bool()` on it,
-comes back as a `TypeError` whose message names the alternative to write; see
-[Comparisons and logical combination](../guide/variables.md#comparisons-and-logical-combination).
-A malformed inline waveform constructor in a `.qp` file escapes as the waveform
-class's own `TypeError`, described under
-[Parse-time errors](#parse-time-errors).
+Argument types are the exception, and they raise a plain `TypeError` on purpose, because a value with no expression or waveform form is a Python type error rather than a fact about a program. Two families are documented. Expression construction rejects an operand it cannot represent, so a `bool` where an `Expression` belongs, or a `Variable` in a context that calls `bool()` on it, comes back as a `TypeError` whose message names the alternative to write; see [Comparisons and logical combination](../guide/variables.md#comparisons-and-logical-combination). A malformed inline waveform constructor in a `.qp` file escapes as the waveform class's own `TypeError`, described under [Parse-time errors](#parse-time-errors).
 
 ## The hierarchy
 
@@ -33,15 +21,7 @@ QProgramError
   HardwareError
 ```
 
-Every class here is defined in `src/qprogram/errors.py` except `ParseError`,
-which lives in `qprogram.serialization.parser` because it is part of the
-parser's own surface. All twelve are re-exported at the top level, so
-`qp.ValidationError` and `qp.ParseError` both resolve. `qp.loads`, `qp.load`,
-and `qp.ParseError` come through a module-level `__getattr__` on first
-attribute access rather than at import time, because the parser imports
-`QProgram` and importing it eagerly from `qprogram/__init__.py` would close a
-cycle. `qp.errors` reaches the module holding the other eleven;
-`qp.errors.ParseError` does not exist.
+Every class here is defined in `src/qprogram/errors.py` except `ParseError`, which lives in `qprogram.serialization.parser` because it is part of the parser's own surface. All twelve are re-exported at the top level, so `qp.ValidationError` and `qp.ParseError` both resolve. `qp.loads`, `qp.load`, and `qp.ParseError` come through a module-level `__getattr__` on first attribute access rather than at import time, because the parser imports `QProgram` and importing it eagerly from `qprogram/__init__.py` would close a cycle. `qp.errors` reaches the module holding the other eleven; `qp.errors.ParseError` does not exist.
 
 ## Choosing what to catch
 
@@ -60,10 +40,7 @@ cycle. `qp.errors` reaches the module holding the other eleven;
 
 ### `ValidationError`
 
-Raised while a program is being assembled, whenever an operation, block, or
-sweep source rejects its arguments. The checks run in the constructor or the
-builder method, not in a later pass, so the traceback points at the line that
-built the offending node.
+Raised while a program is being assembled, whenever an operation, block, or sweep source rejects its arguments. The checks run in the constructor or the builder method, not in a later pass, so the traceback points at the line that built the offending node.
 
 | Module | What it rejects |
 |---|---|
@@ -77,8 +54,7 @@ built the offending node.
 | `qprogram.result` | An empty `MeasurementHandle` name, and `QProgramResult.get(field=None)` |
 | `qprogram.waveform_library` | An empty waveform name, and a `WaveformLibrary.set()` whose `element`/`idx`/`kind` combination matches none of the three tiers |
 
-A message names the offending value and the fix rather than the rule that was
-broken:
+A message names the offending value and the fix rather than the rule that was broken:
 
 ```python
 import qprogram as qp
@@ -93,8 +69,7 @@ program.play(q[0].drive, qp.waveforms.Square(0.5, 100))
 # instead.
 ```
 
-Three more, from a `measure()` on a drive bus, a `|` composition whose loops
-run different numbers of iterations, and an unknown measurement field:
+Three more, from a `measure()` on a drive bus, a `|` composition whose loops run different numbers of iterations, and an unknown measurement field:
 
 ```
 ValidationError: Bus 'q0/drive' does not support acquisition
@@ -109,18 +84,11 @@ ValidationError: unknown measurement field(s) ['bogus']. Known fields:
 `measure.fields.<name>` via qprogram.protocol.register_capability_tokens.
 ```
 
-The base `ValidationError` does not extend `ValueError`. Construction
-validation is common enough in this library that inheriting `ValueError`
-would turn a generic `except ValueError` into an accidental catch-all for it.
-Catch `qp.ValidationError` or `qp.QProgramError` instead.
+The base `ValidationError` does not extend `ValueError`. Construction validation is common enough in this library that inheriting `ValueError` would turn a generic `except ValueError` into an accidental catch-all for it. Catch `qp.ValidationError` or `qp.QProgramError` instead.
 
 ### `InvalidVariableIdError`
 
-A `Variable.id` fails the identifier rules. Two flavors share the class: a
-pattern failure, where the id does not match `[A-Za-z_][A-Za-z0-9_]*`, and a
-reserved keyword, where the id matches the pattern but is one of
-[the reserved keywords](reserved.md). The `reserved` attribute distinguishes
-them, and `id` carries the offending string:
+A `Variable.id` fails the identifier rules. Two flavors share the class: a pattern failure, where the id does not match `[A-Za-z_][A-Za-z0-9_]*`, and a reserved keyword, where the id matches the pattern but is one of [the reserved keywords](reserved.md). The `reserved` attribute distinguishes them, and `id` carries the offending string:
 
 ```python
 import qprogram as qp
@@ -132,9 +100,7 @@ except qp.InvalidVariableIdError as e:
     print((e.id, e.reserved))  # ('if', True)
 ```
 
-Both messages suggest the fix. The reserved one proposes appending `_var` and
-points at the optional `label` argument for the human-readable name; the
-pattern one spells the regular expression out:
+Both messages suggest the fix. The reserved one proposes appending `_var` and points at the optional `label` argument for the human-readable name; the pattern one spells the regular expression out:
 
 ```
 Variable id 'if' is reserved for future QProgram syntax (see
@@ -146,14 +112,11 @@ digits, underscores only; cannot start with a digit, no spaces or special
 characters). Use the optional `label` for human-readable names.
 ```
 
-The class also subclasses `ValueError`, so `except ValueError` around
-variable construction catches an invalid identifier as well.
+The class also subclasses `ValueError`, so `except ValueError` around variable construction catches an invalid identifier as well.
 
 ### `UnassignedVariableError`
 
-`Expression.evaluate_or_raise()` ran while at least one variable in the
-expression was still unbound. The error carries the expression and the set of
-free variables:
+`Expression.evaluate_or_raise()` ran while at least one variable in the expression was still unbound. The error carries the expression and the set of free variables:
 
 ```python
 import qprogram as qp
@@ -169,36 +132,17 @@ except qp.UnassignedVariableError as e:
     e.free_variables  # {freq}
 ```
 
-The message reads
-`Cannot evaluate expression <repr>: unassigned variable(s) <set>`. The same
-error comes out of `qp.simulate` when an operation holds an expression that no
-enclosing loop binds, since the reference executor evaluates every operand
-before it runs the operation. Like `InvalidVariableIdError`, this class
-subclasses `ValueError` too.
+The message reads `Cannot evaluate expression <repr>: unassigned variable(s) <set>`. The same error comes out of `qp.simulate` when an operation holds an expression that no enclosing loop binds, since the reference executor evaluates every operand before it runs the operation. Like `InvalidVariableIdError`, this class subclasses `ValueError` too.
 
 ## Write-time errors
 
-QProgram writes two formats, and both go through the same exception.
-`qp.dumps` and `qp.save` write a program as `.qp`;
-[`WaveformLibrary`](api-qprogram.md#qprogram.WaveformLibrary) has its own
-`dumps` and `save`, which write a calibration library as `.wfl`.
+QProgram writes two formats, and both go through the same exception. `qp.dumps` and `qp.save` write a program as `.qp`; [`WaveformLibrary`](api-qprogram.md#qprogram.WaveformLibrary) has its own `dumps` and `save`, which write a calibration library as `.wfl`.
 
 ### `SerializationError`
 
-Raised instead of emitting output that is lossy or would not parse back. On
-the `.qp` side that covers an operation or block class that was never
-registered with the serialization registry, a vendor operation whose
-extension never called `register_vendor_version`, an attribute value with no
-`.qp` representation (a dict with non-string keys, an array with more than
-one dimension), a fragment passed to `dumps` directly instead of the program
-that calls it, a fragment call with an unbound parameter, two different
-fragments with the same name reachable from one program, and a measurement
-name that cannot survive the unquoted `name.field` wire form of a conditional
-reference. On the `.wfl` side it covers an entry whose waveform is not
-concrete.
+Raised instead of emitting output that is lossy or would not parse back. On the `.qp` side that covers an operation or block class that was never registered with the serialization registry, a vendor operation whose extension never called `register_vendor_version`, an attribute value with no `.qp` representation (a dict with non-string keys, an array with more than one dimension), a fragment passed to `dumps` directly instead of the program that calls it, a fragment call with an unbound parameter, two different fragments with the same name reachable from one program, and a measurement name that cannot survive the unquoted `name.field` wire form of a conditional reference. On the `.wfl` side it covers an entry whose waveform is not concrete.
 
-Arrays are never truncated: `Arbitrary` samples and `Values` sweeps are
-written in full, and the text reparses to an equal program.
+Arrays are never truncated: `Arbitrary` samples and `Values` sweeps are written in full, and the text reparses to an equal program.
 
 ```
 SerializationError: Cannot serialize operation class 'MyOp': it is not
@@ -216,10 +160,7 @@ WaveformLibrary must hold concrete waveforms (no Variables / symbolic
 parameters). Underlying error: 'v'
 ```
 
-A clean `dumps` is not by itself a promise that the text parses back. The
-writer emits an expression wherever the AST holds one, including inside a
-waveform or sweep-source constructor argument, and the parser does not accept
-an expression in that position:
+A clean `dumps` is not by itself a promise that the text parses back. The writer emits an expression wherever the AST holds one, including inside a waveform or sweep-source constructor argument, and the parser does not accept an expression in that position:
 
 ```python
 import qprogram as qp
@@ -236,30 +177,11 @@ qp.loads(text)
 # ParseError: Unknown waveform or sweep source type: sin
 ```
 
-`Gaussian(amplitude=(phi * 2), ...)` fails in the same place, with an empty
-class name in the message: any argument containing a `(` is routed to the
-constructor parser, and the class name it reads is the text before the
-opening bracket, which here is nothing at all. Keep constructor
-arguments to numbers, quoted strings, and bare variable references, the
-shapes [the format documents](qp-format.md#inline-waveform-constructors), and
-a file that writes without a `SerializationError` parses back into an equal
-program. Nothing in the writer checks this for you.
+`Gaussian(amplitude=(phi * 2), ...)` fails in the same place, with an empty class name in the message: any argument containing a `(` is routed to the constructor parser, and the class name it reads is the text before the opening bracket, which here is nothing at all. Keep constructor arguments to numbers, quoted strings, and bare variable references, the shapes [the format documents](qp-format.md#inline-waveform-constructors), and a file that writes without a `SerializationError` parses back into an equal program. Nothing in the writer checks this for you.
 
 ## Parse-time errors
 
-`ParseError` is what `qp.load` and `qp.loads` raise on a `.qp` document that
-does not follow the grammar or fails a compatibility check, and what
-`WaveformLibrary.load` and `WaveformLibrary.loads` raise on a `.wfl`
-document. Compatibility accounts for the first group of `.qp` cases: a
-missing `#!QProgram` header, a header whose version is newer than the parser's
-or is not `major.minor`, a `require` declaration that cannot be satisfied, and `require`
-lines that do not sit directly after the header. The rest are grammar:
-a second `schema:` declaration, a schema with no elements or a malformed
-`info=` value, a bus path that does not resolve against the schema, a
-duplicate `var` id, a fragment defined after `body:` or called before it is
-defined, an `elif` or `else` without a matching `if`, an unknown operation or
-block keyword, an unknown sweep source, and an argument list that does not fit
-the signature.
+`ParseError` is what `qp.load` and `qp.loads` raise on a `.qp` document that does not follow the grammar or fails a compatibility check, and what `WaveformLibrary.load` and `WaveformLibrary.loads` raise on a `.wfl` document. Compatibility accounts for the first group of `.qp` cases: a missing `#!QProgram` header, a header whose version is newer than the parser's or is not `major.minor`, a `require` declaration that cannot be satisfied, and `require` lines that do not sit directly after the header. The rest are grammar: a second `schema:` declaration, a schema with no elements or a malformed `info=` value, a bus path that does not resolve against the schema, a duplicate `var` id, a fragment defined after `body:` or called before it is defined, an `elif` or `else` without a matching `if`, an unknown operation or block keyword, an unknown sweep source, and an argument list that does not fit the signature.
 
 ```
 ParseError: Line 1: Missing #!QProgram header
@@ -274,16 +196,9 @@ myvendor 1.2.0 — install myvendor 99.0 or newer
 ParseError: Line 2: file version '1.9.1' must be exactly major.minor
 ```
 
-A `require` line asks for a `major.minor`, and anything the installed extension
-cannot provide is refused. An older version loads, with that extension's
-migrations applied to the body first.
+A `require` line asks for a `major.minor`, and anything the installed extension cannot provide is refused. An older version loads, with that extension's migrations applied to the body first.
 
-An id declared in a `.qp` file is checked twice, and the two failures come
-back differently. A malformed id is rejected by the parser's own pattern
-check, so `var 1x` raises a `ParseError` carrying the line number. A
-reserved id passes that check and is rejected by the `Variable` constructor
-instead, so `var if` raises `InvalidVariableIdError` with no line
-information:
+An id declared in a `.qp` file is checked twice, and the two failures come back differently. A malformed id is rejected by the parser's own pattern check, so `var 1x` raises a `ParseError` carrying the line number. A reserved id passes that check and is rejected by the `Variable` constructor instead, so `var if` raises `InvalidVariableIdError` with no line information:
 
 ```python
 import qprogram as qp
@@ -297,10 +212,7 @@ qp.loads("#!QProgram 0.2\n\nbody:\n  var if\n")
 # syntax ...
 ```
 
-Inline constructors are where an argument-list mistake leaves the hierarchy
-entirely. The parser hands the arguments it read straight to the waveform
-class, so a missing or misspelled constructor argument surfaces as that
-class's own `TypeError`:
+Inline constructors are where an argument-list mistake leaves the hierarchy entirely. The parser hands the arguments it read straight to the waveform class, so a missing or misspelled constructor argument surfaces as that class's own `TypeError`:
 
 ```python
 import qprogram as qp
@@ -310,24 +222,11 @@ qp.loads('#!QProgram 0.2\n\nbody:\n  play "b" Gaussian(amplitude=0.5)\n')
 # 'duration' and 'sigma'
 ```
 
-A sweep source nested inside a combinator's argument list escapes the same
-way, because it reaches the class through the same argument parser. Only the
-outermost sweep-source constructor has its `TypeError` wrapped, so
-`for x in Range(start=0):` is a `ParseError` carrying the line number while
-`for x in Concat(sources=[Range(start=0)]):` is a bare `TypeError` naming the
-missing `stop` argument.
+A sweep source nested inside a combinator's argument list escapes the same way, because it reaches the class through the same argument parser. Only the outermost sweep-source constructor has its `TypeError` wrapped, so `for x in Range(start=0):` is a `ParseError` carrying the line number while `for x in Concat(sources=[Range(start=0)]):` is a bare `TypeError` naming the missing `stop` argument.
 
-Catch `(qp.ParseError, TypeError)` around `load` and `loads` if you are
-parsing files you did not write.
+Catch `(qp.ParseError, TypeError)` around `load` and `loads` if you are parsing files you did not write.
 
-Most messages name the 1-based line number and carry it separately as
-`ParseError.line_num`, and the string form gains a `Line N: ` prefix when
-`line_num` is non-zero. Two raise sites in the parser omit it, both in
-helpers that run below the line loop and have no view of the cursor: the
-unknown-class check in `_parse_waveform_expr`, and the operand promotion in
-`_to_expression`. Everything else does carry a line, including the sweep-source
-lookup on a `for` header, which is the near twin of the waveform lookup. So two
-almost identical mistakes read differently:
+Most messages name the 1-based line number and carry it separately as `ParseError.line_num`, and the string form gains a `Line N: ` prefix when `line_num` is non-zero. Two raise sites in the parser omit it, both in helpers that run below the line loop and have no view of the cursor: the unknown-class check in `_parse_waveform_expr`, and the operand promotion in `_to_expression`. Everything else does carry a line, including the sweep-source lookup on a `for` header, which is the near twin of the waveform lookup. So two almost identical mistakes read differently:
 
 ```python
 import qprogram as qp
@@ -351,12 +250,7 @@ So treat `line_num == 0` as "no line attributed", not as "whole-file error".
 
 ## Vendor extension activation
 
-`VendorActivationError` is raised by `qp.try_activate_vendor(name)` when a
-`qprogram.vendors` entry point claims `name` but its import target raises, or
-imports without calling `register_vendor_version`. The extension is installed
-and broken, which is a different failure from not being installed at all:
-`try_activate_vendor` returns `False` in that case and leaves the decision to
-the caller.
+`VendorActivationError` is raised by `qp.try_activate_vendor(name)` when a `qprogram.vendors` entry point claims `name` but its import target raises, or imports without calling `register_vendor_version`. The extension is installed and broken, which is a different failure from not being installed at all: `try_activate_vendor` returns `False` in that case and leaves the decision to the caller.
 
 ```
 VendorActivationError: vendor extension for 'myvendor' is installed (entry
@@ -368,28 +262,15 @@ the package must call register_vendor_version('myvendor', '<x.y.z>') on
 import
 ```
 
-Reading a `.qp` file whose `require` line names a vendor triggers activation
-by default, and the parser wraps any `VendorActivationError` in a
-`ParseError` carrying the `require` line's number. Passing
-`auto_activate=False` to `qp.loads` or `qp.load` turns the discovery off, in
-which case an unregistered vendor is a `ParseError` whose hint asks you to
-import the extension yourself.
+Reading a `.qp` file whose `require` line names a vendor triggers activation by default, and the parser wraps any `VendorActivationError` in a `ParseError` carrying the `require` line's number. Passing `auto_activate=False` to `qp.loads` or `qp.load` turns the discovery off, in which case an unregistered vendor is a `ParseError` whose hint asks you to import the extension yourself.
 
 ## Platform-side errors
 
-These five classes give platforms one hierarchy to report failures through,
-so the catch surface is uniform across backends. Four of them
-(`BusNotAvailableError`, `WaveformResolutionError`, `CompilationError`, and
-`HardwareError`) are defined in `qprogram` and raised only by platforms; no
-core code path raises them. `UnsupportedOperationError` is the exception:
-core raises it too.
+These five classes give platforms one hierarchy to report failures through, so the catch surface is uniform across backends. Four of them (`BusNotAvailableError`, `WaveformResolutionError`, `CompilationError`, and `HardwareError`) are defined in `qprogram` and raised only by platforms; no core code path raises them. `UnsupportedOperationError` is the exception: core raises it too.
 
 ### `UnsupportedOperationError`
 
-The platform cannot run an operation as written. Core raises it from
-`ReferencePlatform.execute()`, the engine behind `qp.simulate`, on any
-`severity="error"` diagnostic the validator reports, listing every one in the
-message:
+The platform cannot run an operation as written. Core raises it from `ReferencePlatform.execute()`, the engine behind `qp.simulate`, on any `severity="error"` diagnostic the validator reports, listing every one in the message:
 
 ```python
 import qprogram as qp
@@ -410,43 +291,25 @@ qp.simulate(program)
 # MeasurementField.STATE to fields=) (at body[1])
 ```
 
-Each line is a `Diagnostic` rendered as `[severity] code: message (at path)`;
-the ten codes the validator emits are tabulated with their severities and the
-condition that produces each under
-[Diagnostics](../guide/capabilities.md#diagnostics).
+Each line is a `Diagnostic` rendered as `[severity] code: message (at path)`; the ten codes the validator emits are tabulated with their severities and the condition that produces each under [Diagnostics](../guide/capabilities.md#diagnostics).
 
-A hardware backend raises it for the same reason, and for anything it cannot
-lower: a vendor operation it does not implement, a control-flow construct its
-compiler does not support.
+A hardware backend raises it for the same reason, and for anything it cannot lower: a vendor operation it does not implement, a control-flow construct its compiler does not support.
 
 ### `BusNotAvailableError`
 
-The program references a bus name the backend does not expose. The program is
-structurally well-formed; it just does not fit this particular platform. A
-bus problem caught while the program is being built is a `ValidationError`
-instead.
+The program references a bus name the backend does not expose. The program is structurally well-formed; it just does not fit this particular platform. A bus problem caught while the program is being built is a `ValidationError` instead.
 
 ### `WaveformResolutionError`
 
-A string waveform alias reached execution without a concrete waveform behind
-it, usually a name missing from `QProgram.with_waveforms` or from the
-`WaveformLibrary` that fed it. The reference platform does not raise this,
-because it models measurements only and never reads waveform content:
-`qp.simulate` on a program full of unresolved aliases returns a
-`QProgramResult` as usual.
+A string waveform alias reached execution without a concrete waveform behind it, usually a name missing from `QProgram.with_waveforms` or from the `WaveformLibrary` that fed it. The reference platform does not raise this, because it models measurements only and never reads waveform content: `qp.simulate` on a program full of unresolved aliases returns a `QProgramResult` as usual.
 
 ### `CompilationError`
 
-A backend-internal failure produced an invalid lowered representation:
-timing constraints not satisfied, resource over-allocation, code-generation
-bugs, anything that surfaces during compilation but does not fit the other
-classes.
+A backend-internal failure produced an invalid lowered representation: timing constraints not satisfied, resource over-allocation, code-generation bugs, anything that surfaces during compilation but does not fit the other classes.
 
 ### `HardwareError`
 
-Runtime failure at the instrument level: driver errors, SCPI failures, lost
-trigger pulses. Anything raised during execution rather than at compile or
-validate time.
+Runtime failure at the instrument level: driver errors, SCPI failures, lost trigger pulses. Anything raised during execution rather than at compile or validate time.
 
 ## Which error to expect
 
@@ -475,34 +338,12 @@ validate time.
 
 ## Why two parents on some classes
 
-`InvalidVariableIdError` and `UnassignedVariableError` inherit from both
-`ValidationError` and `ValueError`. Each reports a value that is wrong on its
-own terms: an identifier that is not a legal identifier, an expression with
-no number to compute. That is exactly what `ValueError` means in Python, so
-both spellings catch them. Every other class in the hierarchy descends from
-`QProgramError` alone.
+`InvalidVariableIdError` and `UnassignedVariableError` inherit from both `ValidationError` and `ValueError`. Each reports a value that is wrong on its own terms: an identifier that is not a legal identifier, an expression with no number to compute. That is exactly what `ValueError` means in Python, so both spellings catch them. Every other class in the hierarchy descends from `QProgramError` alone.
 
 ## `Diagnostic` is not an exception
 
-The validator surface lives next door, but it is not part of this hierarchy.
-`qp.validate(program, caps)` returns a tuple `(list[Diagnostic],
-ExecutionPlan)` rather than raising. The list comes back, the caller decides
-what to do. A `Diagnostic` is a frozen dataclass with `severity`
-(`"error"`, `"warning"`, or `"info"`), `code`, `message`, `node`, `path`,
-`capability`, `limit`, and `domain` fields.
+The validator surface lives next door, but it is not part of this hierarchy. `qp.validate(program, caps)` returns a tuple `(list[Diagnostic], ExecutionPlan)` rather than raising. The list comes back, the caller decides what to do. A `Diagnostic` is a frozen dataclass with `severity` (`"error"`, `"warning"`, or `"info"`), `code`, `message`, `node`, `path`, `capability`, `limit`, and `domain` fields.
 
-Platforms typically translate any `severity="error"` diagnostic into one of
-the platform-side exceptions above, `UnsupportedOperationError` being the
-usual choice, so end users see one consistent error class regardless of which
-axis tripped. A `severity="warning"` diagnostic means the program runs but in
-a degraded way; `ReferencePlatform.execute` passes those to
-`warnings.warn` as a `qp.ExecutionWarning` rather than raising, which is how
-the `"forced-host"` notice on a block that lost real-time dispatch reaches
-the caller. `severity="info"` diagnostics, such as the
-`"reorderable-averaging"` hint, are neither raised nor warned; they come back
-in the list as advisory output.
+Platforms typically translate any `severity="error"` diagnostic into one of the platform-side exceptions above, `UnsupportedOperationError` being the usual choice, so end users see one consistent error class regardless of which axis tripped. A `severity="warning"` diagnostic means the program runs but in a degraded way; `ReferencePlatform.execute` passes those to `warnings.warn` as a `qp.ExecutionWarning` rather than raising, which is how the `"forced-host"` notice on a block that lost real-time dispatch reaches the caller. `severity="info"` diagnostics, such as the `"reorderable-averaging"` hint, are neither raised nor warned; they come back in the list as advisory output.
 
-See [Capabilities, diagnostics, and profiles](../guide/capabilities.md)
-for the validator walkthrough, and
-[Diagnostics](../guide/capabilities.md#diagnostics) for the ten codes with
-their severities and producing conditions.
+See [Capabilities, diagnostics, and profiles](../guide/capabilities.md) for the validator walkthrough, and [Diagnostics](../guide/capabilities.md#diagnostics) for the ten codes with their severities and producing conditions.

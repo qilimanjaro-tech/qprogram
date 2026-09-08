@@ -1,17 +1,8 @@
 # Examples
 
-Each page in this section is one program given in full: the Python that builds
-it, the `.qp` text it serializes to, and the calls that run it and read the
-results back. Nothing here needs an instrument, because `qp.simulate` runs on
-the reference platform, the pure-Python interpreter that ships with the
-package. The pages are ordered so that each one adds a few pieces to the ones
-before it, and each names what those are in its opening paragraphs.
+Each page in this section is one program given in full: the Python that builds it, the `.qp` text it serializes to, and the calls that run it and read the results back. Nothing here needs an instrument, because `qp.simulate` runs on the reference platform, the pure-Python interpreter that ships with the package. The pages are ordered so that each one adds a few pieces to the ones before it, and each names what those are in its opening paragraphs.
 
-The figures come from running the programs. Each one is built from the page's
-own program, executed on the reference platform, and written to
-`docs/assets/plots/`, so a plot cannot drift from the code printed above it.
-Every figure is written twice, once per site theme, and the page picks the one
-built for the surface you are reading on.
+The figures come from running the programs. Each one is built from the page's own program, executed on the reference platform, and written to `docs/assets/plots/`, so a plot cannot drift from the code printed above it. Every figure is written twice, once per site theme, and the page picks the one built for the surface you are reading on.
 
 | Example | The features it exercises |
 |---|---|
@@ -26,27 +17,10 @@ built for the surface you are reading on.
 | [Single-shot readout](single-shot-readout.md) | A program with no averaging block, a shot index as its own result dimension, `qp.Values` as a two-point preparation axis, and a hand-written `qp.MeasurementModel` that classifies each shot. |
 | [Checking a program before it runs](checking-a-program.md) | A `qp.PlatformCapabilities` built by hand from a custom `qp.Profile` and predicate, three classes of `qp.validate` diagnostic from one program, and each diagnostic path resolved to a line of the `.qp` file. |
 
-The alias split each program is built around is deliberate. The program is
-written against string waveform aliases (`"pi_pulse"`, `"readout"` and
-`"weights"` in the Rabi program) so that it describes the experiment rather
-than one calibration of it. `program.with_waveforms(library)` then
-returns a copy with those aliases replaced by concrete waveforms and leaves
-the original alone, which is what lets one program text run against many
-calibration sets. A platform consumes the resolved copy; the reference
-executor accepts either, since it never renders an envelope.
+The alias split each program is built around is deliberate. The program is written against string waveform aliases (`"pi_pulse"`, `"readout"` and `"weights"` in the Rabi program) so that it describes the experiment rather than one calibration of it. `program.with_waveforms(library)` then returns a copy with those aliases replaced by concrete waveforms and leaves the original alone, which is what lets one program text run against many calibration sets. A platform consumes the resolved copy; the reference executor accepts either, since it never renders an envelope.
 
-The numbers a run produces come from a measurement model, not from physics.
-`qp.simulate(program)` with no `model=` argument uses a
-`qp.MockMeasurementModel` whose IQ response is `0j`, so every value comes back
-as exactly `0.0`. The dimensions, coordinates, and shapes are the real
-contract; the values are not, and both pages pass a response function where
-the values are what the plot is about.
+The numbers a run produces come from a measurement model, not from physics. `qp.simulate(program)` with no `model=` argument uses a `qp.MockMeasurementModel` whose IQ response is `0j`, so every value comes back as exactly `0.0`. The dimensions, coordinates, and shapes are the real contract; the values are not, and both pages pass a response function where the values are what the plot is about.
 
 ## Related pages
 
-[Operations](../guide/operations.md) lists the operations these programs use,
-[Control flow](../guide/control-flow.md) covers sweeps, averaging, and
-parallel composition, and [Measurements and
-results](../guide/measurements.md) covers handles, fields, and result shapes.
-The generated [API reference](../reference/api-qprogram.md) carries the
-signatures.
+[Operations](../guide/operations.md) lists the operations these programs use, [Control flow](../guide/control-flow.md) covers sweeps, averaging, and parallel composition, and [Measurements and results](../guide/measurements.md) covers handles, fields, and result shapes. The generated [API reference](../reference/api-qprogram.md) carries the signatures.

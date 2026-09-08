@@ -1,23 +1,12 @@
 # .qp file format
 
-The `.qp` format is the text serialization of a QProgram. It tracks the Python
-API closely: the operations, blocks, waveforms, and sweep sources
-`program.play(...)`, `program.sweep(...)` and the rest of the builder produce
-all have a written form, you can write that form by hand, and `qp.load`
-rebuilds the program from it. The format is indentation-based, line-oriented,
-and parses with no external dependency.
+The `.qp` format is the text serialization of a QProgram. It tracks the Python API closely: the operations, blocks, waveforms, and sweep sources `program.play(...)`, `program.sweep(...)` and the rest of the builder produce all have a written form, you can write that form by hand, and `qp.load` rebuilds the program from it. The format is indentation-based, line-oriented, and parses with no external dependency.
 
-The correspondence has one hole, in the builder's favor. The builder accepts
-an expression anywhere a number goes, including inside a waveform or
-sweep-source constructor argument; the writer emits it; the parser rejects it
-there (see [Inline waveform constructors](#inline-waveform-constructors)).
-Keep constructor arguments to numbers, strings, and bare variable references
-and the round trip is exact.
+The correspondence has one hole, in the builder's favor. The builder accepts an expression anywhere a number goes, including inside a waveform or sweep-source constructor argument; the writer emits it; the parser rejects it there (see [Inline waveform constructors](#inline-waveform-constructors)). Keep constructor arguments to numbers, strings, and bare variable references and the round trip is exact.
 
 ## Top-level layout
 
-A file opens with the header, then carries up to four kinds of declaration
-ahead of the body:
+A file opens with the header, then carries up to four kinds of declaration ahead of the body:
 
 ```
 #!QProgram 0.2
@@ -33,10 +22,7 @@ body:                              # the program itself
   ...
 ```
 
-That is the order the writer emits. The parser enforces three of the ordering
-rules: `require` lines sit directly after the header, a `fragment` section
-precedes `body:`, and there is at most one `schema:`. Breaking one of the three
-stops the parse, each on the offending line:
+That is the order the writer emits. The parser enforces three of the ordering rules: `require` lines sit directly after the header, a `fragment` section precedes `body:`, and there is at most one `schema:`. Breaking one of the three stops the parse, each on the offending line:
 
 ```
 `require` declarations must appear directly after the header, before any
@@ -45,13 +31,9 @@ fragment definitions must appear before the `body:` section
 duplicate schema declaration — a program may have at most one schema
 ```
 
-Everything else is tolerated. `metadata:` and `schema:` may follow `body:`, a
-second `body:` section appends its statements to the same body rather than
-starting a new one, and a file whose body is empty, or which has no `body:`
-section at all, parses to an empty program.
+Everything else is tolerated. `metadata:` and `schema:` may follow `body:`, a second `body:` section appends its statements to the same body rather than starting a new one, and a file whose body is empty, or which has no `body:` section at all, parses to an empty program.
 
-A top-level line that is none of these is a hard error rather than a skipped
-line, so a typo such as `bodyy:` cannot load as an empty-but-valid program:
+A top-level line that is none of these is a hard error rather than a skipped line, so a typo such as `bodyy:` cannot load as an empty-but-valid program:
 
 ```
 unexpected top-level line 'bodyy:'; expected `metadata:`, `schema:`,
@@ -60,14 +42,9 @@ unexpected top-level line 'bodyy:'; expected `metadata:`, `schema:`,
 
 ## Header
 
-The header is exactly `#!QProgram <major>.<minor>`, matched by the terminal
-`/#!QProgram[ \t]+[0-9]+\.[0-9]+/`. Blank lines before it are skipped.
+The header is exactly `#!QProgram <major>.<minor>`, matched by the terminal `/#!QProgram[ \t]+[0-9]+\.[0-9]+/`. Blank lines before it are skipped.
 
-The running format version is `qprogram.serialization._format.FORMAT_VERSION`,
-currently `"0.2"`. A file at that version parses directly, and an older one is
-migrated on the way in (see [Versioning](#versioning)). A newer version, or a
-header whose version is not exactly two integer components — a bare major, a
-patch, anything else — stops the parse on line 1:
+The running format version is `qprogram.serialization._format.FORMAT_VERSION`, currently `"0.2"`. A file at that version parses directly, and an older one is migrated on the way in (see [Versioning](#versioning)). A newer version, or a header whose version is not exactly two integer components — a bare major, a patch, anything else — stops the parse on line 1:
 
 ```
 Line 1: Unsupported format version 0.9
@@ -86,31 +63,11 @@ require myvendor 0.1
 require othervendor 1.2
 ```
 
-The writer emits a line for every vendor the program touches: across the body
-and every fragment definition, counting a vendor whose only contribution is a
-block, and reaching vendor operations buried in conditional arms. A file
-`qp.dumps` produces is always complete. The parser does not check the
-converse: a hand-written file that calls `myvendor.acquire` with no
-`require myvendor` line loads without complaint, provided the extension is
-already imported. Write the line anyway; it is what makes the file
-self-contained.
+The writer emits a line for every vendor the program touches: across the body and every fragment definition, counting a vendor whose only contribution is a block, and reaching vendor operations buried in conditional arms. A file `qp.dumps` produces is always complete. The parser does not check the converse: a hand-written file that calls `myvendor.acquire` with no `require myvendor` line loads without complaint, provided the extension is already imported. Write the line anyway; it is what makes the file self-contained.
 
-What the parser does with the lines it finds is resolve each one against the
-installed extension, by the rule the header follows one level up. The version in
-the line is exactly `major.minor`: a patch release of an extension changes code,
-not the wire form, so `require myvendor 0.1.9` is refused rather than rounded
-down. A line asking for more than the installed extension provides is refused. An
-older line loads, and the migrations that extension registered between the two
-versions rewrite the body first, so a program saved against any earlier release
-of the extension goes on loading — an earlier major included. The writer emits
-`major.minor` for the same reason the check reads it. A vendor that is not
-imported yet is activated on the spot through its `qprogram.vendors` entry point.
-That discovery is the reason to write the line: a file missing it never triggers
-the import, and the first dotted operation then fails as an unknown vendor
-operation instead.
+What the parser does with the lines it finds is resolve each one against the installed extension, by the rule the header follows one level up. The version in the line is exactly `major.minor`: a patch release of an extension changes code, not the wire form, so `require myvendor 0.1.9` is refused rather than rounded down. A line asking for more than the installed extension provides is refused. An older line loads, and the migrations that extension registered between the two versions rewrite the body first, so a program saved against any earlier release of the extension goes on loading — an earlier major included. The writer emits `major.minor` for the same reason the check reads it. A vendor that is not imported yet is activated on the spot through its `qprogram.vendors` entry point. That discovery is the reason to write the line: a file missing it never triggers the import, and the first dotted operation then fails as an unknown vendor operation instead.
 
-Each failure stops the parse before the body is read, and names both versions.
-Against an installed `myvendor 0.1.3`, the three shapes are:
+Each failure stops the parse before the body is read, and names both versions. Against an installed `myvendor 0.1.3`, the three shapes are:
 
 ```
 Line 3: file requires myvendor 1.0, newer than the installed myvendor 0.1.3
@@ -124,8 +81,7 @@ registered in this environment — install the package that declares the
 before loading
 ```
 
-`qp.loads(text, auto_activate=False)` turns entry-point discovery off, and the
-third message then ends differently:
+`qp.loads(text, auto_activate=False)` turns entry-point discovery off, and the third message then ends differently:
 
 ```
 Line 3: file requires vendor 'othervendor' 0.1 but no matching extension is
@@ -133,37 +89,24 @@ registered in this environment — auto-activation is disabled; import the
 extension before loading (e.g. `import qprogram_othervendor`)
 ```
 
-An extension that is installed but fails to import, or that registers no
-version, surfaces as a `ParseError` wrapping a `qp.VendorActivationError`.
+An extension that is installed but fails to import, or that registers no version, surfaces as a `ParseError` wrapping a `qp.VendorActivationError`.
 
 ## Comments
 
-Line comments start with `#`. They can occupy a whole line or trail an
-operation:
+Line comments start with `#`. They can occupy a whole line or trail an operation:
 
 ```
 # This is a comment
 play "drive_q0" "pi_pulse"   # inline comment
 ```
 
-The scan for the comment marker is quote-aware, and honors `\"` inside a
-string, so `play "drive#0" "pi"` keeps its bus name and
-`measure "ro" "w" "wt" name="a\"#b"` keeps the measurement name `a"#b`. The
-header line is the one place `#` never starts a comment: it is taken whole, so
-`#!QProgram 0.2 # note` fails with `Line 1: Unsupported format version note`
-rather than parsing as a header with a trailing comment.
+The scan for the comment marker is quote-aware, and honors `\"` inside a string, so `play "drive#0" "pi"` keeps its bus name and `measure "ro" "w" "wt" name="a\"#b"` keeps the measurement name `a"#b`. The header line is the one place `#` never starts a comment: it is taken whole, so `#!QProgram 0.2 # note` fails with `Line 1: Unsupported format version note` rather than parsing as a header with a trailing comment.
 
 ## Indentation
 
-The writer emits two spaces per nesting level and never a tab. The parser is
-looser: a block's body is every following line indented at least two columns
-past the header, and the first line indented less ends the block. Over-indent
-and the file still loads, normalizing to two spaces when it is written back
-out.
+The writer emits two spaces per nesting level and never a tab. The parser is looser: a block's body is every following line indented at least two columns past the header, and the first line indented less ends the block. Over-indent and the file still loads, normalizing to two spaces when it is written back out.
 
-Under-indent and it also loads, but it means something else. A body indented
-less than two columns past its header binds to the enclosing block instead, and
-nothing warns:
+Under-indent and it also loads, but it means something else. A body indented less than two columns past its header binds to the enclosing block instead, and nothing warns:
 
 ```
 #!QProgram 0.2
@@ -183,16 +126,9 @@ body:
   sync
 ```
 
-with an empty `average` block and the `sync` outside it. Indentation is the
-only thing carrying block membership, so it is the one part of a hand-written
-file worth checking with `python -m qprogram.lsp explain`.
+with an empty `average` block and the `sync` outside it. Indentation is the only thing carrying block membership, so it is the one part of a hand-written file worth checking with `python -m qprogram.lsp explain`.
 
-Tabs are counted as one column each by the production parser, which means a
-tab-indented statement reads as a dedent rather than as an indent. At the top
-level that surfaces as `unexpected top-level line 'play "b" "p"'`, which does
-not mention indentation at all. The reference Lark parser is configured with
-`tab_len = 8` and accepts tabs, so this is one dimension in which the two
-parsers are not interchangeable. Use spaces.
+Tabs are counted as one column each by the production parser, which means a tab-indented statement reads as a dedent rather than as an indent. At the top level that surfaces as `unexpected top-level line 'play "b" "p"'`, which does not mention indentation at all. The reference Lark parser is configured with `tab_len = 8` and accepts tabs, so this is one dimension in which the two parsers are not interchangeable. Use spaces.
 
 ## Metadata
 
@@ -202,33 +138,20 @@ metadata:
   description: "Rabi oscillation"
 ```
 
-Both fields are optional and both values are quoted strings. Backslash, double
-quote, newline, carriage return, and tab are escaped as `\\`, `\"`, `\n`, `\r`,
-and `\t`, and unescaped on the way back in, so a label holding a quote or a
-newline survives the round trip.
+Both fields are optional and both values are quoted strings. Backslash, double quote, newline, carriage return, and tab are escaped as `\\`, `\"`, `\n`, `\r`, and `\t`, and unescaped on the way back in, so a label holding a quote or a newline survives the round trip.
 
-Every other character is carried literally, including the ones some languages
-treat as line breaks (`\v`, `\f`, `\x1c`, `\x1d`, `\x1e`, `\x85`, `\u2028`, and
-`\u2029`). A line ends at a newline, optionally preceded by a carriage return,
-and nowhere else, so a value holding one of those stays on its line. Anything
-that reads the format has to split lines on that terminator alone. Python's
-`str.splitlines` does not: it breaks on all eight of those characters too.
+Every other character is carried literally, including the ones some languages treat as line breaks (`\v`, `\f`, `\x1c`, `\x1d`, `\x1e`, `\x85`, `\u2028`, and `\u2029`). A line ends at a newline, optionally preceded by a carriage return, and nowhere else, so a value holding one of those stays on its line. Anything that reads the format has to split lines on that terminator alone. Python's `str.splitlines` does not: it breaks on all eight of those characters too.
 
-The two defaults differ, which is why the writer's output differs. `label`
-defaults to `""` and is omitted when empty; `description` defaults to `None`,
-so an explicit empty description is a distinct value and is emitted as
-`description: ""`.
+The two defaults differ, which is why the writer's output differs. `label` defaults to `""` and is omitted when empty; `description` defaults to `None`, so an explicit empty description is a distinct value and is emitted as `description: ""`.
 
-A line with no colon, and an unquoted `label` or `description`, each report
-their own failure:
+A line with no colon, and an unquoted `label` or `description`, each report their own failure:
 
 ```
 Line 4: invalid metadata line 'label rabi'; expected `key: value`
 Line 4: metadata 'label' must be a quoted string, got: 'rabi'
 ```
 
-Any other key is ignored for forward compatibility, and its value is not
-checked at all, so `author: someone here` loads and is dropped.
+Any other key is ignored for forward compatibility, and its value is not checked at all, so `author: someone here` loads and is dropped.
 
 ## Schema declaration
 
@@ -245,17 +168,9 @@ schema:
     flux info=single
 ```
 
-The header is exactly `schema:` with no inline content, and anything else
-reports what it expected instead. The optional `naming:` line carries the
-pattern, whose placeholders are `{element}`, `{index}`, and `{kind}`; the
-writer emits it only when it differs from `BusNaming.DEFAULT_PATTERN`, which is
-`"{element}{index}/{kind}"`. One or more `element <name>:` blocks follow, in
-declaration order, each listing bus kinds.
+The header is exactly `schema:` with no inline content, and anything else reports what it expected instead. The optional `naming:` line carries the pattern, whose placeholders are `{element}`, `{index}`, and `{kind}`; the writer emits it only when it differs from `BusNaming.DEFAULT_PATTERN`, which is `"{element}{index}/{kind}"`. One or more `element <name>:` blocks follow, in declaration order, each listing bus kinds.
 
-Each bus line is `<kind> info=<channel>[+acquires]`, where `<channel>` is
-`single` or `IQ` and `acquires` flags a bus with an ADC. The `info` value is a
-`+`-joined token list carrying exactly one channel and at most one flag, and
-each way of getting the section wrong has its own message:
+Each bus line is `<kind> info=<channel>[+acquires]`, where `<channel>` is `single` or `IQ` and `acquires` flags a bus with an ADC. The `info` value is a `+`-joined token list carrying exactly one channel and at most one flag, and each way of getting the section wrong has its own message:
 
 ```
 Line 3: invalid schema declaration: expected `schema:` followed by indented
@@ -272,14 +187,9 @@ Line 8: schema `naming` must be a quoted string: 'naming: {element}'
 Line 8: inline schema has no element declarations
 ```
 
-The writer always emits this expanded form, including for the typed factories
-such as `qp.BusSchema.transmon()`. Those are construction-time conveniences on
-the Python side; recording the structural contents instead means that adding a
-bus to a preset, or spelling one of its kinds differently, cannot change the
-meaning of a `.qp` file that already exists.
+The writer always emits this expanded form, including for the typed factories such as `qp.BusSchema.transmon()`. Those are construction-time conveniences on the Python side; recording the structural contents instead means that adding a bus to a preset, or spelling one of its kinds differently, cannot change the meaning of a `.qp` file that already exists.
 
-Programs without a schema omit the section, and bus references in the body stay
-as quoted strings.
+Programs without a schema omit the section, and bus references in the body stay as quoted strings.
 
 ## Bus references in operations
 
@@ -290,22 +200,11 @@ play q[0].drive "pulse"                # schema-backed path
 play "drive_q0_raw" "pulse"            # plain string
 ```
 
-The path form is `<element>[<index>].<kind>`, tokenized whole. The index is an
-integer (`q[0]`) or a comma-separated tuple (`c[0,1]`), with no spaces inside
-the brackets.
+The path form is `<element>[<index>].<kind>`, tokenized whole. The index is an integer (`q[0]`) or a comma-separated tuple (`c[0,1]`), with no spaces inside the brackets.
 
-Promotion from the written token back to a typed `qp.BusRef` runs only on the
-attributes an operation declares in its `BUS_ATTRS`, which is `("bus",)` for
-every core operation except `sync`, whose list lives under `("targets",)`, and
-`Call`, which declares none. Restricting it that way is what keeps a quoted
-string that merely looks like a path, such as a vendor parameter alias
-`"cluster[0].module"`, from turning into a bus reference on reload. Quoting
-carries the same distinction for buses: a quoted `"q[0].drive"` stays the
-string it was written as, and only the bare form is promoted.
+Promotion from the written token back to a typed `qp.BusRef` runs only on the attributes an operation declares in its `BUS_ATTRS`, which is `("bus",)` for every core operation except `sync`, whose list lives under `("targets",)`, and `Call`, which declares none. Restricting it that way is what keeps a quoted string that merely looks like a path, such as a vendor parameter alias `"cluster[0].module"`, from turning into a bus reference on reload. Quoting carries the same distinction for buses: a quoted `"q[0].drive"` stays the string it was written as, and only the bare form is promoted.
 
-Promotion also requires the program to declare a schema. Without one, every
-bus stays exactly as written. With one, the element and the bus kind must both
-be declared, and the failure names what is available instead:
+Promotion also requires the program to declare a schema. Without one, every bus stays exactly as written. With one, the element and the bus kind must both be declared, and the failure names what is available instead:
 
 ```
 Line 8: bus path 'r[0].drive' does not resolve against the program schema: No
@@ -314,20 +213,13 @@ Line 8: bus path 'q[0].flux' does not resolve against the program schema: 'q'
 has no bus 'flux'. Available: drive
 ```
 
-The index is not checked, because a schema declares element kinds rather than
-a count: `q[9].drive` resolves against a schema that declares one `q` element,
-and a tuple index joins with an underscore in the resolved name, so
-`c[0,1].flux` under the default naming pattern is the bus `c0_1/flux`.
+The index is not checked, because a schema declares element kinds rather than a count: `q[9].drive` resolves against a schema that declares one `q` element, and a tuple index joins with an underscore in the resolved name, so `c[0,1].flux` under the default naming pattern is the bus `c0_1/flux`.
 
 Plain string buses bypass schema validation entirely. Mix the two freely.
 
 ## Variable declarations
 
-To reference a variable, declare it. The `var` declaration is what turns a
-bare identifier in an argument position into a `qp.Variable`; an identifier
-with no declaration decodes as a plain string instead, with no error. With no
-`var pi_pulse` in the file, `play "b" pi_pulse` still parses; the waveform is
-the string `"pi_pulse"`, and it writes back out as `play "b" "pi_pulse"`.
+To reference a variable, declare it. The `var` declaration is what turns a bare identifier in an argument position into a `qp.Variable`; an identifier with no declaration decodes as a plain string instead, with no error. With no `var pi_pulse` in the file, `play "b" pi_pulse` still parses; the waveform is the string `"pi_pulse"`, and it writes back out as `play "b" "pi_pulse"`.
 
 ```
 body:
@@ -340,20 +232,14 @@ body:
 The rules on the identifier and its attributes:
 
 - `id` matches `[A-Za-z_][A-Za-z0-9_]*` (Python identifier rules).
-- `id` is unique within the file, and within a fragment for a fragment-local
-  declaration.
+- `id` is unique within the file, and within a fragment for a fragment-local declaration.
 - `id` is not one of the [reserved keywords](reserved.md).
-- The optional attributes are exactly `label`, `units`, and `description`,
-  written as quoted `key="value"` pairs in any order on the same line, each at
-  most once.
+- The optional attributes are exactly `label`, `units`, and `description`, written as quoted `key="value"` pairs in any order on the same line, each at most once.
 - Attribute values use the same escapes as metadata values.
 
-A loop header may name a variable that no `var` line declares. The parser
-declares it on demand, so the loop works and `qp.dumps` writes the missing
-declaration out.
+A loop header may name a variable that no `var` line declares. The parser declares it on demand, so the loop works and `qp.dumps` writes the missing declaration out.
 
-The failures divide by who raises them. A malformed declaration is a
-`ParseError` carrying the line number:
+The failures divide by who raises them. A malformed declaration is a `ParseError` carrying the line number:
 
 ```
 Line 4: `var` declaration must have the form `var <id> [label="..."]
@@ -367,9 +253,7 @@ Line 4: duplicate variable attribute 'label'
 Line 5: duplicate variable id 'amp'
 ```
 
-A reserved id is different. The declaration is well formed, and it is the
-program under construction that rejects it, so `var if` raises
-`qp.InvalidVariableIdError` with no line number at all:
+A reserved id is different. The declaration is well formed, and it is the program under construction that rejects it, so `var if` raises `qp.InvalidVariableIdError` with no line number at all:
 
 ```
 Variable id 'if' is reserved for future QProgram syntax (see
@@ -381,22 +265,9 @@ Both `qp.loads` and `qp.load` document that escape from `ParseError`.
 
 ## Operations
 
-One operation per line. Quoting is the type distinction: a quoted token is a
-plain string (a raw bus name, a waveform alias that `with_waveforms` resolves
-later from a [waveform library](#the-wfl-format), a parameter name) and a bare
-token is a variable reference, a schema-backed bus path, or a measurement field
-reference. Numeric arguments are
-decimal integers, floats, or scientific notation, and the parser preserves the
-distinction between `40` and `40.0` so a rewrite does not silently promote an
-integer to a float.
+One operation per line. Quoting is the type distinction: a quoted token is a plain string (a raw bus name, a waveform alias that `with_waveforms` resolves later from a [waveform library](#the-wfl-format), a parameter name) and a bare token is a variable reference, a schema-backed bus path, or a measurement field reference. Numeric arguments are decimal integers, floats, or scientific notation, and the parser preserves the distinction between `40` and `40.0` so a rewrite does not silently promote an integer to a float.
 
-There are eleven core operation keywords. The syntax of most follows its
-constructor signature, so the table is the signature written on the wire:
-parameters with no default appear positionally in declaration order, and
-parameters with a default appear as `key=value`, and only when the value
-differs from that default. Three are special-cased instead: `measure` writes
-its handle as `name=`, `sync` writes a variadic bus list, and `get_parameter`
-writes its target variable after the `->`.
+There are eleven core operation keywords. The syntax of most follows its constructor signature, so the table is the signature written on the wire: parameters with no default appear positionally in declaration order, and parameters with a default appear as `key=value`, and only when the value differs from that default. Three are special-cased instead: `measure` writes its handle as `name=`, `sync` writes a variadic bus list, and `get_parameter` writes its target variable after the `->`.
 
 | Keyword | Wire syntax | Notes |
 |---|---|---|
@@ -436,24 +307,13 @@ body:
   set_gain "d" 0.5
 ```
 
-`5e9` is written `5000000000.0` because the writer renders a Python float with
-`str`. Both spellings parse to the same value, so a hand-written `5e9` is
-correct and comes back in decimal form.
+`5e9` is written `5000000000.0` because the writer renders a Python float with `str`. Both spellings parse to the same value, so a hand-written `5e9` is correct and comes back in decimal form.
 
-The keyword form of an optional argument is what the writer emits, not the
-only form the parser takes: `set_offset "f" 0.1 0.2` binds the second value
-positionally and is rewritten as `set_offset "f" 0.1 offset_path1=0.2`.
+The keyword form of an optional argument is what the writer emits, not the only form the parser takes: `set_offset "f" 0.1 0.2` binds the second value positionally and is rewritten as `set_offset "f" 0.1 offset_path1=0.2`.
 
-Sequence values are bracket literals (`fields=["state", "iq"]`,
-`outputs=[1, 2]`) and string-keyed dict values are brace literals
-(`matrix={"a": 1.0}`). Both are generic forms, available wherever an operation
-takes a list or a dict, and both are tokenized whole, so the spaces after the
-commas are safe. `null` is the literal for Python `None`, and `true` / `false`
-for the booleans. A dict entry with an unquoted key reports `dict keys must be
-quoted strings, got 'a'`.
+Sequence values are bracket literals (`fields=["state", "iq"]`, `outputs=[1, 2]`) and string-keyed dict values are brace literals (`matrix={"a": 1.0}`). Both are generic forms, available wherever an operation takes a list or a dict, and both are tokenized whole, so the spaces after the commas are safe. `null` is the literal for Python `None`, and `true` / `false` for the booleans. A dict entry with an unquoted key reports `dict keys must be quoted strings, got 'a'`.
 
-A positional argument that the constructor has no parameter for is an error
-rather than a dropped token, since dropping it would load a different program:
+A positional argument that the constructor has no parameter for is an error rather than a dropped token, since dropping it would load a different program:
 
 ```
 Line 5: too many arguments for 'Wait': 4 positional tokens but the operation
@@ -461,9 +321,7 @@ takes at most 2; unexpected: ['-', 't']. If you meant an arithmetic
 expression, parenthesize it: `(100 - t)`.
 ```
 
-Unknown operations and unknown block keywords are hard errors for the same
-reason. A keyword that names a registered block but carries no trailing colon
-gets its own message, since the fix is one character:
+Unknown operations and unknown block keywords are hard errors for the same reason. A keyword that names a registered block but carries no trailing colon gets its own message, since the fix is one character:
 
 ```
 Line 4: unknown operation 'fly': no core operation is registered under that
@@ -472,32 +330,15 @@ Line 4: 'average' is a block keyword — block headers need a trailing colon:
 `average 10:`
 ```
 
-Symmetrically, the writer raises `SerializationError` for anything it cannot
-represent faithfully, and never truncates an array or emits a placeholder for
-a node it does not recognize.
+Symmetrically, the writer raises `SerializationError` for anything it cannot represent faithfully, and never truncates an array or emits a placeholder for a node it does not recognize.
 
 ### Measurements
 
-A measurement's handle is written as a `name=` keyword rather than as a
-positional string, so the line reads as intent:
-`measure q[0].readout "readout" "weights" name="q0/readout/m0"`. Every
-measurement operation and every conditional referring to the same name resolve
-to one `qp.MeasurementHandle` instance after a load.
+A measurement's handle is written as a `name=` keyword rather than as a positional string, so the line reads as intent: `measure q[0].readout "readout" "weights" name="q0/readout/m0"`. Every measurement operation and every conditional referring to the same name resolve to one `qp.MeasurementHandle` instance after a load.
 
-Three spellings are accepted. The canonical `name="..."` keyword is what the
-writer emits. A quoted string in the `handle` positional slot names the handle
-too. With neither, the parser allocates one from the global `m0`, `m1`, ...
-counter, even on a `q[0].readout` line: the bus is still the written token at
-that point rather than a `qp.BusRef`, so the per-bus `q0/readout/m0` prefix the
-builder uses for a schema-backed bus is never reached. Files the writer
-produced are unaffected, since it always emits an explicit `name=`. A `name=`
-that is not a quoted string reports `measurement name= must be a quoted
-string, got 42`.
+Three spellings are accepted. The canonical `name="..."` keyword is what the writer emits. A quoted string in the `handle` positional slot names the handle too. With neither, the parser allocates one from the global `m0`, `m1`, ... counter, even on a `q[0].readout` line: the bus is still the written token at that point rather than a `qp.BusRef`, so the per-bus `q0/readout/m0` prefix the builder uses for a schema-backed bus is never reached. Files the writer produced are unaffected, since it always emits an explicit `name=`. A `name=` that is not a quoted string reports `measurement name= must be a quoted string, got 42`.
 
-`fields=` selects what the measurement produces. The values are the
-`qp.MeasurementField` members, `"state"`, `"iq"`, and `"raw"`, and the default
-is `["iq"]`, which the writer therefore omits. An unknown name is rejected at
-the line:
+`fields=` selects what the measurement produces. The values are the `qp.MeasurementField` members, `"state"`, `"iq"`, and `"raw"`, and the default is `["iq"]`, which the writer therefore omits. An unknown name is rejected at the line:
 
 ```
 Line 4: unknown measurement field(s) ['bogus']. Known fields: ['iq', 'raw',
@@ -505,9 +346,7 @@ Line 4: unknown measurement field(s) ['bogus']. Known fields: ['iq', 'raw',
 `measure.fields.<name>` via qprogram.protocol.register_capability_tokens.
 ```
 
-The older `returns="state,iq"` spelling has its own diagnostic, because
-neither the keyword nor the value shape is guessable from a generic unexpected
-keyword error:
+The older `returns="state,iq"` spelling has its own diagnostic, because neither the keyword nor the value shape is guessable from a generic unexpected keyword error:
 
 ```
 Line 4: `returns=` was replaced by `fields=`, and the value is now a bracket
@@ -515,9 +354,7 @@ list of field names rather than a comma-joined string: write
 `fields=["state", "iq"]` instead of `returns="state,iq"`.
 ```
 
-A vendor measurement operation registers with the same two callbacks core
-`measure` uses, so `myvendor.acquire` takes `name=` and `fields=` in exactly
-this form.
+A vendor measurement operation registers with the same two callbacks core `measure` uses, so `myvendor.acquire` takes `name=` and `fields=` in exactly this form.
 
 ## Inline waveform constructors
 
@@ -528,10 +365,7 @@ play "flux_q0"  FlatTop(amplitude=amp, duration=dur, smooth_duration=5)
 measure "readout_q0" IQPair(Square(1.0, 2000), Square(0.0, 2000)) IQPair(Square(1.0, 2000), Square(1.0, 2000))
 ```
 
-The name resolves through the waveform registry and the arguments bind to the
-class's `__init__`, so the table of built-ins is the table of signatures.
-Custom waveforms registered with `qp.register_waveform` are spelled the same
-way and need no format change.
+The name resolves through the waveform registry and the arguments bind to the class's `__init__`, so the table of built-ins is the table of signatures. Custom waveforms registered with `qp.register_waveform` are spelled the same way and need no format change.
 
 | Constructor | Parameters |
 |---|---|
@@ -553,23 +387,9 @@ way and need no format change.
 | `IQRotation` | `base`, `phase` |
 | `IQZero` | `envelope` |
 
-Arguments are either all positional or all named; the two are not combined. A
-call carrying any `key=value` argument is constructed from its keyword
-arguments alone and its positional ones are dropped, so
-`Gaussian(0.5, duration=40, sigma=8)` fails with
-`TypeError: Gaussian.__init__() missing 1 required positional argument:
-'amplitude'` rather than filling `amplitude` in. The writer spells every
-constructor argument as a keyword, so a written file never hits this; a
-hand-written mix does. Sample arrays, meaning `Arbitrary` samples and the
-values of a `Values` sweep source, are always written in full; the format never
-truncates.
+Arguments are either all positional or all named; the two are not combined. A call carrying any `key=value` argument is constructed from its keyword arguments alone and its positional ones are dropped, so `Gaussian(0.5, duration=40, sigma=8)` fails with `TypeError: Gaussian.__init__() missing 1 required positional argument: 'amplitude'` rather than filling `amplitude` in. The writer spells every constructor argument as a keyword, so a written file never hits this; a hand-written mix does. Sample arrays, meaning `Arbitrary` samples and the values of a `Values` sweep source, are always written in full; the format never truncates.
 
-Constructor arguments are numbers, quoted strings, bare variable references,
-and nested constructors. An expression or a math function in an argument
-position is not part of the constructor syntax, and the `.qp` language has no
-assignment statement to compute the value on a line of its own. Both forms
-report the same class of error, from the constructor-name lookup that never
-finds a name:
+Constructor arguments are numbers, quoted strings, bare variable references, and nested constructors. An expression or a math function in an argument position is not part of the constructor syntax, and the `.qp` language has no assignment statement to compute the value on a line of its own. Both forms report the same class of error, from the constructor-name lookup that never finds a name:
 
 ```
 play "flux_q0" FlatTop(amplitude=(amp * 2), duration=40, smooth_duration=5)
@@ -579,19 +399,11 @@ play "drive_q0" Gaussian(amplitude=sin(phi), duration=40, sigma=8)
 # ParseError: Unknown waveform or sweep source type: sin
 ```
 
-Neither error carries a line number, because the lookup runs below the
-parser's cursor. Fold the arithmetic into a Python number before serializing,
-or move it into the sweep and pass the swept variable straight through. The
-writer does emit these forms when the in-memory program holds them, and that
-is how a `.qp` file that will not load again gets produced; see
-[`SerializationError`](errors.md#serializationerror).
+Neither error carries a line number, because the lookup runs below the parser's cursor. Fold the arithmetic into a Python number before serializing, or move it into the sweep and pass the swept variable straight through. The writer does emit these forms when the in-memory program holds them, and that is how a `.qp` file that will not load again gets produced; see [`SerializationError`](errors.md#serializationerror).
 
 ## Expressions
 
-Arithmetic, comparison, and logical expressions appear inline in their
-canonical **parenthesized** form. That is the only form the parser accepts: an
-unparenthesized `100 - t` is a "too many arguments" error, never a silent drop.
-Math functions and `where` use the function-call form:
+Arithmetic, comparison, and logical expressions appear inline in their canonical **parenthesized** form. That is the only form the parser accepts: an unparenthesized `100 - t` is a "too many arguments" error, never a silent drop. Math functions and `where` use the function-call form:
 
 ```
 wait "drive_q0" (100 - t)
@@ -600,33 +412,13 @@ set_gain "drive_q0" where((amp > 0.5), amp, 0.0)
 set_gain "drive_q0" sin(phi)
 ```
 
-Expressions are argument values in their own right, not sub-expressions of a
-constructor call: they appear where an operation takes a number, not inside a
-waveform's or sweep source's argument list.
+Expressions are argument values in their own right, not sub-expressions of a constructor call: they appear where an operation takes a number, not inside a waveform's or sweep source's argument list.
 
-The binary arithmetic operators are `+`, `-`, `*`, `/`; unary `-` and `+` are
-written with no space between the sign and the operand, as `(-g)`. The
-comparisons are `==`, `!=`, `<`, `<=`, `>`, `>=`, and the logical operators are
-`and`, `or`, and `not`. The math functions are `sin`, `cos`, `tan`, `exp`,
-`log`, `sqrt`, `abs`, `minimum`, and `maximum`, and the ternary is
-`where(cond, a, b)`, which reports `where(...) requires 3 arguments
-(condition, then, else); got 2` on any other arity.
+The binary arithmetic operators are `+`, `-`, `*`, `/`; unary `-` and `+` are written with no space between the sign and the operand, as `(-g)`. The comparisons are `==`, `!=`, `<`, `<=`, `>`, `>=`, and the logical operators are `and`, `or`, and `not`. The math functions are `sin`, `cos`, `tan`, `exp`, `log`, `sqrt`, `abs`, `minimum`, and `maximum`, and the ternary is `where(cond, a, b)`, which reports `where(...) requires 3 arguments (condition, then, else); got 2` on any other arity.
 
-Inside the parentheses the parser accepts exactly three shapes: one token
-opening with a sign, two tokens starting with `not`, or three tokens whose
-middle one is an operator. Anything else reports `could not parse expression:
-'(a b c d)'` or `unknown operator '%' in expression '(a % b)'`.
+Inside the parentheses the parser accepts exactly three shapes: one token opening with a sign, two tokens starting with `not`, or three tokens whose middle one is an operator. Anything else reports `could not parse expression: '(a b c d)'` or `unknown operator '%' in expression '(a % b)'`.
 
-A measurement field reference is written unquoted as `<name>.<field>`, and
-`state` is the only field a condition may branch on: the enum lists what a
-measurement may produce, while a condition needs a classified scalar, so
-`m0.iq` raises a plain `ValueError`, not a `ParseError`:
-`MeasurementRef field must be one of ['state'], got 'iq'`. The name has to be
-a single clean token for the unquoted form to survive, which is
-why the writer refuses to emit a `MeasurementRef` whose handle name carries
-whitespace, a quote, `#`, a comma, a dot, or a bracket. A field reference to a
-name no measurement in the file declared decodes as a plain string and then
-fails as an operand: `cannot use 'm0.state' (str) as an expression operand`.
+A measurement field reference is written unquoted as `<name>.<field>`, and `state` is the only field a condition may branch on: the enum lists what a measurement may produce, while a condition needs a classified scalar, so `m0.iq` raises a plain `ValueError`, not a `ParseError`: `MeasurementRef field must be one of ['state'], got 'iq'`. The name has to be a single clean token for the unquoted form to survive, which is why the writer refuses to emit a `MeasurementRef` whose handle name carries whitespace, a quote, `#`, a comma, a dot, or a bracket. A field reference to a name no measurement in the file declared decodes as a plain string and then fails as an operand: `cannot use 'm0.state' (str) as an expression operand`.
 
 ## Control flow blocks
 
@@ -648,12 +440,9 @@ for amp in [0.0, 0.1, 0.3, 0.5, 0.7, 1.0]:
   play "drive_q0" "pi_pulse"
 ```
 
-The bracket literal is sugar for a `Values` source, and it is the form the
-writer emits for one, since a source whose only parameter is the sweep itself
-reads better as the sweep.
+The bracket literal is sugar for a `Values` source, and it is the form the writer emits for one, since a source whose only parameter is the sweep itself reads better as the sweep.
 
-Every other sweep source takes the constructor shape, resolved through the
-sweep-source registry by class name, exactly as a waveform is:
+Every other sweep source takes the constructor shape, resolved through the sweep-source registry by class name, exactly as a waveform is:
 
 | Source | Parameters |
 |---|---|
@@ -666,33 +455,28 @@ sweep-source registry by class name, exactly as a waveform is:
 | `Rotate` | `source`, `by=1` |
 | `Concat` | `sources` (a bracket literal) |
 
-The last three are combinators, and nest at any depth, because a nested
-`Name(args)` argument resolves through the same registry lookup:
+The last three are combinators, and nest at any depth, because a nested `Name(args)` argument resolves through the same registry lookup:
 
 ```
 for amp in Concat(sources=[Range(start=0.0, stop=1.0, step=0.5), Rotate(source=[1, 2, 3], by=1)]):
   set_gain "drive_q0" amp
 ```
 
-`File` reads an external array from disk, which keeps a long sweep out of the
-file:
+`File` reads an external array from disk, which keeps a long sweep out of the file:
 
 ```
 for amp in File(path="sweep_values.npy"):
   set_gain "drive_q0" amp
 ```
 
-A vendor source registered with `qp.register_sweep_source` is spelled the same
-way and needs no format change. An unregistered name reports the whole
-registry, so the spelling of the one you wanted is in the message:
+A vendor source registered with `qp.register_sweep_source` is spelled the same way and needs no format change. An unregistered name reports the whole registry, so the spelling of the one you wanted is in the message:
 
 ```
 Line 4: unknown sweep source 'Bogus'; registered sources are ['Concat',
 'File', 'Linspace', 'Logspace', 'Range', 'Repeat', 'Rotate', 'Values']
 ```
 
-A malformed header, and a source that is neither a bracket literal nor a call,
-report separately:
+A malformed header, and a source that is neither a bracket literal nor a call, report separately:
 
 ```
 Line 4: invalid for loop header: 'for g range(0, 1, 0.1)'
@@ -708,9 +492,7 @@ for freq in Range(start=4e9, stop=6e9, step=2e7) | for gain in Range(start=0.0, 
   play "drive_q0" "pi_pulse"
 ```
 
-All loops in a parallel composition must have the same iteration count, 101
-apiece above, because they advance in lockstep. A mismatch is a `ParseError`
-reported on the header line, and it names the counts:
+All loops in a parallel composition must have the same iteration count, 101 apiece above, because they advance in lockstep. A mismatch is a `ParseError` reported on the header line, and it names the counts:
 
 ```
 Line 4: parallel loops must have the same number of iterations to advance in
@@ -729,15 +511,9 @@ else:
   sync
 ```
 
-The condition on an `if` or `elif` header is written without the outer
-parentheses a nested comparison would carry, which is why the writer strips
-them there. A fully parenthesized expression is accepted too, so
-`if (not flag):` works when `flag` is a declared variable. A condition whose
-operand is neither a declared variable, a number, nor a measurement field
-reference reports `cannot use 'flag' (str) as an expression operand`.
+The condition on an `if` or `elif` header is written without the outer parentheses a nested comparison would carry, which is why the writer strips them there. A fully parenthesized expression is accepted too, so `if (not flag):` works when `flag` is a declared variable. A condition whose operand is neither a declared variable, a number, nor a measurement field reference reports `cannot use 'flag' (str) as an expression operand`.
 
-The chain ends at the first line at the header's indent that is not `elif` or
-`else`. Every way of getting the chain wrong is reported:
+The chain ends at the first line at the header's indent that is not `elif` or `else`. Every way of getting the chain wrong is reported:
 
 ```
 Line 4: `if` requires a condition: `if <expr>:`
@@ -746,9 +522,7 @@ Line 9: multiple `else` arms in the same conditional chain
 Line 7: 'elif' without a preceding `if:` at the same indent level
 ```
 
-The last one covers a bare `elif:` as well as a genuinely orphaned arm: a
-condition-less `elif` never reads as part of the chain, so it is reported as
-one that has no `if` above it.
+The last one covers a bare `elif:` as well as a genuinely orphaned arm: a condition-less `elif` never reads as part of the chain, so it is reported as one that has no `if` above it.
 
 ### `average`
 
@@ -758,10 +532,7 @@ average 1000:
   measure "readout_q0" "readout" "weights" name="m0"
 ```
 
-The shot count is a single positional integer, at least 1. Omitting it reports
-`average requires a shot count`, a non-integer reports `average: invalid shots
-count '10.5'`, and zero or a negative count reaches the block's own validation:
-`Average shots must be an integer >= 1, got 0`.
+The shot count is a single positional integer, at least 1. Omitting it reports `average requires a shot count`, a non-integer reports `average: invalid shots count '10.5'`, and zero or a negative count reaches the block's own validation: `Average shots must be an integer >= 1, got 0`.
 
 ### Generic `block`
 
@@ -788,8 +559,7 @@ average 1000:
 
 ## Fragments
 
-Reusable sub-programs are declared in top-level `fragment` sections (before
-`body:`) and instantiated by bare `name(args)` call statements:
+Reusable sub-programs are declared in top-level `fragment` sections (before `body:`) and instantiated by bare `name(args)` call statements:
 
 ```
 fragment x_pulse(drive, amp):
@@ -802,20 +572,9 @@ body:
     x_pulse("drive_q1", amp=(g * 0.5))
 ```
 
-Fragment bodies use the same statement grammar as `body:`, including `var`
-declarations (fragment-local), control flow, vendor operations, and calls to
-*already defined* fragments. Define-before-use is enforced by the definition
-table itself, which is what makes a written file list fragments in dependency
-order; the writer computes that order depth-first over the call graph rather
-than trusting registration order, and refuses to write a call cycle.
+Fragment bodies use the same statement grammar as `body:`, including `var` declarations (fragment-local), control flow, vendor operations, and calls to *already defined* fragments. Define-before-use is enforced by the definition table itself, which is what makes a written file list fragments in dependency order; the writer computes that order depth-first over the call graph rather than trusting registration order, and refuses to write a call cycle.
 
-Call arguments follow the Python calling convention: positionals in parameter
-order, then `key=value` keywords. Argument tokens take the same shapes as
-operation arguments, meaning numbers, quoted strings, bus paths, identifiers,
-parenthesized expressions, and inline waveform constructors, and a bare
-path-shaped token promotes to a `qp.BusRef` here too, so a fragment can take a
-bus as a parameter. The writer emits every argument positionally, so the
-keyword spelling a caller used at build time is not part of the wire form.
+Call arguments follow the Python calling convention: positionals in parameter order, then `key=value` keywords. Argument tokens take the same shapes as operation arguments, meaning numbers, quoted strings, bus paths, identifiers, parenthesized expressions, and inline waveform constructors, and a bare path-shaped token promotes to a `qp.BusRef` here too, so a fragment can take a bus as a parameter. The writer emits every argument positionally, so the keyword spelling a caller used at build time is not part of the wire form.
 
 Every failure here is a hard `ParseError`:
 
@@ -830,23 +589,18 @@ Line 7: fragment call 'x_pulse': duplicate keyword argument 'amp'
 Line 7: fragment call 'x_pulse': positional argument after keyword argument
 ```
 
-A whole-line call whose name is a registered waveform gets a pointed message
-instead, since the mistake is a misplaced constructor:
+A whole-line call whose name is a registered waveform gets a pointed message instead, since the mistake is a misplaced constructor:
 
 ```
 Line 5: waveform constructor 'Gaussian' cannot stand alone as a statement;
 waveforms appear as operation arguments (e.g. `play "bus" Gaussian(...)`)
 ```
 
-A fragment name that is a [reserved keyword](reserved.md) raises
-`qp.ValidationError`, not a `ParseError`. See the
-[fragments guide](../guide/fragments.md) for the Python API and expansion
-semantics.
+A fragment name that is a [reserved keyword](reserved.md) raises `qp.ValidationError`, not a `ParseError`. See the [fragments guide](../guide/fragments.md) for the Python API and expansion semantics.
 
 ## Vendor operations
 
-Vendor operations use dot notation, and the vendor is named in a `require`
-line above the body:
+Vendor operations use dot notation, and the vendor is named in a `require` line above the body:
 
 ```
 require myvendor 0.1
@@ -857,15 +611,9 @@ body:
   myvendor.active_reset "readout_q0" "readout" "weights" "drive_q0" "pi_pulse" trigger_address=1
 ```
 
-The same parsing rules apply: positional arguments first, optional keyword
-arguments as `key=value`, bound to `inspect.signature(cls.__init__)`. Vendor
-*blocks* work the same way and take a trailing colon, as
-`myvendor.infinite_loop:`, and need no grammar change, because an operation and
-a keyword-led block share one shape and it is the trailing colon that tells
-them apart.
+The same parsing rules apply: positional arguments first, optional keyword arguments as `key=value`, bound to `inspect.signature(cls.__init__)`. Vendor *blocks* work the same way and take a trailing colon, as `myvendor.infinite_loop:`, and need no grammar change, because an operation and a keyword-led block share one shape and it is the trailing colon that tells them apart.
 
-Resolution goes through the vendor's registered operations, so an extension
-that never got imported produces:
+Resolution goes through the vendor's registered operations, so an extension that never got imported produces:
 
 ```
 Line 5: unknown vendor operation myvendor.'acquire': no operation is
@@ -873,13 +621,11 @@ registered under that name. Import the 'myvendor' extension package before
 loading, and check the file's `require myvendor <x.y>` declaration.
 ```
 
-That is the failure the `require` line exists to prevent; see
-[`require` declarations](#require-declarations).
+That is the failure the `require` line exists to prevent; see [`require` declarations](#require-declarations).
 
 ## A file exercising every section
 
-The writer's output for a program with metadata, a schema, a fragment, an
-averaged sweep, a conditional, and a two-index bus path:
+The writer's output for a program with metadata, a schema, a fragment, an averaged sweep, a conditional, and a two-index bus path:
 
 ```
 #!QProgram 0.2
@@ -912,9 +658,7 @@ body:
         wait q[0].drive 100
 ```
 
-Reading that back and writing it again reproduces it byte for byte, which is
-the property `tests/test_round_trip.py` and the hypothesis strategies in
-`tests/test_round_trip_property.py` check across generated programs.
+Reading that back and writing it again reproduces it byte for byte, which is the property `tests/test_round_trip.py` and the hypothesis strategies in `tests/test_round_trip_property.py` check across generated programs.
 
 ## Two-qubit CZ chevron
 
@@ -1018,49 +762,19 @@ measurement_ref:= HANDLE_NAME "." FIELD          # FIELD is `state`
 
 ## Canonical grammar and editor tooling
 
-The machine-readable grammar ships with the package as
-`src/qprogram/grammar/qp.lark`, in the Lark dialect, parsed LALR with a
-two-space `Indenter`. Read it at runtime with
-`qprogram.grammar.grammar_text()`, build the reference parser with
-`qprogram.grammar.parser()`, or parse one document with
-`qprogram.grammar.parse_text(text)`, which appends the trailing newline the
-grammar expects and returns the Lark tree. `lark` is a development dependency,
-so the last two raise `ModuleNotFoundError` unless it is installed;
-`grammar_text()` reads the shipped file and needs nothing.
+The machine-readable grammar ships with the package as `src/qprogram/grammar/qp.lark`, in the Lark dialect, parsed LALR with a two-space `Indenter`. Read it at runtime with `qprogram.grammar.grammar_text()`, build the reference parser with `qprogram.grammar.parser()`, or parse one document with `qprogram.grammar.parse_text(text)`, which appends the trailing newline the grammar expects and returns the Lark tree. `lark` is a development dependency, so the last two raise `ModuleNotFoundError` unless it is installed; `grammar_text()` reads the shipped file and needs nothing.
 
-The grammar is normative but over-approximates everything
-semantic: any identifier is a valid operation or block keyword, section order
-is free, and duplicate declarations and bus-path resolution are post-parse
-checks the production parser performs and the grammar does not. It is exact
-about token shapes, meaning quoting, parenthesized expressions, call adjacency
-(`name(` with no intervening space), and the literal forms.
+The grammar is normative but over-approximates everything semantic: any identifier is a valid operation or block keyword, section order is free, and duplicate declarations and bus-path resolution are post-parse checks the production parser performs and the grammar does not. It is exact about token shapes, meaning quoting, parenthesized expressions, call adjacency (`name(` with no intervening space), and the literal forms.
 
-CI cross-checks the two in `tests/test_grammar.py`: a corpus of writer output
-and hypothesis-generated programs must parse under the grammar, and a corpus
-of syntactic malformations must be rejected by both. That keeps them in step
-over everything the corpus reaches, which is a narrower promise than "they
-cannot drift".
+CI cross-checks the two in `tests/test_grammar.py`: a corpus of writer output and hypothesis-generated programs must parse under the grammar, and a corpus of syntactic malformations must be rejected by both. That keeps them in step over everything the corpus reaches, which is a narrower promise than "they cannot drift".
 
-Two cases the corpus does not reach are worth knowing. An auto-allocated
-measurement name embeds the bus path, so a conditional on a schema-backed
-measurement is written `if q0/readout/m0.state == 1:`. The production parser
-reads that back exactly; the Lark grammar rejects it, because its name
-terminals exclude `/`. Pass an explicit `name=` to any measurement you intend
-to branch on, since `if m0.state == 1:` satisfies both. And the two disagree on
-tabs, as described under [Indentation](#indentation).
+Two cases the corpus does not reach are worth knowing. An auto-allocated measurement name embeds the bus path, so a conditional on a schema-backed measurement is written `if q0/readout/m0.state == 1:`. The production parser reads that back exactly; the Lark grammar rejects it, because its name terminals exclude `/`. Pass an explicit `name=` to any measurement you intend to branch on, since `if m0.state == 1:` satisfies both. And the two disagree on tabs, as described under [Indentation](#indentation).
 
 Editor support builds on the real toolchain rather than on the grammar:
 
-- `python -m qprogram.lsp check <file|->` writes a JSON array of diagnostics to
-  stdout, one object per diagnostic with `line`, `end_line`, `severity`,
-  `code`, and `message`. Lines are 0-based, for the LSP's benefit. The exit
-  status is 1 when anything of error severity was found. A parse failure
-  reports one `parse-error` diagnostic; otherwise reference-platform validation
-  runs and its `Diagnostic`s are mapped onto lines through the program's source
-  map. `--no-validate` reports syntax only.
+- `python -m qprogram.lsp check <file|->` writes a JSON array of diagnostics to stdout, one object per diagnostic with `line`, `end_line`, `severity`, `code`, and `message`. Lines are 0-based, for the LSP's benefit. The exit status is 1 when anything of error severity was found. A parse failure reports one `parse-error` diagnostic; otherwise reference-platform validation runs and its `Diagnostic`s are mapped onto lines through the program's source map. `--no-validate` reports syntax only.
 - `python -m qprogram.lsp explain <file|->` writes the execution-plan tree.
-- `python -m qprogram.lsp serve` runs an LSP server over stdio for any editor
-  that speaks the protocol, and needs the `qprogram[lsp]` extra.
+- `python -m qprogram.lsp serve` runs an LSP server over stdio for any editor that speaks the protocol, and needs the `qprogram[lsp]` extra.
 
 ## Parser and writer API
 
@@ -1074,69 +788,21 @@ text = qp.dumps(program)
 program = qp.loads(text)
 ```
 
-Files are read and written as UTF-8 regardless of the platform's locale.
-`qp.loads` and `qp.load` both take `auto_activate`, which defaults to `True`
-and controls whether a `require` line may import an extension through its
-entry point. Both raise `qp.ParseError` for malformed input,
-`qp.ValidationError` for a declaration the grammar accepts and the program
-rejects (a reserved variable id), and a plain `TypeError` for a constructor
-call that does not fit its class's signature. `qp.dumps` and `qp.save` raise
-`qp.SerializationError`, including for a `qp.Fragment` passed directly, which
-has no file form of its own: a fragment is emitted as a section of the host
-program that calls it.
+Files are read and written as UTF-8 regardless of the platform's locale. `qp.loads` and `qp.load` both take `auto_activate`, which defaults to `True` and controls whether a `require` line may import an extension through its entry point. Both raise `qp.ParseError` for malformed input, `qp.ValidationError` for a declaration the grammar accepts and the program rejects (a reserved variable id), and a plain `TypeError` for a constructor call that does not fit its class's signature. `qp.dumps` and `qp.save` raise `qp.SerializationError`, including for a `qp.Fragment` passed directly, which has no file form of its own: a fragment is emitted as a section of the host program that calls it.
 
-The parser is recursive-descent, in pure Python, with no external dependencies
-(no `pyyaml`, no `lark`). The writer walks the AST directly and emits text on
-the fly. Both live under `qprogram.serialization`, whose `loads`, `load`, and
-`ParseError` are resolved through a module `__getattr__` so that importing the
-package does not close the parser-to-program import cycle.
+The parser is recursive-descent, in pure Python, with no external dependencies (no `pyyaml`, no `lark`). The writer walks the AST directly and emits text on the fly. Both live under `qprogram.serialization`, whose `loads`, `load`, and `ParseError` are resolved through a module `__getattr__` so that importing the package does not close the parser-to-program import cycle.
 
 ## Versioning
 
-The header version (`#!QProgram 0.2`) is the format version, and it is the
-library version truncated to `major.minor`: `FORMAT_VERSION` reads the
-installed distribution's version, so `qprogram` 0.2.1 writes `0.2`. New minor
-versions add operations, waveforms, control-flow constructs, or sections in
-backward-compatible ways, and major version bumps are reserved for changes that
-break the older spelling outright. A reader refuses any version above its own,
-whichever component moved, since it cannot know what a later release did. Tying
-the format version to the library's means a release that does not touch the
-format still moves the minor, which costs nothing under the contract, and that
-the library's own major bump is the format's. A patch release moves neither: a
-file's version is `major.minor` and carries no patch component, because a patch
-cannot have changed the format.
+The header version (`#!QProgram 0.2`) is the format version, and it is the library version truncated to `major.minor`: `FORMAT_VERSION` reads the installed distribution's version, so `qprogram` 0.2.1 writes `0.2`. New minor versions add operations, waveforms, control-flow constructs, or sections in backward-compatible ways, and major version bumps are reserved for changes that break the older spelling outright. A reader refuses any version above its own, whichever component moved, since it cannot know what a later release did. Tying the format version to the library's means a release that does not touch the format still moves the minor, which costs nothing under the contract, and that the library's own major bump is the format's. A patch release moves neither: a file's version is `major.minor` and carries no patch component, because a patch cannot have changed the format.
 
-A file older than the running version is not refused, whatever its major.
-Loading migrates it: a release that changes the syntax registers one migration
-under its own version with
-[`register_migration`][qprogram.serialization.migrations.register_migration],
-and the reader applies every registered migration newer than the file's version,
-oldest first, to the lines it is about to read. Both formats work this way, each
-with its own table — `file_format="qp"` for a program, `"wfl"` for a waveform
-library — bounded by the one version they share. The file on disk is untouched,
-and writing the program back out writes today's version. A migration rewrites
-lines one for one — it may not add or drop any — so a diagnostic's line number
-and every `source_map` entry still name a line of the original file; a migration
-that breaks that count raises `ValueError` and names itself. Two migrations may
-share a version, and run in registration order. Since the chain has an entry per
-breaking change rather than per release, a version with no migration behind it
-needs none, and a file from a release that changed nothing loads as it is.
+A file older than the running version is not refused, whatever its major. Loading migrates it: a release that changes the syntax registers one migration under its own version with [`register_migration`][qprogram.serialization.migrations.register_migration], and the reader applies every registered migration newer than the file's version, oldest first, to the lines it is about to read. Both formats work this way, each with its own table — `file_format="qp"` for a program, `"wfl"` for a waveform library — bounded by the one version they share. The file on disk is untouched, and writing the program back out writes today's version. A migration rewrites lines one for one — it may not add or drop any — so a diagnostic's line number and every `source_map` entry still name a line of the original file; a migration that breaks that count raises `ValueError` and names itself. Two migrations may share a version, and run in registration order. Since the chain has an entry per breaking change rather than per release, a version with no migration behind it needs none, and a file from a release that changed nothing loads as it is.
 
-Vendor protocol versions (`require myvendor 0.1`) are independent: they
-describe the vendor's operation set, not the file format. The vendor extension
-registers its own version on import, through `qp.register_vendor_version`.
+Vendor protocol versions (`require myvendor 0.1`) are independent: they describe the vendor's operation set, not the file format. The vendor extension registers its own version on import, through `qp.register_vendor_version`.
 
 ## The `.wfl` format
 
-`.wfl` is the other text format the package reads and writes. It holds the
-concrete pulses that the quoted waveform aliases in a `.qp` body resolve to,
-and it is a separate file because the two change on different schedules: the
-program is edited when the experiment changes, the library when the qubits are
-recalibrated. Nothing in a `.qp` file references a `.wfl` file, and the `.qp`
-grammar has no section that could carry one. A
-[`WaveformLibrary`](api-qprogram.md#qprogram.WaveformLibrary) writes and reads
-it through its own `dumps`, `loads`, `save`, and `load`, described under
-[waveform libraries and the `.wfl` file](../guide/serialization.md#waveform-libraries-and-the-wfl-file).
+`.wfl` is the other text format the package reads and writes. It holds the concrete pulses that the quoted waveform aliases in a `.qp` body resolve to, and it is a separate file because the two change on different schedules: the program is edited when the experiment changes, the library when the qubits are recalibrated. Nothing in a `.qp` file references a `.wfl` file, and the `.qp` grammar has no section that could carry one. A [`WaveformLibrary`](api-qprogram.md#qprogram.WaveformLibrary) writes and reads it through its own `dumps`, `loads`, `save`, and `load`, described under [waveform libraries and the `.wfl` file](../guide/serialization.md#waveform-libraries-and-the-wfl-file).
 
 A document is a header line and one entry per line:
 
@@ -1158,37 +824,11 @@ coord     := ELEMENT "[" (INDEX | "*") "]" "." KIND_NAME
 INDEX     := DIGITS ("," DIGITS)*       # a tuple for a multi-index element
 ```
 
-The coordinate between the name and the `=` is the entry's tier: a coordinate
-with an index binds the name to that one bus, `[*]` binds it to every index of
-that element and bus kind, and no coordinate at all binds it to every bus.
-Resolution takes the most specific match for the bus being resolved. Indices
-are non-negative decimal digits, optionally comma-separated, so `q[-1].drive`
-is not a coordinate. The element and kind names are not checked against any
-schema, since a library is a standalone artifact and knows nothing about the
-program it will be applied to.
+The coordinate between the name and the `=` is the entry's tier: a coordinate with an index binds the name to that one bus, `[*]` binds it to every index of that element and bus kind, and no coordinate at all binds it to every bus. Resolution takes the most specific match for the bus being resolved. Indices are non-negative decimal digits, optionally comma-separated, so `q[-1].drive` is not a coordinate. The element and kind names are not checked against any schema, since a library is a standalone artifact and knows nothing about the program it will be applied to.
 
-The waveform after the `=` is exactly the constructor syntax
-[inline waveform constructors](#inline-waveform-constructors) describes, looked
-up in the same registry, so every built-in and every class registered with
-`qp.register_waveform` is spelled the same way in both formats and a vendor
-waveform needs its package imported before the load. Exactly one constructor
-call is allowed after the `=`. The writer names every argument, while a
-hand-written positional call such as `Square(0.1, 40)` is accepted and comes
-back named. There are no variables in a library, so a bare token in an argument
-position is read as a string rather than as a reference: a hand-written
-`Gaussian(amp, 40, 8)` loads with `amplitude` set to the string `"amp"`. In the
-other direction, a library holding a waveform built from a `Variable` cannot be
-written at all, and `dumps` raises `qp.SerializationError`.
+The waveform after the `=` is exactly the constructor syntax [inline waveform constructors](#inline-waveform-constructors) describes, looked up in the same registry, so every built-in and every class registered with `qp.register_waveform` is spelled the same way in both formats and a vendor waveform needs its package imported before the load. Exactly one constructor call is allowed after the `=`. The writer names every argument, while a hand-written positional call such as `Square(0.1, 40)` is accepted and comes back named. There are no variables in a library, so a bare token in an argument position is read as a string rather than as a reference: a hand-written `Gaussian(amp, 40, 8)` loads with `amplitude` set to the string `"amp"`. In the other direction, a library holding a waveform built from a `Variable` cannot be written at all, and `dumps` raises `qp.SerializationError`.
 
-The header must be the first non-blank line, and a comment ahead of it is an
-error rather than a comment. After the header, blank lines and lines whose
-first non-space character is `#` are skipped, and every other line must be an
-entry. Leading whitespace on an entry line is ignored, since the format has no
-nesting. A `#` further along an entry line is not a comment and fails as an
-extra token. Entries are written in insertion order and read in file order,
-and a name repeated at the same coordinate keeps the last value, so
-`loads(dumps(library))` reproduces the library exactly. An empty library is the
-header line by itself.
+The header must be the first non-blank line, and a comment ahead of it is an error rather than a comment. After the header, blank lines and lines whose first non-space character is `#` are skipped, and every other line must be an entry. Leading whitespace on an entry line is ignored, since the format has no nesting. A `#` further along an entry line is not a comment and fails as an extra token. Entries are written in insertion order and read in file order, and a name repeated at the same coordinate keeps the last value, so `loads(dumps(library))` reproduces the library exactly. An empty library is the header line by itself.
 
 Parse failures raise `qp.ParseError` carrying the 1-based line number:
 
@@ -1203,32 +843,10 @@ Parse failures raise `qp.ParseError` carrying the 1-based line number:
 | `"x" = Square(amplitude=0.1, duration=40)  # pi/2` | `Line 2: expected exactly one waveform after '='` |
 | `"x" = Bogus(1, 2)` | `Line 2: invalid waveform: Unknown waveform or sweep source type: Bogus` |
 
-The last of those differs from `.qp`, where an unknown constructor name comes
-back with no line number at all: the library parser wraps that lookup failure
-in a `ParseError` that carries one.
+The last of those differs from `.qp`, where an unknown constructor name comes back with no line number at all: the library parser wraps that lookup failure in a `ParseError` that carries one.
 
-The header version comes from `WAVEFORM_LIBRARY_FORMAT_VERSION` in
-`qprogram/waveform_library.py`, which follows the library version truncated to
-`major.minor` exactly as the `.qp` `FORMAT_VERSION` does — both call
-`library_major_minor` in `qprogram/_version.py`, so the two headers carry the
-same number on any given release. The formats are still checked separately: a
-`.wfl` file is read by the waveform library's own reader, and its version says
-nothing about the `.qp` grammar.
+The header version comes from `WAVEFORM_LIBRARY_FORMAT_VERSION` in `qprogram/waveform_library.py`, which follows the library version truncated to `major.minor` exactly as the `.qp` `FORMAT_VERSION` does — both call `library_major_minor` in `qprogram/_version.py`, so the two headers carry the same number on any given release. The formats are still checked separately: a `.wfl` file is read by the waveform library's own reader, and its version says nothing about the `.qp` grammar.
 
-The rules that reader applies are `.qp`'s. A later version is refused, whichever
-component moved, and an earlier one is migrated rather than refused, by the
-migrations registered for the `"wfl"` format (see [Versioning](#versioning)). The two formats share the version scale but not
-their rewrites, since the same line of text means one thing in a program body
-and another in a library entry: a migration names the format it reads, and
-vocabulary the two files do share — a renamed waveform constructor — is one
-rewrite registered twice. The compatibility contract is the same as `.qp`'s
-too: a minor version may add entry forms and waveform vocabulary, and a major
-bump is reserved for a change an older reader cannot handle.
+The rules that reader applies are `.qp`'s. A later version is refused, whichever component moved, and an earlier one is migrated rather than refused, by the migrations registered for the `"wfl"` format (see [Versioning](#versioning)). The two formats share the version scale but not their rewrites, since the same line of text means one thing in a program body and another in a library entry: a migration names the format it reads, and vocabulary the two files do share — a renamed waveform constructor — is one rewrite registered twice. The compatibility contract is the same as `.qp`'s too: a minor version may add entry forms and waveform vocabulary, and a major bump is reserved for a change an older reader cannot handle.
 
-The version is `major.minor` in both formats, so `#!WaveformLibrary 0.2.3` and a
-bare `#!WaveformLibrary 0` are refused for the same reasons `#!QProgram 0.2.3`
-and `#!QProgram 0` are. The token itself is the last whitespace-separated one on
-the header line, so a header with anything after the version reports that
-trailing token as an unsupported version. The writer always emits the current
-version, which means an older file that is read and written back out comes back
-carrying today's number.
+The version is `major.minor` in both formats, so `#!WaveformLibrary 0.2.3` and a bare `#!WaveformLibrary 0` are refused for the same reasons `#!QProgram 0.2.3` and `#!QProgram 0` are. The token itself is the last whitespace-separated one on the header line, so a header with anything after the version reports that trailing token as an unsupported version. The writer always emits the current version, which means an older file that is read and written back out comes back carrying today's number.

@@ -14,7 +14,6 @@ keywords = [
     "pulse programming",
     "dsl",
 ]
-urls = { "Homepage" = "https://github.com/qilimanjaro-tech/qprogram", "Documentation" = "https://qilimanjaro-tech.github.io/qprogram/", "Source" = "https://github.com/qilimanjaro-tech/qprogram", "Issues" = "https://github.com/qilimanjaro-tech/qprogram/issues" }
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -34,9 +33,16 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "numpy>=2.1",
+    "numpy>=2.3.2",
     "xarray>=2026.4.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/qilimanjaro-tech/qprogram"
+Documentation = "https://qilimanjaro-tech.github.io/qprogram/"
+Source = "https://github.com/qilimanjaro-tech/qprogram"
+Issues = "https://github.com/qilimanjaro-tech/qprogram/issues"
+Changelog = "https://github.com/qilimanjaro-tech/qprogram/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 viz = [
@@ -150,6 +156,9 @@ ignore = [
     "unnecessary-dunder-call",
     "too-many-statements",
     "pytest-raises-too-broad",
+    # Closing every figure a test opened, or handing each test an empty registry,
+    # has to happen for all of them, which is what autouse is for.
+    "pytest-fixture-autouse",
     "os-path-join",
     "S",
     "private-member-access",

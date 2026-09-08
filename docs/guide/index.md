@@ -1,10 +1,6 @@
 # User guide
 
-These pages are ordered the way most readers need them: the vocabulary a
-program is written in first, then the operations and blocks built out of it,
-then what a platform makes of the finished tree. Each page stands on its own, so
-starting in the middle costs only the terms it borrows, and those are linked
-where they are used.
+These pages are ordered the way most readers need them: the vocabulary a program is written in first, then the operations and blocks built out of it, then what a platform makes of the finished tree. Each page stands on its own, so starting in the middle costs only the terms it borrows, and those are linked where they are used.
 
 | Page | What it documents |
 |---|---|
@@ -21,12 +17,4 @@ where they are used.
 | [Plotting results](plotting.md) | `QProgramResult.plot`: the figure a result's shape asks for, the `channels` argument that decides what becomes of the `IQ` dimension, where an axis label comes from, the `Quantity` that restates a coordinate in the units you want to read it in, the `Style` and `Theme` dataclasses, and registering a renderer of your own. |
 | [Saving and loading](serialization.md) | `dumps`, `loads`, `save`, and `load`: what the round trip preserves and what it drops, the format version and `require` lines, how a file from an earlier version migrates on the way in, vendor activation at parse time, the normalizations the writer applies, and the `WaveformLibrary` that quoted aliases resolve through, with its own `.wfl` file. |
 
-Two worked programs, each given in full from the builder calls to the result
-array, are in [Examples](../examples/index.md). The grammar behind the wire
-forms quoted on these pages is in [.qp file format](../reference/qp-format.md),
-and the exceptions they raise are cataloged in
-[Errors](../reference/errors.md). For adding a whole instrument vocabulary to
-the language, [Building a vendor extension](../developer/vendor-extensions.md)
-works through a package end to end, and the
-[developer guide](../developer/index.md) has the in-tree recipes for a core
-operation and for a new waveform.
+Two worked programs, each given in full from the builder calls to the result array, are in [Examples](../examples/index.md). The grammar behind the wire forms quoted on these pages is in [.qp file format](../reference/qp-format.md), and the exceptions they raise are cataloged in [Errors](../reference/errors.md). For adding a whole instrument vocabulary to the language, [Building a vendor extension](../developer/vendor-extensions.md) works through a package end to end, and the [developer guide](../developer/index.md) has the in-tree recipes for a core operation and for a new waveform.

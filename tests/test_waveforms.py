@@ -16,7 +16,9 @@
 from __future__ import annotations
 
 import base64
+import json
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import matplotlib as mpl
@@ -103,34 +105,49 @@ def test_square_resolution_changes_envelope_length():
 
 
 def test_gaussian_envelope_shape():
-    wf = Gaussian(amplitude=1.0, duration=40, sigma=8)
+    wf = Gaussian(amplitude=1.0, duration=40, num_sigmas=4)
     env = wf.envelope()
     assert env.shape == (40,)
 
 
-def test_gaussian_peak_at_center():
-    wf = Gaussian(amplitude=1.0, duration=40, sigma=8)
-    env = wf.envelope()
-    peak_idx = int(np.argmax(env))
-    # Center of [0..39] is 19.5; peak is at 19 or 20.
-    assert peak_idx in {19, 20}
+def test_gaussian_starts_at_zero_and_peaks_at_amplitude_on_duration_over_two():
+    env = Gaussian(amplitude=0.8, duration=40, num_sigmas=4).envelope()
+    assert env[0] == 0.0
+    assert int(np.argmax(env)) == 20
+    assert env[20] == pytest.approx(0.8)
+    # Centred on duration / 2 rather than on the middle sample, so the last sample is not 0.
+    assert env[-1] > 0.0
+
+
+def test_gaussian_num_sigmas_narrows_the_pulse():
+    wide = Gaussian(amplitude=1.0, duration=40, num_sigmas=2).envelope()
+    narrow = Gaussian(amplitude=1.0, duration=40, num_sigmas=6).envelope()
+    assert narrow.sum() < wide.sum()
+
+
+def test_gaussian_with_negative_amplitude_is_not_rescaled():
+    # The shifted curve's largest sample is its first, 0, so the rescale back to the peak is skipped.
+    env = Gaussian(amplitude=-0.5, duration=40, num_sigmas=4).envelope()
+    assert env.min() == pytest.approx(-0.5 * (1 - np.exp(-(4**2) / 8)))
+
+
+def test_gaussian_shape_is_the_same_at_any_resolution():
+    wf = Gaussian(amplitude=1.0, duration=40, num_sigmas=4)
+    assert np.allclose(wf.envelope(resolution=2), wf.envelope()[::2])
 
 
 def test_gaussian_get_duration():
-    wf = Gaussian(amplitude=1.0, duration=40, sigma=8)
+    wf = Gaussian(amplitude=1.0, duration=40, num_sigmas=4)
     assert wf.get_duration() == 40
 
 
 def test_gaussian_with_expression_params():
-    amp, dur, sig = Variable("a"), Variable("d"), Variable("sig")
+    amp, dur, num_sigmas = Variable("a"), Variable("d"), Variable("n")
     amp.set_value(0.5)
     dur.set_value(40)
-    sig.set_value(8)
-    wf = Gaussian(amplitude=amp, duration=dur, sigma=sig)
-    env = wf.envelope()
-    assert env.shape == (40,)
-    # Peak is close to amplitude (not exact, since the center falls between samples).
-    assert np.isclose(env.max(), 0.5, atol=0.01)
+    num_sigmas.set_value(4)
+    wf = Gaussian(amplitude=amp, duration=dur, num_sigmas=num_sigmas)
+    assert np.array_equal(wf.envelope(), Gaussian(amplitude=0.5, duration=40, num_sigmas=4).envelope())
 
 
 # ---------------------------------------------------------------------------
@@ -139,26 +156,38 @@ def test_gaussian_with_expression_params():
 
 
 def test_gaussian_drag_correction_envelope_shape():
-    wf = GaussianDragCorrection(amplitude=1.0, duration=40, sigma=8, beta=0.1)
+    wf = GaussianDragCorrection(amplitude=1.0, duration=40, num_sigmas=4, drag_coefficient=0.1)
     env = wf.envelope()
     assert env.shape == (40,)
 
 
-def test_gaussian_drag_correction_zero_at_center():
-    # Derivative of a centered Gaussian is zero at its peak.
-    wf = GaussianDragCorrection(amplitude=1.0, duration=40, sigma=8, beta=1.0)
-    env = wf.envelope()
-    assert abs(env[20]) < 0.05  # Near zero.
+def test_gaussian_drag_correction_crosses_zero_at_duration_over_two():
+    env = GaussianDragCorrection(amplitude=1.0, duration=40, num_sigmas=4, drag_coefficient=1.0).envelope()
+    assert env[20] == 0.0
+    assert env[19] > 0.0
+    assert env[21] < 0.0
+
+
+def test_gaussian_drag_correction_scales_with_drag_coefficient():
+    unit = GaussianDragCorrection(amplitude=1.0, duration=40, num_sigmas=4, drag_coefficient=1.0).envelope()
+    scaled = GaussianDragCorrection(amplitude=1.0, duration=40, num_sigmas=4, drag_coefficient=-0.3).envelope()
+    assert np.allclose(scaled, -0.3 * unit)
+
+
+def test_gaussian_drag_correction_shape_is_the_same_at_any_resolution():
+    wf = GaussianDragCorrection(amplitude=1.0, duration=40, num_sigmas=4, drag_coefficient=1.0)
+    assert np.allclose(wf.envelope(resolution=2), wf.envelope()[::2])
 
 
 def test_gaussian_drag_correction_with_all_expressions():
-    a, d, sig, beta = Variable("a"), Variable("d"), Variable("sig"), Variable("beta")
+    a, d, n, coef = Variable("a"), Variable("d"), Variable("n"), Variable("coef")
     a.set_value(1.0)
     d.set_value(40)
-    sig.set_value(8)
-    beta.set_value(0.1)
-    wf = GaussianDragCorrection(amplitude=a, duration=d, sigma=sig, beta=beta)
-    assert wf.envelope().shape == (40,)
+    n.set_value(4)
+    coef.set_value(0.1)
+    wf = GaussianDragCorrection(amplitude=a, duration=d, num_sigmas=n, drag_coefficient=coef)
+    expected = GaussianDragCorrection(amplitude=1.0, duration=40, num_sigmas=4, drag_coefficient=0.1).envelope()
+    assert np.array_equal(wf.envelope(), expected)
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +229,20 @@ def test_flat_top_envelope_shape():
     assert env.shape == (100,)
 
 
+def test_flat_top_reaches_amplitude_between_the_edges():
+    env = FlatTop(amplitude=0.8, duration=100, smooth_duration=10).envelope()
+    assert np.allclose(env[10:90], 0.8, atol=0.01)
+    assert env[0] < 0.01
+    assert env[-1] < 0.01
+
+
+def test_flat_top_edges_cross_half_amplitude_half_a_smooth_duration_after_the_buffer():
+    # Read half a nanosecond into each sample: sample 10 sits at 10.5 = buffer + smooth_duration / 2.
+    env = FlatTop(amplitude=1.0, duration=100, smooth_duration=11, buffer=5).envelope()
+    assert env[10] == pytest.approx(0.5)
+    assert env[89] == pytest.approx(0.5)
+
+
 def test_flat_top_get_duration():
     assert FlatTop(0.5, 100, 10).get_duration() == 100
 
@@ -210,7 +253,7 @@ def test_flat_top_with_expression_params():
     d.set_value(100)
     s.set_value(10)
     wf = FlatTop(amplitude=a, duration=d, smooth_duration=s)
-    assert wf.envelope().shape == (100,)
+    assert np.array_equal(wf.envelope(), FlatTop(amplitude=0.5, duration=100, smooth_duration=10).envelope())
 
 
 def test_flat_top_buffer_default():
@@ -218,24 +261,21 @@ def test_flat_top_buffer_default():
     assert wf.buffer == 0
 
 
-def test_flat_top_buffer_pads_envelope_on_both_sides():
+def test_flat_top_buffer_moves_the_edges_inwards():
+    env = FlatTop(amplitude=1.0, duration=100, smooth_duration=10, buffer=5).envelope()
+    assert env.shape == (100,)
+    # The same pulse as an unbuffered one 2 * buffer shorter, centred in the window.
+    shorter = FlatTop(amplitude=1.0, duration=90, smooth_duration=10).envelope()
+    assert np.allclose(env[5:95], shorter)
+
+
+def test_flat_top_buffer_does_not_extend_duration():
+    assert FlatTop(0.5, 100, 10, buffer=25).get_duration() == 100
+
+
+def test_flat_top_shape_is_the_same_at_any_resolution():
     wf = FlatTop(amplitude=1.0, duration=100, smooth_duration=10, buffer=25)
-    env = wf.envelope()
-    assert env.shape == (150,)  # 25 + 100 + 25
-    assert np.allclose(env[:25], 0.0)
-    assert np.allclose(env[-25:], 0.0)
-    # The pulse content sits between the pads, identical to the unbuffered envelope.
-    unbuffered = FlatTop(amplitude=1.0, duration=100, smooth_duration=10).envelope()
-    assert np.allclose(env[25:125], unbuffered)
-
-
-def test_flat_top_buffer_extends_duration():
-    assert FlatTop(0.5, 100, 10, buffer=25).get_duration() == 150
-
-
-def test_flat_top_buffer_respects_resolution():
-    env = FlatTop(amplitude=1.0, duration=100, smooth_duration=10, buffer=25).envelope(resolution=5)
-    assert env.shape == (30,)  # 5 + 20 + 5
+    assert np.allclose(wf.envelope(resolution=5), wf.envelope()[::5])
 
 
 # ---------------------------------------------------------------------------
@@ -244,14 +284,14 @@ def test_flat_top_buffer_respects_resolution():
 
 
 def test_snz_envelope_structure():
-    wf = SuddenNetZero(amplitude=1.0, duration=20, b=0.5, t_phi=4)
-    env = wf.envelope()
-    assert env.shape == (20,)
-    # First half should be amplitude, second half should be -amplitude * b.
-    assert np.allclose(env[:8], 1.0)
-    assert np.allclose(env[12:], -0.5)
-    # Middle section is the zero gap.
-    assert np.allclose(env[8:12], 0.0)
+    env = SuddenNetZero(amplitude=1.0, duration=20, b=0.5, t_phi=4).envelope()
+    # Halves of (20 - 4 - 2) / 2 = 7 samples, one b sample either side of the four-sample zero hold.
+    assert np.array_equal(env, [1.0] * 7 + [0.5] + [0.0] * 4 + [-0.5] + [-1.0] * 7)
+
+
+def test_snz_is_net_zero():
+    env = SuddenNetZero(amplitude=0.8, duration=41, b=0.3, t_phi=3).envelope()
+    assert env.sum() == pytest.approx(0.0)
 
 
 def test_snz_get_duration():
@@ -266,7 +306,20 @@ def test_snz_with_expression_params():
     b.set_value(0.5)
     t.set_value(4)
     wf = SuddenNetZero(amplitude=a, duration=d, b=b, t_phi=t)
-    assert wf.envelope().shape == (20,)
+    assert np.array_equal(wf.envelope(), SuddenNetZero(amplitude=1.0, duration=20, b=0.5, t_phi=4).envelope())
+
+
+@pytest.mark.parametrize("t_phi", [2.0, 2.5])
+def test_snz_with_float_t_phi_raises(t_phi):
+    wf = SuddenNetZero(amplitude=1.0, duration=12, b=0.5, t_phi=t_phi)
+    with pytest.raises(IndexError):
+        wf.envelope()
+
+
+def test_snz_with_odd_duration_minus_t_phi_raises():
+    wf = SuddenNetZero(amplitude=1.0, duration=11, b=0.5, t_phi=2)
+    with pytest.raises(ValueError, match=r"positive half has 3 samples and the negative half would have 4"):
+        wf.envelope()
 
 
 # ---------------------------------------------------------------------------
@@ -374,21 +427,45 @@ def test_iq_pair_defers_duration_check_for_symbolic_durations():
 
 
 def test_iq_drag_components_are_gaussian_and_correction():
-    wf = IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
-    assert isinstance(wf.get_I(), Gaussian)
-    assert isinstance(wf.get_Q(), GaussianDragCorrection)
+    wf = IQDrag(amplitude=0.5, duration=40, num_sigmas=4, drag_coefficient=0.1)
+    assert wf.get_I() == Gaussian(amplitude=0.5, duration=40, num_sigmas=4)
+    assert wf.get_Q() == GaussianDragCorrection(amplitude=0.5, duration=40, num_sigmas=4, drag_coefficient=0.1)
 
 
 def test_iq_drag_get_duration():
-    wf = IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
+    wf = IQDrag(amplitude=0.5, duration=40, num_sigmas=4, drag_coefficient=0.1)
     assert wf.get_duration() == 40
 
 
 def test_iq_drag_duration_via_expression():
     d = Variable("d")
     d.set_value(40)
-    wf = IQDrag(amplitude=0.5, duration=d, sigma=8, beta=0.1)
+    wf = IQDrag(amplitude=0.5, duration=d, num_sigmas=4, drag_coefficient=0.1)
     assert wf.get_duration() == 40
+
+
+# ---------------------------------------------------------------------------
+# Reference samples
+# ---------------------------------------------------------------------------
+
+# Gaussian, the DRAG pair, FlatTop and SuddenNetZero are pinned sample for sample against
+# data/waveform_samples.json, so a change to their shape fails here rather than shifting calibrated pulses.
+_REFERENCE = json.loads((Path(__file__).parent / "data" / "waveform_samples.json").read_text(encoding="utf-8"))
+
+
+def _reference_case_id(case: dict) -> str:
+    params = ",".join(f"{key}={value}" for key, value in case["params"].items())
+    return f"{case['waveform']}({params})@{case['resolution']}ns"
+
+
+@pytest.mark.parametrize("case", _REFERENCE["cases"], ids=_reference_case_id)
+def test_envelope_matches_reference_samples(case):
+    wf = getattr(qp.waveforms, case["waveform"])(**case["params"])
+    channels = {"I": wf.get_I(), "Q": wf.get_Q()} if isinstance(wf, IQWaveform) else {"envelope": wf}
+    for key, channel in channels.items():
+        # Not bit for bit: the FlatTop references used scipy's erf and FlatTop uses Python's, which can
+        # differ in the last place.
+        np.testing.assert_allclose(channel.envelope(resolution=case["resolution"]), case[key], rtol=0, atol=1e-12)
 
 
 # ---------------------------------------------------------------------------
@@ -577,14 +654,14 @@ def test_sech_get_duration():
 
 
 def test_modulated_produces_iq_channels():
-    wf = Modulated(envelope=Gaussian(1.0, 100, 20), frequency=1e8)
+    wf = Modulated(envelope=Gaussian(1.0, 100, 5), frequency=1e8)
     i = wf.get_I().envelope()
     q = wf.get_Q().envelope()
     assert i.shape == q.shape == (100,)
 
 
 def test_modulated_unit_freq_zero_phase_starts_at_envelope():
-    g = Gaussian(1.0, 100, 20)
+    g = Gaussian(1.0, 100, 5)
     wf = Modulated(envelope=g, frequency=0.0, phase=0.0)
     # I = env * cos(0) = env, Q = env * sin(0) = 0
     assert np.allclose(wf.get_I().envelope(), g.envelope())
@@ -606,7 +683,7 @@ def test_modulated_rejects_non_waveform_envelope():
 
 
 def test_modulated_get_duration_matches_envelope():
-    g = Gaussian(0.5, 73, 14.6)
+    g = Gaussian(0.5, 73, 5)
     assert Modulated(g, 1e8).get_duration() == 73
 
 
@@ -659,7 +736,7 @@ def test_iq_zero_q_channel_is_zero():
 
 
 def test_iq_zero_i_channel_is_envelope():
-    g = Gaussian(0.3, 30, 6)
+    g = Gaussian(0.3, 30, 5)
     wf = IQZero(envelope=g)
     assert np.allclose(wf.get_I().envelope(), g.envelope())
 
@@ -680,27 +757,27 @@ def test_iq_zero_duration():
 
 
 def test_add_two_waveforms_produces_chained():
-    chain = Square(0.5, 10) + Gaussian(0.3, 20, 4)
+    chain = Square(0.5, 10) + Gaussian(0.3, 20, 5)
     assert isinstance(chain, Chained)
     assert len(chain.waveforms) == 2
     assert chain.get_duration() == 30
 
 
 def test_add_flattens_existing_chain():
-    chain = Square(0.5, 10) + Gaussian(0.3, 20, 4) + Square(0.7, 5)
+    chain = Square(0.5, 10) + Gaussian(0.3, 20, 5) + Square(0.7, 5)
     assert isinstance(chain, Chained)
     assert len(chain.waveforms) == 3
 
 
 def test_add_flattens_left_chain():
     left = Chained([Square(0.5, 10), Square(0.6, 5)])
-    chain = left + Gaussian(0.3, 20, 4)
+    chain = left + Gaussian(0.3, 20, 5)
     assert isinstance(chain, Chained)
     assert len(chain.waveforms) == 3
 
 
 def test_add_flattens_right_chain():
-    right = Chained([Gaussian(0.3, 20, 4), Square(0.7, 5)])
+    right = Chained([Gaussian(0.3, 20, 5), Square(0.7, 5)])
     chain = Square(0.5, 10) + right
     assert isinstance(chain, Chained)
     assert len(chain.waveforms) == 3
@@ -925,7 +1002,7 @@ def test_new_waveforms_have_capability_tokens():
         Cosine(0.5, 10, 1e8): "waveform.cosine",
         Tukey(0.5, 10): "waveform.tukey",
         Sech(0.5, 10, 4): "waveform.sech",
-        Modulated(Gaussian(0.5, 10, 2), 1e8): "waveform.modulated",
+        Modulated(Gaussian(0.5, 10, 5), 1e8): "waveform.modulated",
         IQRotation(IQPair(Square(1.0, 10), Square(0.0, 10)), phase=0.0): "waveform.iq_rotation",
         IQZero(Square(0.5, 10)): "waveform.iq_zero",
     }

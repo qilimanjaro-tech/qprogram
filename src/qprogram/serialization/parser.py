@@ -1845,7 +1845,7 @@ def _parse_waveform_expr(expr: str, variables: dict[str, Variable] | None = None
     positional values.
 
     Args:
-        expr (str): The constructor call, e.g. ``Gaussian(amplitude=0.5, duration=40, sigma=8)``.
+        expr (str): The constructor call, e.g. ``Gaussian(amplitude=0.5, duration=40, num_sigmas=5)``.
         variables (dict[str, Variable] | None): Variable table identifiers resolve against.
 
     Returns:

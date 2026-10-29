@@ -29,13 +29,13 @@ Two equal-billing definition styles::
 
     @fragment  # static: the signature IS the parameter list
     def x_pulse(f, drive, amp):
-        f.play(drive, Gaussian(amplitude=amp, duration=40, sigma=8))
+        f.play(drive, Gaussian(amplitude=amp, duration=40, num_sigmas=5))
 
 
     xp = Fragment("x_pulse")  # programmatic: explicit parameter() calls
     drive = xp.parameter("drive")
     amp = xp.parameter("amp")
-    xp.play(drive, Gaussian(amplitude=amp, duration=40, sigma=8))
+    xp.play(drive, Gaussian(amplitude=amp, duration=40, num_sigmas=5))
 """
 
 from __future__ import annotations
@@ -234,7 +234,7 @@ def fragment(func: Callable[..., None]) -> Fragment:
 
         @fragment
         def x_pulse(f, drive, amp):
-            f.play(drive, Gaussian(amplitude=amp, duration=40, sigma=8))
+            f.play(drive, Gaussian(amplitude=amp, duration=40, num_sigmas=5))
 
 
         program.call(x_pulse, "drive_q0", 0.5)

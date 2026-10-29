@@ -281,7 +281,7 @@ def test_play_single_waveform_on_single_bus_ok(flux_tunable_schema):
 
 def test_play_iq_waveform_on_flux_raises(flux_tunable_schema):
     p = QProgram(schema=flux_tunable_schema)
-    iq = IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
+    iq = IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1)
     with pytest.raises(ValidationError, match="single channel"):
         p.play(flux_tunable_schema.q[0].flux, iq)
 
@@ -618,8 +618,8 @@ def test_with_waveforms_per_bus_resolution(transmon_schema):
     """The same name resolves to different pulses on q0 vs q1 (the portability win)."""
     q = transmon_schema.q
     library = WaveformLibrary()
-    library.set("pi", IQDrag(0.5, 40, 8, 0.1), element="q", idx=0, kind="drive")
-    library.set("pi", IQDrag(0.9, 40, 8, 0.1), element="q", idx=1, kind="drive")
+    library.set("pi", IQDrag(0.5, 40, 5, 0.1), element="q", idx=0, kind="drive")
+    library.set("pi", IQDrag(0.9, 40, 5, 0.1), element="q", idx=1, kind="drive")
 
     p0 = QProgram(schema=transmon_schema)
     p0.play(q[0].drive, "pi")
@@ -645,8 +645,8 @@ def test_with_waveforms_family_tier(transmon_schema):
 def test_with_waveforms_exact_shadows_global(transmon_schema):
     q = transmon_schema.q
     library = WaveformLibrary()
-    library.set("pi", IQDrag(0.1, 40, 8, 0.1))  # global
-    library.set("pi", IQDrag(0.7, 40, 8, 0.1), element="q", idx=0, kind="drive")  # exact
+    library.set("pi", IQDrag(0.1, 40, 5, 0.1))  # global
+    library.set("pi", IQDrag(0.7, 40, 5, 0.1), element="q", idx=0, kind="drive")  # exact
 
     p = QProgram(schema=transmon_schema)
     p.play(q[0].drive, "pi")
@@ -658,7 +658,7 @@ def test_with_waveforms_bare_dict_global_tier():
     p = QProgram()
     p.play("bus", "pi_pulse")
     p.measure("bus_r", "readout", "weights")
-    pi = Gaussian(0.5, 40, 8)
+    pi = Gaussian(0.5, 40, 5)
     readout = IQPair(Square(1.0, 100), Square(0.0, 100))
     weights = IQPair(Square(1.0, 100), Square(1.0, 100))
 
@@ -671,7 +671,7 @@ def test_with_waveforms_bare_dict_global_tier():
 def test_with_waveforms_preserves_unmatched_names():
     p = QProgram()
     p.play("bus", "pi_pulse")
-    resolved = p.with_waveforms({"unrelated": Gaussian(0.5, 40, 8)})
+    resolved = p.with_waveforms({"unrelated": Gaussian(0.5, 40, 5)})
     assert resolved.body.elements[0].waveform == "pi_pulse"
 
 
@@ -691,7 +691,7 @@ def test_with_waveforms_nested_inside_block():
     v = p.variable("x")
     with p.average(100), p.sweep(v, Range(0.0, 1.0, 0.1)):
         p.play("bus", "pi_pulse")
-    pi = Gaussian(0.5, 40, 8)
+    pi = Gaussian(0.5, 40, 5)
     resolved = p.with_waveforms({"pi_pulse": pi})
     deepest_op = resolved.body.elements[0].elements[0].elements[0]
     assert isinstance(deepest_op, Play)
@@ -700,7 +700,7 @@ def test_with_waveforms_nested_inside_block():
 
 def test_waveform_library_invalid_combination_raises():
     library = WaveformLibrary()
-    wf = Gaussian(0.5, 40, 8)
+    wf = Gaussian(0.5, 40, 5)
     with pytest.raises(ValidationError, match="exact entry"):
         library.set("pi", wf, element="q", idx=0)  # missing kind
 
@@ -708,7 +708,7 @@ def test_waveform_library_invalid_combination_raises():
 def test_waveform_library_apply_equals_with_waveforms(transmon_schema):
     q = transmon_schema.q
     library = WaveformLibrary()
-    pi = IQDrag(0.5, 40, 8, 0.1)
+    pi = IQDrag(0.5, 40, 5, 0.1)
     library.set("pi", pi, element="q", idx=0, kind="drive")
     p = QProgram(schema=transmon_schema)
     p.play(q[0].drive, "pi")

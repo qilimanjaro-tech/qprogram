@@ -60,8 +60,8 @@ def _full_feature_program() -> QProgram:
     g = p.variable("g", label="Gain", units="a.u.", description="swept")
     t = p.variable("t", units="ns")
     p.play("drive_q0", "pi_alias")
-    p.play("drive_q0", Gaussian(amplitude=0.5, duration=40, sigma=8.0))
-    p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1))
+    p.play("drive_q0", Gaussian(amplitude=0.5, duration=40, num_sigmas=5.0))
+    p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1))
     p.play("flux_c01", FlatTop(amplitude=0.3, duration=200, smooth_duration=5))
     p.play("flux_c01", Arbitrary(np.linspace(0, 1, 60)))
     p.wait("drive_q0", 100)
@@ -120,7 +120,7 @@ def _schema_program() -> QProgram:
 def _fragment_program() -> QProgram:
     @fragment
     def x_pulse(f, drive, amp):
-        f.play(drive, Gaussian(amplitude=amp, duration=40, sigma=8))
+        f.play(drive, Gaussian(amplitude=amp, duration=40, num_sigmas=5))
 
     @fragment
     def echo(f, drive, t):

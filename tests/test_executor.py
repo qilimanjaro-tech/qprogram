@@ -246,7 +246,7 @@ def test_rabi_response_values_exact_with_zero_noise():
     p = QProgram()
     g = p.variable("g")
     with p.average(100), p.sweep(g, Range(0.0, 1.0, 0.25)):
-        p.play("drive_q0", Gaussian(amplitude=g, duration=40, sigma=8))
+        p.play("drive_q0", Gaussian(amplitude=g, duration=40, num_sigmas=5))
         p.measure("readout_q0", _ro(), "w")
     da = simulate(p, model=model).get("m0")
     expected = np.sin(np.pi * np.array([0.0, 0.25, 0.5, 0.75, 1.0]) / 2) ** 2

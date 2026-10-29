@@ -124,7 +124,7 @@ measured = qp.waveforms.Arbitrary(samples=np.linspace(0.0, 1.0, 64))
 
 `Square` renders with `numpy.full`, so its dtype follows its amplitude and an integer amplitude yields an integer array. `Tukey` does the same in its two untapered cases, and `Arbitrary` keeps whatever dtype its input had. Every other shape computes in floating point.
 
-`Gaussian` is centred on `duration / 2` with standard deviation `duration / num_sigmas`, so `num_sigmas` sets the width relative to the pulse. The curve is then shifted down by its first sample, so the pulse starts at exactly 0, and rescaled so its largest sample returns to what it was before the shift: `Gaussian(0.5, 40, 5).envelope().max()` is exactly `0.5`, because a sample falls on the centre. With an odd duration at resolution 1 the centre falls between two samples and the peak is a little under `amplitude`. Two consequences of the shape are kept on purpose. The centre is `duration / 2` rather than the middle sample, so the pulse is not symmetric: it starts at 0 but ends at `0.0164 * amplitude` for `num_sigmas=5`. And a negative `amplitude` skips the rescale, so it peaks at `amplitude * (1 - exp(-num_sigmas**2 / 8))`, about `0.96 * amplitude` for `num_sigmas=5`.
+`Gaussian` is centred on `duration / 2` with standard deviation `duration / num_sigmas`, so `num_sigmas` sets the width relative to the pulse. The curve is then shifted down by its first sample, so the pulse starts at exactly 0, and rescaled so its largest sample returns to what it was before the shift: `Gaussian(0.5, 40, 5).envelope().max()` is exactly `0.5`, because a sample falls on the centre. With an odd duration at resolution 1 the centre falls between two samples and the peak is a little under `amplitude`. Two consequences of the shape are kept on purpose. The centre is `duration / 2` rather than the middle sample, so the pulse is not symmetric: it starts at 0 but ends at `0.0164 * amplitude` for `duration=40, num_sigmas=5`. And a negative `amplitude` skips the rescale, so it peaks at `amplitude * (1 - exp(-num_sigmas**2 / 8))`, about `0.96 * amplitude` for `num_sigmas=5`.
 
 `GaussianDragCorrection` takes the Gaussian's three parameters plus `drag_coefficient`, and multiplies the Gaussian by `-drag_coefficient * (t - duration / 2) / sigma**2`, with `t` and `sigma` in nanoseconds. It crosses zero at `duration / 2`, and since it is computed in nanoseconds rather than samples it is the same at any `resolution`. Because the Gaussian it multiplies is the shifted one, it is not exactly the derivative of the I channel: it starts at 0 where the derivative does not, and its peak is about a fifth lower at `num_sigmas=4` (7% at 5).
 
@@ -134,7 +134,7 @@ measured = qp.waveforms.Arbitrary(samples=np.linspace(0.0, 1.0, 64))
 
 `Ramp` samples with `numpy.linspace`, so both endpoints are hit exactly once the window holds at least two samples, and the step between samples is `(to_amplitude - from_amplitude) / (n - 1)` rather than anything derived from `resolution` alone. A one-sample window yields `from_amplitude` alone, a window holding less than one sample yields an empty array, and a negative duration raises `ValueError: Number of samples, -5, must be non-negative.` from `linspace`.
 
-`SuddenNetZero` follows Negîrneac et al. ([arXiv:2008.07411](https://arxiv.org/abs/2008.07411)): `+amplitude` for the first half, one sample at `b * amplitude`, `t_phi` samples at zero, one sample at `-b * amplitude`, then `-amplitude` for the second half. Each half takes `(duration - t_phi - 2) / 2` samples, 39 for the `cz_pulse` above, and the halves mirror each other, so the integrated flux is zero for any `b`. Two conventions differ from the paper's: `t_phi` counts only the zeros between the two `b` samples, so the paper's `t_φ` is `t_phi + 2`, and `b` is a fraction of `amplitude` rather than an amplitude of its own. `duration - t_phi` has to be even for the halves to come out equal, and `duration=101, t_phi=20` raises `ValueError`. `t_phi` has to be an `int`: a float raises `IndexError`, `20.0` included, and since every sweep source binds floats, `t_phi` cannot be swept. Nothing range-checks it either: a negative `t_phi` makes the halves overlap the `b` samples, and the pulse is no longer net zero.
+`SuddenNetZero` follows Negîrneac et al. ([arXiv:2008.07411](https://arxiv.org/abs/2008.07411)): `+amplitude` for the first half, one sample at `b * amplitude`, `t_phi` samples at zero, one sample at `-b * amplitude`, then `-amplitude` for the second half. Each half takes `(duration - t_phi - 2) / 2` samples, 39 for the `cz_pulse` above, and the halves mirror each other, so the integrated flux is zero for any `b`. Two conventions differ from the paper's: `t_phi` counts only the zeros between the two `b` samples, so the paper's `t_φ` is `t_phi + 2`, and `b` is a fraction of `amplitude` rather than an amplitude of its own. `duration - t_phi` has to be even for the halves to come out equal. An odd one raises `ValueError`, as `duration=101, t_phi=20` does, except at 5, where numpy broadcasting gives the negative half two samples to the positive half's one and the pulse sums to `-amplitude` without an error. `t_phi` has to be an `int`: a float raises, `20.0` included, and since every sweep source binds floats, `t_phi` cannot be swept. Nothing range-checks it either: a negative `t_phi` makes the halves overlap the `b` samples, and the pulse is no longer net zero.
 
 `Sine` and `Cosine` express their sample times in seconds, which is what pairs with a `frequency` in Hz: 200 ns at 50 MHz is ten cycles. Neither tapers to zero at the endpoints, so pair one with a window shape when the discontinuity matters. `Sech` is the analogue of `Gaussian` for adiabatic passage: paired with a quadratic phase ramp it gives analytically solvable population transfer. Its `tau` is a width in nanoseconds, where a Gaussian's `num_sigmas` is relative to its duration.
 
@@ -142,7 +142,7 @@ measured = qp.waveforms.Arbitrary(samples=np.linspace(0.0, 1.0, 64))
 
 ### What the shape parameters mean
 
-Every width is in nanoseconds except `num_sigmas` and `Tukey.alpha`, which are relative to `duration`.
+Every width is in nanoseconds except `num_sigmas` and `Tukey.alpha`, which are relative to `duration`, and `SuddenNetZero.t_phi`, which counts samples.
 
 | Parameter                                                        | Meaning                                                                                                                                |
 |------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
@@ -232,7 +232,7 @@ import numpy as np
 import qprogram as qp
 
 qp.waveforms.Gaussian(0.5, 40, 5) == qp.waveforms.Gaussian(0.5, 40, 5)
-qp.waveforms.Gaussian(qp.Variable("amp"), 40, 8) == qp.waveforms.Gaussian(qp.Variable("amp"), 40, 8)
+qp.waveforms.Gaussian(qp.Variable("amp"), 40, 5) == qp.waveforms.Gaussian(qp.Variable("amp"), 40, 5)
 qp.waveforms.Arbitrary(np.array([1.0, 2.0])) == qp.waveforms.Arbitrary([1.0, 2.0])
 ```
 

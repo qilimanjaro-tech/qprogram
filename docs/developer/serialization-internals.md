@@ -41,7 +41,7 @@ A migration registered under a version that has not shipped yet is skipped, sinc
 
 ### Adding a migration
 
-Say 0.3 renames the `Rectangular` waveform to `Square`. Waveform constructors are keyed by class name in the registry, so one rename changes how a pulse is spelled in a program body and in a library entry at once, and both of these are files somebody already has on disk:
+Say 0.4 renames the `Rectangular` waveform to `Square`. Waveform constructors are keyed by class name in the registry, so one rename changes how a pulse is spelled in a program body and in a library entry at once, and both of these are files somebody already has on disk:
 
 <!-- check: skip -->
 ```
@@ -63,10 +63,10 @@ The rewrite goes at the bottom of `src/qprogram/serialization/migrations.py`, be
 _RECTANGULAR = re.compile(r"\bRectangular\(")
 
 
-@register_migration("0.3")
-@register_migration("0.3", file_format="wfl")
+@register_migration("0.4")
+@register_migration("0.4", file_format="wfl")
 def _rectangular_became_square(lines: list[str]) -> list[str]:
-    """Rewrite the constructor 0.3 renamed, in a program body and in a library entry alike."""
+    """Rewrite the constructor 0.4 renamed, in a program body and in a library entry alike."""
     return [_RECTANGULAR.sub("Square(", line) for line in lines]
 ```
 
@@ -90,7 +90,7 @@ def test_a_file_written_before_the_waveform_rename_still_loads():
     assert isinstance(qp.loads(text).body.elements[0].waveform, qp.waveforms.Square)
 ```
 
-The version there is written out rather than taken from `tests/_header.py`, since the point of the test is that one particular older version still loads. It starts passing when 0.3 is cut: until then the file it writes carries the running version rather than an earlier one, so nothing runs and the assertion fails. That is the one claim about a migration its own release has to make true, which is why the unit test above it is what guards the rewrite in review.
+The version there is written out rather than taken from `tests/_header.py`, since the point of the test is that one particular older version still loads. It starts passing when 0.4 is cut: until then the file it writes carries the running version rather than an earlier one, so nothing runs and the assertion fails. That is the one claim about a migration its own release has to make true, which is why the unit test above it is what guards the rewrite in review.
 
 ### Vendor migrations
 

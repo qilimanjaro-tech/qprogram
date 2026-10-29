@@ -184,10 +184,10 @@ The third fails because `q[0].drive` has `acquires=False`, so it has no ADC to m
 g = qp.waveforms.Gaussian(amplitude=amp, duration=40, num_sigmas=5)
 g.envelope()  # UnassignedVariableError before amp is bound
 amp.set_value(0.7)
-g.envelope()  # numpy array of 40 float64 samples, peak 0.6986
+g.envelope()  # numpy array of 40 float64 samples, peak 0.7
 ```
 
-The peak sample falls short of the requested amplitude because the Gaussian is centered in the sample window and an even sample count straddles the center rather than landing on it.
+The peak sample is exactly the requested amplitude because a sample falls on the centre of the pulse, `duration / 2`. With an odd duration the centre falls between two samples and the peak comes out a little under it.
 
 A program can carry waveforms inline or by string alias. Inline is concrete; the alias contributes a `waveform.alias` token instead of a per-class one and gets resolved later via `with_waveforms`, usually from calibration data the platform owns.
 

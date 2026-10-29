@@ -9,7 +9,7 @@ The correspondence has one hole, in the builder's favor. The builder accepts an 
 A file opens with the header, then carries up to four kinds of declaration ahead of the body:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 require <vendor> <major.minor>     # zero or more
 metadata:                          # optional
@@ -44,11 +44,11 @@ unexpected top-level line 'bodyy:'; expected `metadata:`, `schema:`,
 
 The header is exactly `#!QProgram <major>.<minor>`, matched by the terminal `/#!QProgram[ \t]+[0-9]+\.[0-9]+/`. Blank lines before it are skipped.
 
-The running format version is `qprogram.serialization._format.FORMAT_VERSION`, currently `"0.2"`. A file at that version parses directly, and an older one is migrated on the way in (see [Versioning](#versioning)). A newer version, or a header whose version is not exactly two integer components — a bare major, a patch, anything else — stops the parse on line 1:
+The running format version is `qprogram.serialization._format.FORMAT_VERSION`, currently `"0.3"`. A file at that version parses directly, and an older one is migrated on the way in (see [Versioning](#versioning)). A newer version, or a header whose version is not exactly two integer components — a bare major, a patch, anything else — stops the parse on line 1:
 
 ```
 Line 1: Unsupported format version 0.9
-Line 1: Unsupported format version 0.2.3
+Line 1: Unsupported format version 0.3.1
 Line 1: Unsupported format version unknown
 ```
 
@@ -100,7 +100,7 @@ Line comments start with `#`. They can occupy a whole line or trail an operation
 play "drive_q0" "pi_pulse"   # inline comment
 ```
 
-The scan for the comment marker is quote-aware, and honors `\"` inside a string, so `play "drive#0" "pi"` keeps its bus name and `measure "ro" "w" "wt" name="a\"#b"` keeps the measurement name `a"#b`. The header line is the one place `#` never starts a comment: it is taken whole, so `#!QProgram 0.2 # note` fails with `Line 1: Unsupported format version note` rather than parsing as a header with a trailing comment.
+The scan for the comment marker is quote-aware, and honors `\"` inside a string, so `play "drive#0" "pi"` keeps its bus name and `measure "ro" "w" "wt" name="a\"#b"` keeps the measurement name `a"#b`. The header line is the one place `#` never starts a comment: it is taken whole, so `#!QProgram 0.3 # note` fails with `Line 1: Unsupported format version note` rather than parsing as a header with a trailing comment.
 
 ## Indentation
 
@@ -109,7 +109,7 @@ The writer emits two spaces per nesting level and never a tab. The parser is loo
 Under-indent and it also loads, but it means something else. A body indented less than two columns past its header binds to the enclosing block instead, and nothing warns:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 body:
   average 10:
@@ -119,7 +119,7 @@ body:
 reloads and rewrites as
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 body:
   average 10:
@@ -286,7 +286,7 @@ There are eleven core operation keywords. The syntax of most follows its constru
 One line of each, as the writer emits them:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 body:
   var d_lo label="d.lo"
@@ -359,8 +359,8 @@ A vendor measurement operation registers with the same two callbacks core `measu
 ## Inline waveform constructors
 
 ```
-play "drive_q0" Gaussian(amplitude=0.5, duration=40, sigma=8)
-play "drive_q0" IQDrag(0.5, 40, 8, 0.1)
+play "drive_q0" Gaussian(amplitude=0.5, duration=40, num_sigmas=5)
+play "drive_q0" IQDrag(0.5, 40, 5, 0.1)
 play "flux_q0"  FlatTop(amplitude=amp, duration=dur, smooth_duration=5)
 measure "readout_q0" IQPair(Square(1.0, 2000), Square(0.0, 2000)) IQPair(Square(1.0, 2000), Square(1.0, 2000))
 ```
@@ -370,8 +370,8 @@ The name resolves through the waveform registry and the arguments bind to the cl
 | Constructor | Parameters |
 |---|---|
 | `Square` | `amplitude`, `duration` |
-| `Gaussian` | `amplitude`, `duration`, `sigma` |
-| `GaussianDragCorrection` | `amplitude`, `duration`, `sigma`, `beta` |
+| `Gaussian` | `amplitude`, `duration`, `num_sigmas` |
+| `GaussianDragCorrection` | `amplitude`, `duration`, `num_sigmas`, `drag_coefficient` |
 | `Ramp` | `from_amplitude`, `to_amplitude`, `duration` |
 | `FlatTop` | `amplitude`, `duration`, `smooth_duration`, `buffer=0` |
 | `SuddenNetZero` | `amplitude`, `duration`, `b`, `t_phi` |
@@ -382,12 +382,12 @@ The name resolves through the waveform registry and the arguments bind to the cl
 | `Arbitrary` | `samples` (a bracket literal) |
 | `Chained` | `waveforms` (a bracket literal of constructors) |
 | `IQPair` | `I`, `Q` |
-| `IQDrag` | `amplitude`, `duration`, `sigma`, `beta` |
+| `IQDrag` | `amplitude`, `duration`, `num_sigmas`, `drag_coefficient` |
 | `Modulated` | `envelope`, `frequency`, `phase=0.0` |
 | `IQRotation` | `base`, `phase` |
 | `IQZero` | `envelope` |
 
-Arguments are either all positional or all named; the two are not combined. A call carrying any `key=value` argument is constructed from its keyword arguments alone and its positional ones are dropped, so `Gaussian(0.5, duration=40, sigma=8)` fails with `TypeError: Gaussian.__init__() missing 1 required positional argument: 'amplitude'` rather than filling `amplitude` in. The writer spells every constructor argument as a keyword, so a written file never hits this; a hand-written mix does. Sample arrays, meaning `Arbitrary` samples and the values of a `Values` sweep source, are always written in full; the format never truncates.
+Arguments are either all positional or all named; the two are not combined. A call carrying any `key=value` argument is constructed from its keyword arguments alone and its positional ones are dropped, so `Gaussian(0.5, duration=40, num_sigmas=5)` fails with `TypeError: Gaussian.__init__() missing 1 required positional argument: 'amplitude'` rather than filling `amplitude` in. The writer spells every constructor argument as a keyword, so a written file never hits this; a hand-written mix does. Sample arrays, meaning `Arbitrary` samples and the values of a `Values` sweep source, are always written in full; the format never truncates.
 
 Constructor arguments are numbers, quoted strings, bare variable references, and nested constructors. An expression or a math function in an argument position is not part of the constructor syntax, and the `.qp` language has no assignment statement to compute the value on a line of its own. Both forms report the same class of error, from the constructor-name lookup that never finds a name:
 
@@ -395,7 +395,7 @@ Constructor arguments are numbers, quoted strings, bare variable references, and
 play "flux_q0" FlatTop(amplitude=(amp * 2), duration=40, smooth_duration=5)
 # ParseError: Unknown waveform or sweep source type:
 
-play "drive_q0" Gaussian(amplitude=sin(phi), duration=40, sigma=8)
+play "drive_q0" Gaussian(amplitude=sin(phi), duration=40, num_sigmas=5)
 # ParseError: Unknown waveform or sweep source type: sin
 ```
 
@@ -563,7 +563,7 @@ Reusable sub-programs are declared in top-level `fragment` sections (before `bod
 
 ```
 fragment x_pulse(drive, amp):
-  play drive Gaussian(amplitude=amp, duration=40, sigma=8)
+  play drive Gaussian(amplitude=amp, duration=40, num_sigmas=5)
 
 body:
   var g
@@ -628,7 +628,7 @@ That is the failure the `require` line exists to prevent; see [`require` declara
 The writer's output for a program with metadata, a schema, a fragment, an averaged sweep, a conditional, and a two-index bus path:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "rabi"
@@ -642,7 +642,7 @@ schema:
     flux info=single
 
 fragment x_pulse(drive, amp):
-  play drive Gaussian(amplitude=amp, duration=40, sigma=8)
+  play drive Gaussian(amplitude=amp, duration=40, num_sigmas=5)
 
 body:
   var gain label="Drive amplitude" units="a.u."
@@ -663,7 +663,7 @@ Reading that back and writing it again reproduces it byte for byte, which is the
 ## Two-qubit CZ chevron
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "cz_chevron"
@@ -794,9 +794,11 @@ The parser is recursive-descent, in pure Python, with no external dependencies (
 
 ## Versioning
 
-The header version (`#!QProgram 0.2`) is the format version, and it is the library version truncated to `major.minor`: `FORMAT_VERSION` reads the installed distribution's version, so `qprogram` 0.2.1 writes `0.2`. New minor versions add operations, waveforms, control-flow constructs, or sections in backward-compatible ways, and major version bumps are reserved for changes that break the older spelling outright. A reader refuses any version above its own, whichever component moved, since it cannot know what a later release did. Tying the format version to the library's means a release that does not touch the format still moves the minor, which costs nothing under the contract, and that the library's own major bump is the format's. A patch release moves neither: a file's version is `major.minor` and carries no patch component, because a patch cannot have changed the format.
+The header version (`#!QProgram 0.3`) is the format version, and it is the library version truncated to `major.minor`: `FORMAT_VERSION` reads the installed distribution's version, so `qprogram` 0.3.1 writes `0.3`. New minor versions add operations, waveforms, control-flow constructs, or sections in backward-compatible ways, and major version bumps are reserved for changes that break the older spelling outright. A reader refuses any version above its own, whichever component moved, since it cannot know what a later release did. Tying the format version to the library's means a release that does not touch the format still moves the minor, which costs nothing under the contract, and that the library's own major bump is the format's. A patch release moves neither: a file's version is `major.minor` and carries no patch component, because a patch cannot have changed the format.
 
 A file older than the running version is not refused, whatever its major. Loading migrates it: a release that changes the syntax registers one migration under its own version with [`register_migration`][qprogram.serialization.migrations.register_migration], and the reader applies every registered migration newer than the file's version, oldest first, to the lines it is about to read. Both formats work this way, each with its own table — `file_format="qp"` for a program, `"wfl"` for a waveform library — bounded by the one version they share. The file on disk is untouched, and writing the program back out writes today's version. A migration rewrites lines one for one — it may not add or drop any — so a diagnostic's line number and every `source_map` entry still name a line of the original file; a migration that breaks that count raises `ValueError` and names itself. Two migrations may share a version, and run in registration order. Since the chain has an entry per breaking change rather than per release, a version with no migration behind it needs none, and a file from a release that changed nothing loads as it is.
+
+The one break without a migration is 0.3. It replaced the shapes of `Gaussian`, `GaussianDragCorrection`, `IQDrag`, `FlatTop` and `SuddenNetZero`, and no rewrite of the old parameters gives back the old pulses, so none is registered: a 0.2 file that uses `sigma` or `beta` raises `TypeError` on load, and 0.2 `FlatTop` and `SuddenNetZero` entries load with the new shapes.
 
 Vendor protocol versions (`require myvendor 0.1`) are independent: they describe the vendor's operation set, not the file format. The vendor extension registers its own version on import, through `qp.register_vendor_version`.
 
@@ -807,9 +809,9 @@ Vendor protocol versions (`require myvendor 0.1`) are independent: they describe
 A document is a header line and one entry per line:
 
 ```
-#!WaveformLibrary 0.2
-"pi_pulse" q[0].drive = IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
-"pi_pulse" q[1].drive = IQDrag(amplitude=0.9, duration=40, sigma=8, beta=0.1)
+#!WaveformLibrary 0.3
+"pi_pulse" q[0].drive = IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1)
+"pi_pulse" q[1].drive = IQDrag(amplitude=0.9, duration=40, num_sigmas=5, drag_coefficient=0.1)
 "cz" c[0,1].flux = Square(amplitude=0.3, duration=200)
 "readout" q[*].readout = IQPair(I=Square(amplitude=1.0, duration=2000), Q=Square(amplitude=0.0, duration=2000))
 "weights" = IQPair(I=Square(amplitude=1.0, duration=2000), Q=Square(amplitude=1.0, duration=2000))
@@ -826,7 +828,7 @@ INDEX     := DIGITS ("," DIGITS)*       # a tuple for a multi-index element
 
 The coordinate between the name and the `=` is the entry's tier: a coordinate with an index binds the name to that one bus, `[*]` binds it to every index of that element and bus kind, and no coordinate at all binds it to every bus. Resolution takes the most specific match for the bus being resolved. Indices are non-negative decimal digits, optionally comma-separated, so `q[-1].drive` is not a coordinate. The element and kind names are not checked against any schema, since a library is a standalone artifact and knows nothing about the program it will be applied to.
 
-The waveform after the `=` is exactly the constructor syntax [inline waveform constructors](#inline-waveform-constructors) describes, looked up in the same registry, so every built-in and every class registered with `qp.register_waveform` is spelled the same way in both formats and a vendor waveform needs its package imported before the load. Exactly one constructor call is allowed after the `=`. The writer names every argument, while a hand-written positional call such as `Square(0.1, 40)` is accepted and comes back named. There are no variables in a library, so a bare token in an argument position is read as a string rather than as a reference: a hand-written `Gaussian(amp, 40, 8)` loads with `amplitude` set to the string `"amp"`. In the other direction, a library holding a waveform built from a `Variable` cannot be written at all, and `dumps` raises `qp.SerializationError`.
+The waveform after the `=` is exactly the constructor syntax [inline waveform constructors](#inline-waveform-constructors) describes, looked up in the same registry, so every built-in and every class registered with `qp.register_waveform` is spelled the same way in both formats and a vendor waveform needs its package imported before the load. Exactly one constructor call is allowed after the `=`. The writer names every argument, while a hand-written positional call such as `Square(0.1, 40)` is accepted and comes back named. There are no variables in a library, so a bare token in an argument position is read as a string rather than as a reference: a hand-written `Gaussian(amp, 40, 5)` loads with `amplitude` set to the string `"amp"`. In the other direction, a library holding a waveform built from a `Variable` cannot be written at all, and `dumps` raises `qp.SerializationError`.
 
 The header must be the first non-blank line, and a comment ahead of it is an error rather than a comment. After the header, blank lines and lines whose first non-space character is `#` are skipped, and every other line must be an entry. Leading whitespace on an entry line is ignored, since the format has no nesting. A `#` further along an entry line is not a comment and fails as an extra token. Entries are written in insertion order and read in file order, and a name repeated at the same coordinate keeps the last value, so `loads(dumps(library))` reproduces the library exactly. An empty library is the header line by itself.
 
@@ -836,8 +838,8 @@ Parse failures raise `qp.ParseError` carrying the 1-based line number:
 |---|---|
 | `"x" = Gaussian(...)` with no header, or a comment before it | `Line 1: Missing #!WaveformLibrary header` |
 | `#!WaveformLibrary 9.0` | `Line 1: Unsupported WaveformLibrary format version 9.0` |
-| `x = Gaussian(amplitude=0.5, duration=40, sigma=8)` | `Line 2: entry must start with a quoted waveform name` |
-| `"x" Gaussian(amplitude=0.5, duration=40, sigma=8)` | `Line 2: WaveformLibrary entry must contain '=': '"x" Gaussian(amplitude=0.5, duration=40, sigma=8)'` |
+| `x = Gaussian(amplitude=0.5, duration=40, num_sigmas=5)` | `Line 2: entry must start with a quoted waveform name` |
+| `"x" Gaussian(amplitude=0.5, duration=40, num_sigmas=5)` | `Line 2: WaveformLibrary entry must contain '=': '"x" Gaussian(amplitude=0.5, duration=40, num_sigmas=5)'` |
 | `"x" q0.drive = Square(amplitude=0.1, duration=40)` | `Line 2: invalid entry coordinate 'q0.drive'; expected element[idx].kind or element[*].kind` |
 | `"x" q[0].drive extra = Square(amplitude=0.1, duration=40)` | `Line 2: unexpected tokens before '=': ['q[0].drive']` |
 | `"x" = Square(amplitude=0.1, duration=40)  # pi/2` | `Line 2: expected exactly one waveform after '='` |
@@ -849,4 +851,4 @@ The header version comes from `WAVEFORM_LIBRARY_FORMAT_VERSION` in `qprogram/wav
 
 The rules that reader applies are `.qp`'s. A later version is refused, whichever component moved, and an earlier one is migrated rather than refused, by the migrations registered for the `"wfl"` format (see [Versioning](#versioning)). The two formats share the version scale but not their rewrites, since the same line of text means one thing in a program body and another in a library entry: a migration names the format it reads, and vocabulary the two files do share — a renamed waveform constructor — is one rewrite registered twice. The compatibility contract is the same as `.qp`'s too: a minor version may add entry forms and waveform vocabulary, and a major bump is reserved for a change an older reader cannot handle.
 
-The version is `major.minor` in both formats, so `#!WaveformLibrary 0.2.3` and a bare `#!WaveformLibrary 0` are refused for the same reasons `#!QProgram 0.2.3` and `#!QProgram 0` are. The token itself is the last whitespace-separated one on the header line, so a header with anything after the version reports that trailing token as an unsupported version. The writer always emits the current version, which means an older file that is read and written back out comes back carrying today's number.
+The version is `major.minor` in both formats, so `#!WaveformLibrary 0.3.1` and a bare `#!WaveformLibrary 0` are refused for the same reasons `#!QProgram 0.3.1` and `#!QProgram 0` are. The token itself is the last whitespace-separated one on the header line, so a header with anything after the version reports that trailing token as an unsupported version. The writer always emits the current version, which means an older file that is read and written back out comes back carrying today's number.

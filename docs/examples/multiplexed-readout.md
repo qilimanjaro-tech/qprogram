@@ -55,7 +55,7 @@ The counter is per bus, so the bus prefix is what distinguishes these, not the n
 ## What it produces
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "multiplexed_rabi"
@@ -118,7 +118,7 @@ library.set(
     "weights",
     qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
 )
-library.set("pi_pulse", qp.waveforms.IQDrag(0.5, 40, 8, 0.1))
+library.set("pi_pulse", qp.waveforms.IQDrag(0.5, 40, 5, 0.1))
 ```
 
 `element`, `idx`, and `kind` are keyword-only and only three combinations are legal, one per tier: all three is an exact entry for one bus, `element` and `kind` is a family entry for every index of that kind, and none of them is a global entry. Any other combination raises `ValidationError`.
@@ -153,12 +153,12 @@ library.save("chip.wfl")
 ```
 
 ```
-#!WaveformLibrary 0.2
+#!WaveformLibrary 0.3
 "readout" q[0].readout = IQPair(I=Square(amplitude=0.9, duration=1000), Q=Square(amplitude=0.0, duration=1000))
 "readout" q[2].readout = IQPair(I=Square(amplitude=0.7, duration=3000), Q=Square(amplitude=0.0, duration=3000))
 "readout" q[*].readout = IQPair(I=Square(amplitude=0.5, duration=2000), Q=Square(amplitude=0.0, duration=2000))
 "weights" = IQPair(I=Square(amplitude=1.0, duration=2000), Q=Square(amplitude=1.0, duration=2000))
-"pi_pulse" = IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
+"pi_pulse" = IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1)
 ```
 
 The coordinate before the `=` is the tier: a concrete index is an exact entry, `[*]` is a family entry, and no coordinate at all is a global one. Entries are written in insertion order, and `qp.WaveformLibrary.load("chip.wfl")` returns a library that dumps byte-identically.

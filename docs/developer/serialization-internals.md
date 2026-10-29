@@ -45,14 +45,14 @@ Say 0.3 renames the `Rectangular` waveform to `Square`. Waveform constructors ar
 
 <!-- check: skip -->
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 body:
   play "drive_q0" Rectangular(amplitude=0.5, duration=200)
 ```
 
 ```
-#!WaveformLibrary 0.2
+#!WaveformLibrary 0.3
 "pi_pulse" q[0].drive = Rectangular(amplitude=0.5, duration=200)
 ```
 
@@ -86,7 +86,7 @@ Whether it runs on the file that needs it is the other half, and belongs whereve
 ```python
 # tests/test_serialization.py
 def test_a_file_written_before_the_waveform_rename_still_loads():
-    text = '#!QProgram 0.2\n\nbody:\n  play "drive_q0" Rectangular(amplitude=0.5, duration=200)\n'
+    text = '#!QProgram 0.3\n\nbody:\n  play "drive_q0" Rectangular(amplitude=0.5, duration=200)\n'
     assert isinstance(qp.loads(text).body.elements[0].waveform, qp.waveforms.Square)
 ```
 
@@ -194,7 +194,7 @@ Indentation is a function of depth alone. `_write_body` starts the block walk at
 Put together, a program with metadata, a schema, a fragment, an `average`, and a sweep writes as:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "ordering demo"
@@ -205,7 +205,7 @@ schema:
     readout info=IQ+acquires
 
 fragment pi_pulse(bus):
-  play bus Gaussian(amplitude=0.5, duration=40, sigma=8)
+  play bus Gaussian(amplitude=0.5, duration=40, num_sigmas=5)
 
 body:
   var gain units="V"
@@ -280,7 +280,7 @@ Array-valued arguments are emitted as bracket literals, in full, never truncated
 For a sweep whose values are large or live outside the program, use the file source instead. The path, not the data, is what the `.qp` file carries:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 body:
   var amp

@@ -50,7 +50,7 @@ Nesting order matters here in a way it does not around an `average`. The outer s
 ## What it produces
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "single_shot_readout"
@@ -107,7 +107,7 @@ The threshold at half the separation is what makes the state a classification ra
 
 ```python
 library = {
-    "pi_pulse": qp.waveforms.IQDrag(0.5, 40, 8, 0.1),
+    "pi_pulse": qp.waveforms.IQDrag(0.5, 40, 5, 0.1),
     "readout": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)),
     "weights": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
 }

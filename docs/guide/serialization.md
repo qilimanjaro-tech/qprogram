@@ -31,7 +31,7 @@ On the way in, malformed input raises `qp.ParseError`, whose message carries the
 This is `qp.dumps` output for a T1 experiment built on `qp.BusSchema.transmon()`, with an averaging block around a delay sweep:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "t1"
@@ -47,7 +47,7 @@ body:
 
   average 1000:
     for t in Range(start=0.0, stop=200.0, step=4.0):
-      play q[0].drive IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.2)
+      play q[0].drive IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.2)
       wait q[0].drive t
       sync
       measure q[0].readout "readout" "weights" name="q0/readout/m0"
@@ -99,24 +99,24 @@ Going the other way, from text to program to text, is a normalization rather tha
 
 ## Format version and the require line
 
-Every file opens with the format version, which the writer takes from `FORMAT_VERSION` in `qprogram/serialization/_format.py`, the single constant both sides read. It is the installed library version truncated to `major.minor`, so a `qprogram` 0.2.1 writes:
+Every file opens with the format version, which the writer takes from `FORMAT_VERSION` in `qprogram/serialization/_format.py`, the single constant both sides read. It is the installed library version truncated to `major.minor`, so a `qprogram` 0.3.1 writes:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 ```
 
 The parser checks the header before anything else, and what it does next depends on which side of the running version the file is on.
 
 An older file is migrated. A release that changes the syntax registers one migration under its own version, and loading applies every migration newer than the file's version, oldest first, to the lines in memory — the file on disk is never rewritten. So a program saved by any earlier release parses against today's grammar, and a release that broke nothing registers nothing. The rewrites work line for line, which is what keeps a `ParseError`'s line number and `source_map` pointing at lines of the file you opened; [Migrations](../developer/serialization-internals.md#migrations) is how one is written.
 
-A newer file is refused: `#!QProgram 0.9` fails with `Line 1: Unsupported format version 0.9`, because a release cannot know what a later one changed, and there is no migration that runs backwards. The version is `major.minor` exactly — a patch release changes code, never the format, so a file has no patch to declare, and `#!QProgram 0.2.3` is refused with the same message.
+A newer file is refused: `#!QProgram 0.9` fails with `Line 1: Unsupported format version 0.9`, because a release cannot know what a later one changed, and there is no migration that runs backwards. The version is `major.minor` exactly — a patch release changes code, never the format, so a file has no patch to declare, and `#!QProgram 0.3.1` is refused with the same message.
 
-That is the compatibility contract: a minor adds sections, operations, and constructs, a major is reserved for a change that breaks the older spelling outright, and either way the file that a release wrote goes on loading under every release after it.
+That is the compatibility contract: a minor adds sections, operations, and constructs, a major is reserved for a change that breaks the older spelling outright, and either way the file that a release wrote goes on loading under every release after it. 0.3 broke it once, before 1.0. It replaced the shapes of `Gaussian`, `GaussianDragCorrection`, `IQDrag`, `FlatTop` and `SuddenNetZero` and registered no migration, because no rewrite of the old parameters gives back the old pulses. A 0.2 file that uses `sigma` or `beta` fails with `TypeError: Gaussian.__init__() got an unexpected keyword argument 'sigma'`, and its `FlatTop` and `SuddenNetZero` entries load with the new shapes, so those pulses have to be re-created rather than reloaded.
 
 A program that uses vendor operations or vendor blocks carries one `require` line per vendor, directly after the header:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 require myvendor 0.1
 
@@ -225,7 +225,7 @@ A program may carry waveforms two ways, and both round-trip:
 
 ```
 play "drive_q0" "pi_pulse"
-play "drive_q0" IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.2)
+play "drive_q0" IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.2)
 ```
 
 An alias stays a string on reload, ready to be resolved later by `with_waveforms` against a [waveform library](#waveform-libraries-and-the-wfl-file). An inline constructor comes back as the same class it started as, with the same argument values.
@@ -242,8 +242,8 @@ An alias has to be resolved before a program can run, and `qp.WaveformLibrary` i
 import qprogram as qp
 
 library = qp.WaveformLibrary()
-library.set("pi_pulse", qp.waveforms.IQDrag(0.5, 40, 8, 0.1), element="q", idx=0, kind="drive")
-library.set("pi_pulse", qp.waveforms.IQDrag(0.9, 40, 8, 0.1), element="q", idx=1, kind="drive")
+library.set("pi_pulse", qp.waveforms.IQDrag(0.5, 40, 5, 0.1), element="q", idx=0, kind="drive")
+library.set("pi_pulse", qp.waveforms.IQDrag(0.9, 40, 5, 0.1), element="q", idx=1, kind="drive")
 library.set("cz", qp.waveforms.Square(0.3, 200), element="c", idx=(0, 1), kind="flux")
 library.set(
     "readout",
@@ -279,9 +279,9 @@ library = qp.WaveformLibrary.loads(text)
 `dumps` writes the header line and one line per entry, in insertion order, so `qp.WaveformLibrary.loads(library.dumps()).dumps()` reproduces the text exactly. This is the library built above:
 
 ```
-#!WaveformLibrary 0.2
-"pi_pulse" q[0].drive = IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
-"pi_pulse" q[1].drive = IQDrag(amplitude=0.9, duration=40, sigma=8, beta=0.1)
+#!WaveformLibrary 0.3
+"pi_pulse" q[0].drive = IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1)
+"pi_pulse" q[1].drive = IQDrag(amplitude=0.9, duration=40, num_sigmas=5, drag_coefficient=0.1)
 "cz" c[0,1].flux = Square(amplitude=0.3, duration=200)
 "readout" q[*].readout = IQPair(I=Square(amplitude=1.0, duration=2000), Q=Square(amplitude=0.0, duration=2000))
 "weights" = IQPair(I=Square(amplitude=1.0, duration=2000), Q=Square(amplitude=1.0, duration=2000))

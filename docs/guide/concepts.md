@@ -112,7 +112,7 @@ Every node reports the capability tokens it needs, in isolation, from `required_
 program = qp.QProgram()
 t = program.variable("t")
 with program.sweep(t, qp.Range(0, 100, 10)):
-    program.play("drive_q0", qp.waveforms.IQDrag(0.5, 40, 8, 0.1))
+    program.play("drive_q0", qp.waveforms.IQDrag(0.5, 40, 5, 0.1))
     program.wait("drive_q0", t)
 
 sweep = program.body.elements[0]
@@ -149,7 +149,7 @@ This is how you sweep waveform parameters too. The waveform holds the variable, 
 ```python
 amp = program.variable("amp")
 with program.sweep(amp, qp.Range(0.0, 1.0, 0.01)):
-    program.play("drive_q0", qp.waveforms.Gaussian(amplitude=amp, duration=40, sigma=8))
+    program.play("drive_q0", qp.waveforms.Gaussian(amplitude=amp, duration=40, num_sigmas=5))
 ```
 
 An expression built this way is a tree of `Expression` nodes, and its shape is what produces the `expr.*` tokens the validator checks against `caps.platform`. See [Variables and expressions](variables.md) for the operators, the math functions, and how binding works at run time.
@@ -162,7 +162,7 @@ Every operation targets a bus by name. You can use a plain string (`"drive_q0"`)
 schema = qp.BusSchema.transmon()
 q = schema.q
 
-program.play(q[0].drive, qp.waveforms.IQDrag(0.5, 40, 8, 0.1))  # OK
+program.play(q[0].drive, qp.waveforms.IQDrag(0.5, 40, 5, 0.1))  # OK
 program.play(q[0].drive, qp.waveforms.Square(0.5, 100))  # ValidationError
 program.measure(q[0].drive, "readout", "weights")  # ValidationError
 ```
@@ -181,7 +181,7 @@ The third fails because `q[0].drive` has `acquires=False`, so it has no ADC to m
 `Waveform` instances describe an envelope. They compare and hash structurally, they can carry `Variable`s as parameters, and they only get evaluated to a sample array when something asks for `.envelope()`.
 
 ```python
-g = qp.waveforms.Gaussian(amplitude=amp, duration=40, sigma=8)
+g = qp.waveforms.Gaussian(amplitude=amp, duration=40, num_sigmas=5)
 g.envelope()  # UnassignedVariableError before amp is bound
 amp.set_value(0.7)
 g.envelope()  # numpy array of 40 float64 samples, peak 0.6986

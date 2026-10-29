@@ -88,9 +88,9 @@ amp = program.variable("amp")
 program.play("drive_q0", "pi_pulse")
 program.play(
     q[0].drive,
-    qp.waveforms.IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1),
+    qp.waveforms.IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1),
 )
-program.play(q[0].flux, qp.waveforms.Gaussian(amplitude=amp, duration=40, sigma=8))
+program.play(q[0].flux, qp.waveforms.Gaussian(amplitude=amp, duration=40, num_sigmas=5))
 ```
 
 The tokens depend on what the waveform argument is. A string alias adds `waveform.alias` and nothing else, since the samples are not known yet. A concrete waveform adds `waveform.iq` or `waveform.single` for its channel kind, plus the per-class token registered for its type (`waveform.gaussian`, `waveform.iq_drag`, and so on) when there is one; an unregistered vendor class contributes no per-class token, and the validator skips that refinement for it.
@@ -303,7 +303,7 @@ Instantiate a `Fragment` at the current position. Arguments bind to the fragment
 ```python
 @qp.fragment
 def x_pulse(f, drive, amp):
-    f.play(drive, qp.waveforms.Gaussian(amplitude=amp, duration=40, sigma=8))
+    f.play(drive, qp.waveforms.Gaussian(amplitude=amp, duration=40, num_sigmas=5))
 
 
 a = program.variable("a")

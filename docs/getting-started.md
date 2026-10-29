@@ -65,7 +65,7 @@ print(qp.dumps(program))
 No platform is involved yet. The output is the program in `.qp` form:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "rabi"
@@ -109,7 +109,7 @@ The program above names its waveforms (`"pi_pulse"`, `"readout"`, `"weights"`) i
 ```python
 resolved = program.with_waveforms(
     {
-        "pi_pulse": qp.waveforms.IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1),
+        "pi_pulse": qp.waveforms.IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1),
         "readout": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)),
         "weights": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
     }

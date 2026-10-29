@@ -23,7 +23,7 @@ with program.average(shots=1000):
 # Plug in calibrated waveforms at the very end.
 resolved = program.with_waveforms(
     {
-        "pi_pulse": qp.waveforms.IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1),
+        "pi_pulse": qp.waveforms.IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1),
         "readout": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)),
         "weights": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
     }
@@ -63,7 +63,7 @@ A vendor extension is a separate package that depends on `qprogram` and register
 
 ## Versions and compatibility
 
-The package is pre-1.0, so the Python API can change between releases without a deprecation cycle. The `.qp` format version follows the library version truncated to `major.minor`, so this release writes `#!QProgram 0.2`. A file from an *earlier* version always loads: a release that changes the syntax registers a migration under its own version, and loading applies every migration between the file's version and this one to the lines in memory, leaving the file on disk as it is. A file from a *later* version is refused with `ParseError` and `Unsupported format version 0.9`, since this release has no way to know what a later one changed. The header carries `major.minor` and nothing else — a patch release cannot change the format, so a file has no patch to declare — and a file with no header at all fails immediately with `Missing #!QProgram header`.
+The package is pre-1.0, so the Python API can change between releases without a deprecation cycle. The `.qp` format version follows the library version truncated to `major.minor`, so this release writes `#!QProgram 0.3`. A file from an *earlier* version loads: a release that changes the syntax registers a migration under its own version, and loading applies every migration between the file's version and this one to the lines in memory, leaving the file on disk as it is. The one exception is 0.3, which replaced the shapes of `Gaussian`, `GaussianDragCorrection`, `IQDrag`, `FlatTop` and `SuddenNetZero` without a migration, because no rewrite of the old parameters gives back the old pulses: a 0.2 file that uses `sigma` or `beta` fails with `TypeError`, and its `FlatTop` and `SuddenNetZero` entries load with the new shapes. A file from a *later* version is refused with `ParseError` and `Unsupported format version 0.9`, since this release has no way to know what a later one changed. The header carries `major.minor` and nothing else — a patch release cannot change the format, so a file has no patch to declare — and a file with no header at all fails immediately with `Missing #!QProgram header`.
 
 Vendor compatibility is checked one `require` line at a time, before any of the body is built, so a rejected file leaves no partially loaded program: the line asks for a `major.minor`, anything the installed extension cannot provide is refused, anything older loads with that extension's own migrations applied to the body first, and a vendor that is installed but not yet imported is activated through its `qprogram.vendors` entry point. [Format version and the require line](guide/serialization.md#format-version-and-the-require-line) has the message each failure produces and the argument that turns activation off.
 

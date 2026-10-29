@@ -47,7 +47,7 @@ The two sweeps are nested with `amp` outside and `dur` inside, so the flux pulse
 
 `FlatTop(amplitude=amp, duration=dur, smooth_duration=5)` stores the two variables as parameters of the waveform node. Nothing materializes the sweep at build time; the platform decides whether to update an amplitude register, regenerate the envelope per point, or refuse the program because its compiler cannot do either. The reference executor renders no envelope at all, so it accepts the program either way and tells you nothing about whether real hardware would.
 
-`smooth_duration=5` sets the length of each erf-shaped edge, and `duration` counts the edges in rather than adding them. The rise crosses half amplitude 5 ns in and is flat to within a part in 10⁵ by 10 ns, so the shortest few durations on the axis, where `dur` is not comfortably above `2 * smooth_duration`, never reach full amplitude at all. That is a property of the pulse shape rather than of the sweep, and it is what makes the near edge of the duration axis worth reading with care.
+`smooth_duration=5` sets the length of each erf-shaped edge, and `duration` counts the edges in rather than adding them. The rise crosses half amplitude 2.5 ns in and reaches 99.8% at 5 ns, so the shortest duration on the axis, 10 ns, is all edge and peaks at 98.8% of `amp`. That is a property of the pulse shape rather than of the sweep, and it is what makes the near edge of the duration axis worth reading with care.
 
 The pi pulse plays on `q[1].drive` while the flux pulse plays on `q[0].flux`, and the `sync()` between them is what stops the flux pulse from starting before the preparation is over. The second `sync()` does the same for the readout.
 
@@ -56,7 +56,7 @@ The pi pulse plays on `q[1].drive` while the flux pulse plays on `q[0].flux`, an
 ## What it looks like on disk
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "cz_chevron"
@@ -93,7 +93,7 @@ The reference executor is an interpreter that walks every shot of every grid poi
 import numpy as np
 
 library = {
-    "pi": qp.waveforms.IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1),
+    "pi": qp.waveforms.IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1),
     "readout": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)),
     "weights": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
 }
@@ -159,7 +159,7 @@ program.play(
 )
 ```
 
-`SuddenNetZero` is a positive square segment, a zero hold of `t_phi` ns, then a negative segment scaled by `b`, all inside `duration`. It is single channel like `FlatTop`, so the bus check passes unchanged, and `b` is the parameter you detune from 1 to null whatever residual flux the line adds.
+`SuddenNetZero` is `+amp` for the first half, one sample at `b * amp`, `t_phi` samples at zero, one sample at `-b * amp`, then `-amp` for the second half, all inside `duration`. The halves mirror each other, so the net flux is zero for any `b`, and `b` sets the height of the two single samples, which the SNZ scheme uses to fine-tune the conditional phase. It is single channel like `FlatTop`, so the bus check passes unchanged. `duration - t_phi` has to be even, which it is at every point of `Range(10, 210, 2)` with `t_phi=4`, and `t_phi` has to be an `int`, so it stays fixed while `amp` and `dur` sweep.
 
 If the chip has dedicated couplers, use `qp.BusSchema.flux_tunable_transmon_coupled()` and drive `schema.c[0, 1].flux` instead of `q[0].flux`. A coupler index is a tuple, and the resolved bus name joins it with an underscore, giving `c0_1/flux`. See [Buses and schemas](../guide/buses.md).
 

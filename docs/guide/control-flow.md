@@ -268,7 +268,7 @@ Kinds may differ. A linear ramp composes with an explicit table, as long as the 
 
 ```python
 with program.sweep(freq).from_linspace(4e9, 6e9, 41) | program.sweep(gain).from_values(measured_gains):
-    program.play("drive_q0", qp.waveforms.Gaussian(amplitude=gain, duration=40, sigma=8))
+    program.play("drive_q0", qp.waveforms.Gaussian(amplitude=gain, duration=40, num_sigmas=5))
 ```
 
 Extra pipes chain more than two. `__or__` is pure: it returns a fresh context carrying the concatenated list and touches the program only on entry, so a list of sweeps can be folded programmatically.
@@ -351,7 +351,7 @@ print(qp.dumps(program))
 ```
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "control-flow-forms"

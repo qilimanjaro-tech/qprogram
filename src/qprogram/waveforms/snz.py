@@ -29,16 +29,18 @@ class SuddenNetZero(Waveform):
     The pulse is ``+amplitude`` for its first half, one sample at ``b * amplitude``, ``t_phi`` samples at
     zero, one sample at ``-b * amplitude``, then ``-amplitude`` for its second half (Negîrneac et al.,
     [arXiv:2008.07411](https://arxiv.org/abs/2008.07411)). The halves mirror each other, so the integrated
-    flux is zero for any ``b`` as long as ``0 <= t_phi <= duration - 2``. Each half lasts
-    ``(duration - t_phi - 2) / 2`` ns.
+    flux is zero for any ``b`` as long as ``0 <= t_phi <= duration - 2`` and ``duration - t_phi`` is even.
+    Each half lasts ``(duration - t_phi - 2) / 2`` ns.
 
     Two conventions differ from the paper's: ``t_phi`` counts only the zeros between the two ``b``
     samples, so the paper's ``t_φ`` is ``t_phi + 2``, and ``b`` is a fraction of ``amplitude`` rather
     than an amplitude of its own.
 
-    ``t_phi`` is not range-checked. Above ``duration - 2`` it raises (see `envelope`). A negative
-    ``t_phi`` with ``duration - t_phi`` even raises nothing, and the pulse is no longer net zero: the
-    halves overlap the ``b`` samples, so ``duration=10, t_phi=-2`` sums to ``-1.5 * amplitude``.
+    Neither condition is checked. An odd ``duration - t_phi`` raises (see `envelope`), except at 5, where
+    numpy broadcasting gives the negative half two samples to the positive half's one and the pulse sums
+    to ``-amplitude``. A ``t_phi`` above ``duration - 2`` raises. A negative ``t_phi`` with
+    ``duration - t_phi`` even raises nothing, and the pulse is no longer net zero: the halves overlap the
+    ``b`` samples, so ``duration=10, t_phi=-2`` sums to ``-(1 + b) * amplitude``.
 
     Args:
         amplitude (float | Expression): Amplitude of the two halves, positive first. Accepts an
@@ -47,10 +49,10 @@ class SuddenNetZero(Waveform):
             even for the halves to come out equal. Accepts an [`Expression`][qprogram.Expression].
         b (float | Expression): Height of the single samples either side of the zero hold, as a fraction
             of ``amplitude``. Accepts an [`Expression`][qprogram.Expression].
-        t_phi (int | Expression): Length of the zero hold between the two ``b`` samples, in nanoseconds,
-            from 0 to ``duration - 2``. Accepts an [`Expression`][qprogram.Expression], whose value has to be an ``int`` as well. A
-            float raises, ``4.0`` included, and every sweep source binds floats, so ``t_phi`` cannot be
-            swept.
+        t_phi (int | Expression): Number of zero samples between the two ``b`` samples, from 0 to
+            ``duration - 2``. Accepts an [`Expression`][qprogram.Expression], whose value has to be an
+            ``int`` as well: a float raises, ``4.0`` included, and every sweep source binds floats, so
+            ``t_phi`` cannot be swept.
     """
 
     def __init__(
@@ -70,8 +72,8 @@ class SuddenNetZero(Waveform):
 
         Only the two halves are converted to samples: ``t_phi`` and the two ``b`` samples are counted in
         samples, so at a resolution other than 1 the pieces rarely add up to the pulse. Above a small
-        ``t_phi`` (3 at resolution 2, 2 at resolutions 3 and 4, 1 at resolution 8) every duration raises
-        ``ValueError``. Where it does not raise, the zero hold lasts ``t_phi * resolution`` ns and each
+        ``t_phi`` (3 at resolution 2, 2 at resolutions 3 and 4, 1 at resolution 8) every duration raises.
+        Where it does not raise, the zero hold lasts ``t_phi * resolution`` ns and each
         ``b`` sample lasts ``resolution`` ns.
 
         Args:
@@ -82,8 +84,9 @@ class SuddenNetZero(Waveform):
 
         Raises:
             ValueError: If the two halves do not come out equal, which at resolution 1 means
-                ``duration - t_phi`` is odd, or if ``t_phi`` is ``duration`` or more.
-            IndexError: If ``t_phi`` is a float rather than an ``int``, or is ``duration - 1``.
+                ``duration - t_phi`` is odd and not 5, or if ``t_phi`` is ``duration`` or more.
+            IndexError: If ``t_phi`` is a float below ``duration`` or is ``duration - 1``, or if, at a
+                resolution other than 1, the pulse is too short for its zero hold.
             UnassignedVariableError: If a parameter is an [`Expression`][qprogram.Expression] whose variables
                 have no value.
         """

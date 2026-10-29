@@ -373,7 +373,7 @@ The `require` lines come from the same lookup. The writer collects the vendors r
 A complete file for a two-operation program looks like this:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 require fake_inst 0.1
 
@@ -442,7 +442,7 @@ An older line always loads. When the release that broke the wire form also regis
 Say 1.0 gives `beep` a second required argument, `volume`, which by the rule above is a major bump. Every file written against 0.3 or earlier is one token short of what the constructor now takes:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 require fake_inst 0.3
 
@@ -471,7 +471,7 @@ What proves it is a load rather than a direct call to the function, since the re
 
 ```python
 def test_a_0_3_file_gets_the_volume_1_0_made_required():
-    text = '#!QProgram 0.2\n\nrequire fake_inst 0.3\n\nbody:\n  fake_inst.beep "drive_q0" 100\n'
+    text = '#!QProgram 0.3\n\nrequire fake_inst 0.3\n\nbody:\n  fake_inst.beep "drive_q0" 100\n'
     assert qp.loads(text).body.elements[0].volume == 0.5
 ```
 

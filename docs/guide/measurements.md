@@ -133,7 +133,7 @@ program.measure(q[1].readout, readout, readout, name="t1_ref")
 The writer always emits the measurement name as a `name=` keyword, so nothing is inferred on the way back in:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 schema:
   element q:

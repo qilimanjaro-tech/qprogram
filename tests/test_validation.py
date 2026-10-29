@@ -273,7 +273,7 @@ def test_bus_touching_op_routes_to_per_element_slot_when_present() -> None:
     )
     schema = BusSchema.transmon()
     p = QProgram(schema=schema)
-    p.play(schema.q[0].drive, IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1))
+    p.play(schema.q[0].drive, IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1))
     diagnostics = _diagnostics(p, caps)
     # The drive slot supports op.play, so no diagnostic; routing to the default slot would report it missing.
     assert not any(d.code == "missing-capability" and d.capability == "op.play" for d in diagnostics)
@@ -444,8 +444,8 @@ def test_constant_wait_duration_is_accepted() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _drag_sigma_excludes_rt(node, ctx):
-    """DomainConstraint targeting the binding loop of an IQDrag.sigma-sweep.
+def _drag_num_sigmas_excludes_rt(node, ctx):
+    """DomainConstraint targeting the binding loop of an IQDrag.num_sigmas sweep.
 
     Per the spec, predicates emit DomainConstraints that target the **loop block** binding the
     variable — not the operation node itself. The Play's classification is unaffected; only the
@@ -453,16 +453,16 @@ def _drag_sigma_excludes_rt(node, ctx):
     """
     if not isinstance(node, Play) or not isinstance(node.waveform, IQDrag):
         return
-    sigma = node.waveform.sigma
-    if not isinstance(sigma, Variable):
+    num_sigmas = node.waveform.num_sigmas
+    if not isinstance(num_sigmas, Variable):
         return
-    binding_loop = ctx.binding_loop_of(sigma)
+    binding_loop = ctx.binding_loop_of(num_sigmas)
     if binding_loop is None:
         return
     yield DomainConstraint(
         node=binding_loop,
         exclude=frozenset({"rt"}),
-        reason="IQDrag.sigma sweep is not real-time",
+        reason="IQDrag.num_sigmas sweep is not real-time",
     )
 
 
@@ -472,11 +472,11 @@ def test_domain_constraint_targets_block_not_op() -> None:
     Rule (e2): the loop drops to host-side dispatch while the ``Play`` keeps whatever its slot
     supports.
     """
-    caps = _full_caps(bus_predicates=(_drag_sigma_excludes_rt,))
+    caps = _full_caps(bus_predicates=(_drag_num_sigmas_excludes_rt,))
     p = QProgram()
-    sigma = p.variable("sigma")
-    with p.sweep(sigma, Range(1, 10, 1)):
-        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, sigma=sigma, beta=0.1))
+    num_sigmas = p.variable("num_sigmas")
+    with p.sweep(num_sigmas, Range(1, 10, 1)):
+        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, num_sigmas=num_sigmas, drag_coefficient=0.1))
     diagnostics, plan = validate(p, caps)
     errors = [d for d in diagnostics if d.severity == "error"]
     assert errors == []
@@ -495,11 +495,11 @@ def test_forced_host_warning_fires_once_on_highest_block() -> None:
     host-side; the single warning attaches to the ``Average`` and carries the constraint's reason
     text.
     """
-    caps = _full_caps(bus_predicates=(_drag_sigma_excludes_rt,))
+    caps = _full_caps(bus_predicates=(_drag_num_sigmas_excludes_rt,))
     p = QProgram()
-    sigma = p.variable("sigma")
-    with p.average(shots=100), p.sweep(sigma, Range(1, 10, 1)):
-        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, sigma=sigma, beta=0.1))
+    num_sigmas = p.variable("num_sigmas")
+    with p.average(shots=100), p.sweep(num_sigmas, Range(1, 10, 1)):
+        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, num_sigmas=num_sigmas, drag_coefficient=0.1))
     diagnostics = _diagnostics(p, caps)
     info_diags = [d for d in diagnostics if d.code == "forced-host"]
     assert len(info_diags) == 1
@@ -508,16 +508,16 @@ def test_forced_host_warning_fires_once_on_highest_block() -> None:
     assert info_diags[0].severity == "warning"
     assert info_diags[0].domain == "host"
     # The reason from the subtree's DomainConstraint surfaces in the message.
-    assert "sigma" in info_diags[0].message
+    assert "num_sigmas" in info_diags[0].message
 
 
-def test_amplitude_sweep_stays_rt_when_only_sigma_is_constrained() -> None:
-    """A Sweep sweeping IQDrag.amplitude (not sigma) is unaffected by the sigma constraint."""
-    caps = _full_caps(bus_predicates=(_drag_sigma_excludes_rt,))
+def test_amplitude_sweep_stays_rt_when_only_num_sigmas_is_constrained() -> None:
+    """A Sweep sweeping IQDrag.amplitude (not num_sigmas) is unaffected by the num_sigmas constraint."""
+    caps = _full_caps(bus_predicates=(_drag_num_sigmas_excludes_rt,))
     p = QProgram()
     amp = p.variable("amp")
     with p.sweep(amp, Range(0, 1, 0.1)):
-        p.play("drive_q0", IQDrag(amplitude=amp, duration=40, sigma=8, beta=0.1))
+        p.play("drive_q0", IQDrag(amplitude=amp, duration=40, num_sigmas=5, drag_coefficient=0.1))
     diagnostics, plan = validate(p, caps)
     info_diags = [d for d in diagnostics if d.code == "forced-host"]
     assert info_diags == []
@@ -559,7 +559,7 @@ def test_mixed_domain_error_when_op_children_disagree() -> None:
     p = QProgram(schema=schema)
     v = p.variable("v")
     with p.sweep(v, Range(0, 1, 0.1)):
-        p.play(schema.q[0].drive, IQDrag(0.5, 40, 8, 0.1))
+        p.play(schema.q[0].drive, IQDrag(0.5, 40, 5, 0.1))
         p.play(schema.q[0].flux, Square(0.5, 100))  # Different bus → different singleton.
     diagnostics, _ = validate(p, caps)
     mixed = [d for d in diagnostics if d.code == "mixed-domain"]
@@ -584,7 +584,7 @@ def test_host_block_child_auto_propagates_rt_exclusion() -> None:
     a = p.variable("a")
     b = p.variable("b")
     with p.sweep(a, Range(0, 1, 0.1)):
-        p.play(schema.q[0].drive, IQDrag(0.5, 40, 8, 0.1))  # Real-time op.
+        p.play(schema.q[0].drive, IQDrag(0.5, 40, 5, 0.1))  # Real-time op.
         with p.sweep(b, Range(0, 1, 0.1)):
             p.play(schema.q[0].flux, Square(0.5, 100))  # Host-side op nested inside.
     diagnostics, plan = validate(p, caps)
@@ -613,7 +613,7 @@ def test_host_in_rt_nesting_error_fires_when_platform_lacks_host() -> None:
     a = p.variable("a")
     b = p.variable("b")
     with p.sweep(a, Range(0, 1, 0.1)):
-        p.play(schema.q[0].drive, IQDrag(0.5, 40, 8, 0.1))
+        p.play(schema.q[0].drive, IQDrag(0.5, 40, 5, 0.1))
         with p.sweep(b, Range(0, 1, 0.1)):
             p.play(schema.q[0].flux, Square(0.5, 100))
     diagnostics, _ = validate(p, caps)
@@ -702,14 +702,14 @@ def test_plan_lookup_by_identity_not_structure() -> None:
 
 def test_forced_host_counted_per_block_instance() -> None:
     """Two identical loops, each independently forced to host, each surface their own info."""
-    caps = _full_caps(bus_predicates=(_drag_sigma_excludes_rt,))
+    caps = _full_caps(bus_predicates=(_drag_num_sigmas_excludes_rt,))
     p = QProgram()
     s1 = p.variable("s1")
     s2 = p.variable("s2")
     with p.sweep(s1, Range(1, 10, 1)):
-        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, sigma=s1, beta=0.1))
+        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, num_sigmas=s1, drag_coefficient=0.1))
     with p.sweep(s2, Range(1, 10, 1)):
-        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, sigma=s2, beta=0.1))
+        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, num_sigmas=s2, drag_coefficient=0.1))
     diagnostics, plan = validate(p, caps)
     infos = [d for d in diagnostics if d.code == "forced-host"]
     assert len(infos) == 2
@@ -758,7 +758,7 @@ def test_genuine_mixed_domain_still_fires() -> None:
     schema = BusSchema.flux_tunable_transmon()
     p = QProgram(schema=schema)
     with p.block():
-        p.play(schema.q[0].drive, IQDrag(0.5, 40, 8, 0.1))
+        p.play(schema.q[0].drive, IQDrag(0.5, 40, 5, 0.1))
         p.play(schema.q[0].flux, Square(0.5, 100))
     diagnostics, _ = validate(p, caps)
     assert any(d.code == "mixed-domain" for d in diagnostics)
@@ -800,7 +800,7 @@ def test_sync_all_intersects_every_program_bus() -> None:
     )
     schema = BusSchema.transmon()
     p = QProgram(schema=schema)
-    p.play(schema.q[0].drive, IQDrag(0.5, 40, 8, 0.1))
+    p.play(schema.q[0].drive, IQDrag(0.5, 40, 5, 0.1))
     p.sync()  # Broadcast — touches q0/drive, whose slot lacks op.sync.
     diagnostics = _diagnostics(p, caps)
     assert any(d.code == "missing-capability" and d.capability == "op.sync" for d in diagnostics)
@@ -979,7 +979,7 @@ def test_optimize_averaging_is_noop_when_nothing_is_host() -> None:
     p = QProgram()
     amp = p.variable("amp")
     with p.average(100), p.sweep(amp, Range(0, 1, 0.1)):
-        p.play("drive_q0", IQDrag(amplitude=amp, duration=40, sigma=8, beta=0.1))
+        p.play("drive_q0", IQDrag(amplitude=amp, duration=40, num_sigmas=5, drag_coefficient=0.1))
         p.measure("readout_q0", "wf", "w")
     assert optimize(p, caps).body == p.body
 
@@ -1022,16 +1022,16 @@ def test_forced_host_reason_surfaces_cause_through_intervening_block() -> None:
 
     The ``Average`` names the intervening sub-block AND carries the deep constraint reason.
     """
-    caps = _full_caps(bus_predicates=(_drag_sigma_excludes_rt,))
+    caps = _full_caps(bus_predicates=(_drag_num_sigmas_excludes_rt,))
     p = QProgram()
-    sigma = p.variable("sigma")
-    with p.average(100), p.block(), p.sweep(sigma, Range(1, 10, 1)):
-        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, sigma=sigma, beta=0.1))
+    num_sigmas = p.variable("num_sigmas")
+    with p.average(100), p.block(), p.sweep(num_sigmas, Range(1, 10, 1)):
+        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, num_sigmas=num_sigmas, drag_coefficient=0.1))
     forced = [d for d in _diagnostics(p, caps) if d.code == "forced-host"]
     assert len(forced) == 1
     assert type(forced[0].node).__name__ == "Average"
     assert "contains host-side-only sub-block 'Block'" in forced[0].message
-    assert "IQDrag.sigma sweep is not real-time" in forced[0].message  # Deep cause preserved.
+    assert "IQDrag.num_sigmas sweep is not real-time" in forced[0].message  # Deep cause preserved.
 
 
 def test_reorderable_hint_not_emitted_for_block_wrapped_sweep() -> None:

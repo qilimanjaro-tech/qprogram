@@ -31,8 +31,8 @@ from qprogram.waveforms import Gaussian, IQDrag, IQPair, Square
 
 def _full_library() -> WaveformLibrary:
     library = WaveformLibrary()
-    library.set("pi_pulse", IQDrag(0.5, 40, 8, 0.1), element="q", idx=0, kind="drive")  # Exact tier.
-    library.set("pi_pulse", IQDrag(0.9, 40, 8, 0.1), element="q", idx=1, kind="drive")  # Exact tier.
+    library.set("pi_pulse", IQDrag(0.5, 40, 5, 0.1), element="q", idx=0, kind="drive")  # Exact tier.
+    library.set("pi_pulse", IQDrag(0.9, 40, 5, 0.1), element="q", idx=1, kind="drive")  # Exact tier.
     library.set("cz", Square(0.3, 200), element="c", idx=(0, 1), kind="flux")  # Exact tier, tuple index.
     library.set("readout", IQPair(Square(1.0, 2000), Square(0.0, 2000)), element="q", kind="readout")  # Family tier.
     library.set("weights", IQPair(Square(1.0, 2000), Square(1.0, 2000)))  # Global tier.
@@ -58,13 +58,13 @@ def test_get_tries_exact_then_family_then_global():
 
 def test_raw_string_bus_reaches_only_global_tier():
     library = WaveformLibrary()
-    library.set("pi_pulse", IQDrag(0.5, 40, 8, 0.1), element="q", idx=0, kind="drive")
+    library.set("pi_pulse", IQDrag(0.5, 40, 5, 0.1), element="q", idx=0, kind="drive")
     assert library.get("q0/drive", "pi_pulse") is None  # A raw string can't match the exact tier.
 
 
 def test_set_requires_full_or_no_coordinate():
     library = WaveformLibrary()
-    wf = Gaussian(0.5, 40, 8)
+    wf = Gaussian(0.5, 40, 5)
     with pytest.raises(ValidationError, match="exact entry"):
         library.set("pi", wf, element="q", idx=0)  # Missing kind.
 
@@ -115,7 +115,10 @@ def test_save_and_load_file(tmp_path):
 
 
 def test_blank_lines_and_comments_are_ignored():
-    text = WFL_HEADER + '\n\n# a comment\n"pi" q[0].drive = IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)\n\n'
+    text = (
+        WFL_HEADER
+        + '\n\n# a comment\n"pi" q[0].drive = IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1)\n\n'
+    )
     library = WaveformLibrary.loads(text)
     schema = BusSchema.transmon()
     assert library.get(schema.q[0].drive, "pi").amplitude == 0.5
@@ -123,7 +126,7 @@ def test_blank_lines_and_comments_are_ignored():
 
 def test_name_with_spaces_round_trips():
     library = WaveformLibrary()
-    library.set("pi over two", Gaussian(0.25, 40, 8))
+    library.set("pi over two", Gaussian(0.25, 40, 5))
     assert WaveformLibrary.loads(library.dumps()).get("bus", "pi over two") is not None
 
 
@@ -134,7 +137,7 @@ def test_name_with_spaces_round_trips():
 
 def test_missing_header_raises():
     with pytest.raises(ParseError, match="Missing #!WaveformLibrary header"):
-        WaveformLibrary.loads('"x" = Gaussian(0.5, 40, 8)\n')
+        WaveformLibrary.loads('"x" = Gaussian(0.5, 40, 5)\n')
 
 
 def test_incompatible_major_version_raises():
@@ -149,23 +152,23 @@ def test_unknown_waveform_raises():
 
 def test_unquoted_name_raises():
     with pytest.raises(ParseError, match="quoted waveform name"):
-        WaveformLibrary.loads(WFL_HEADER + "\nx = Gaussian(0.5, 40, 8)\n")
+        WaveformLibrary.loads(WFL_HEADER + "\nx = Gaussian(0.5, 40, 5)\n")
 
 
 def test_missing_equals_raises():
     with pytest.raises(ParseError, match="must contain '='"):
-        WaveformLibrary.loads(WFL_HEADER + '\n"x" Gaussian(0.5, 40, 8)\n')
+        WaveformLibrary.loads(WFL_HEADER + '\n"x" Gaussian(0.5, 40, 5)\n')
 
 
 def test_bad_coordinate_raises():
     with pytest.raises(ParseError, match="invalid entry coordinate"):
-        WaveformLibrary.loads(WFL_HEADER + '\n"x" not_a_coord = Gaussian(0.5, 40, 8)\n')
+        WaveformLibrary.loads(WFL_HEADER + '\n"x" not_a_coord = Gaussian(0.5, 40, 5)\n')
 
 
 def test_non_concrete_waveform_rejected_on_dump():
     amp = QProgram().variable("amp")
     library = WaveformLibrary()
-    library.set("x", Gaussian(amp, 40, 8))  # Symbolic amplitude.
+    library.set("x", Gaussian(amp, 40, 5))  # Symbolic amplitude.
     with pytest.raises(SerializationError, match="concrete waveforms"):
         library.dumps()
 
@@ -174,7 +177,7 @@ def test_non_concrete_waveform_rejected_on_dump():
 def test_wfl_round_trip_name_holding_a_unicode_line_break(char):
     """``.wfl`` splits its lines by the same rule, so a name may hold one of these too."""
     library = WaveformLibrary()
-    library.set(f"pi{char}2", Gaussian(0.5, 40, 8))
+    library.set(f"pi{char}2", Gaussian(0.5, 40, 5))
     reloaded = WaveformLibrary.loads(library.dumps())
     assert reloaded.dumps() == library.dumps()
-    assert reloaded.get("drive", f"pi{char}2") == Gaussian(0.5, 40, 8)
+    assert reloaded.get("drive", f"pi{char}2") == Gaussian(0.5, 40, 5)

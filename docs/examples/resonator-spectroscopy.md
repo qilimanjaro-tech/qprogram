@@ -36,7 +36,7 @@ The window covers 400 MHz because a resonator's position is known only to within
 ## What the platform makes of it
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "resonator_spectroscopy"

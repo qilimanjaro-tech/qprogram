@@ -65,7 +65,7 @@ All three are free-form strings and none of them affects execution. They are wri
 That means `units="ns"` records what the numbers mean and converts nothing. A variable swept over `Range(0, 200, 4)` and passed to `wait` carries nanoseconds because `wait` takes nanoseconds, not because the variable says so. A program declaring one annotated variable and one bare one serializes like this, and the file round-trips back to a program equal to the original:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "ramsey"
@@ -78,7 +78,7 @@ body:
     set_frequency "drive_q0" (5000000000.0 + (t * 1000.0))
     set_gain "drive_q0" minimum((amp / 2), 0.5)
     wait "drive_q0" (100 + t)
-    play "drive_q0" Gaussian(amplitude=amp, duration=40, sigma=8)
+    play "drive_q0" Gaussian(amplitude=amp, duration=40, num_sigmas=5)
     measure "readout_q0" "readout" "weights" name="m0"
 ```
 
@@ -233,7 +233,7 @@ program.set_offset("drive_q0", -amp)
 program.set_parameter("drive_q0", "lo_frequency", freq + 1e6)
 program.play(
     "drive_q0",
-    qp.waveforms.Gaussian(amplitude=amp, duration=40 + t, sigma=8),
+    qp.waveforms.Gaussian(amplitude=amp, duration=40 + t, num_sigmas=5),
 )
 ```
 
@@ -277,7 +277,7 @@ except qp.UnassignedVariableError as e:
 
 `free_variables` is `expression.variables()`, collected when the error is constructed. It is every variable the tree references, not only the unbound ones, so a partly bound expression reports all of them.
 
-Waveforms call `evaluate_or_raise` on each parameter internally, which is why `qp.waveforms.Gaussian(amplitude=amp, duration=40, sigma=8).envelope()` raises until `amp` is bound.
+Waveforms call `evaluate_or_raise` on each parameter internally, which is why `qp.waveforms.Gaussian(amplitude=amp, duration=40, num_sigmas=5).envelope()` raises until `amp` is bound.
 
 ## Free variables
 

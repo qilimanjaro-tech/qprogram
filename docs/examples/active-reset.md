@@ -60,7 +60,7 @@ The rest is the Rabi program: set the gain from the swept variable, play the pul
 ## What it produces
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "active_reset"
@@ -153,7 +153,7 @@ The herald needs a population to classify, which is what `p_excited` supplies. A
 
 ```python
 library = {
-    "pi": qp.waveforms.IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1),
+    "pi": qp.waveforms.IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1),
     "readout": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)),
     "weights": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
 }

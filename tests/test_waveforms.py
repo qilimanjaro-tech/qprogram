@@ -463,13 +463,9 @@ def test_envelope_matches_reference_samples(case):
     wf = getattr(qp.waveforms, case["waveform"])(**case["params"])
     channels = {"I": wf.get_I(), "Q": wf.get_Q()} if isinstance(wf, IQWaveform) else {"envelope": wf}
     for key, channel in channels.items():
-        samples = channel.envelope(resolution=case["resolution"])
-        if case["waveform"] == "FlatTop":
-            # Not bit for bit: the FlatTop references used scipy's erf and FlatTop uses Python's, which can
-            # differ in the last place.
-            np.testing.assert_allclose(samples, case[key], rtol=0, atol=1e-12)
-        else:
-            np.testing.assert_array_equal(samples, case[key])
+        # Not bit for bit: the references were computed on one platform, numpy's exp can differ in the last
+        # place on another, and the FlatTop references used scipy's erf where FlatTop uses Python's.
+        np.testing.assert_allclose(channel.envelope(resolution=case["resolution"]), case[key], rtol=0, atol=1e-12)
 
 
 # ---------------------------------------------------------------------------

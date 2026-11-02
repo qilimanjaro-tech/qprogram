@@ -45,7 +45,7 @@ The delays run to 40 microseconds in 41 points, which is a range set by the devi
 ## What it produces
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "t1"
@@ -117,8 +117,8 @@ Both programs are resolved against the same calibration set and run the same way
 
 ```python
 library = {
-    "pi_pulse": qp.waveforms.IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1),
-    "pi_half": qp.waveforms.IQDrag(amplitude=0.25, duration=40, sigma=8, beta=0.1),
+    "pi_pulse": qp.waveforms.IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1),
+    "pi_half": qp.waveforms.IQDrag(amplitude=0.25, duration=40, num_sigmas=5, drag_coefficient=0.1),
     "readout": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)),
     "weights": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
 }

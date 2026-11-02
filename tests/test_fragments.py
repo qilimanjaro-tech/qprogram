@@ -110,12 +110,12 @@ def test_fragment_structural_equality():
 def test_decorator_builds_equivalent_fragment():
     @fragment
     def x_pulse(f, drive, amp):
-        f.play(drive, Gaussian(amplitude=amp, duration=40, sigma=8))
+        f.play(drive, Gaussian(amplitude=amp, duration=40, num_sigmas=5))
 
     explicit = Fragment("x_pulse")
     drive = explicit.parameter("drive")
     amp = explicit.parameter("amp")
-    explicit.play(drive, Gaussian(amplitude=amp, duration=40, sigma=8))
+    explicit.play(drive, Gaussian(amplitude=amp, duration=40, num_sigmas=5))
 
     assert isinstance(x_pulse, Fragment)
     assert x_pulse == explicit
@@ -341,7 +341,7 @@ def test_expand_value_substitution_raw_and_expression():
 def test_expand_host_variable_sweeps_through_fragment():
     frag = Fragment("f")
     amp = frag.parameter("amp")
-    frag.play("drive", Gaussian(amplitude=amp, duration=40, sigma=8))
+    frag.play("drive", Gaussian(amplitude=amp, duration=40, num_sigmas=5))
 
     p = QProgram()
     g = p.variable("g")
@@ -359,9 +359,9 @@ def test_expand_waveform_binding():
     wf = frag.parameter("wf")
     frag.play("drive", wf)
     p = QProgram()
-    p.call(frag, Gaussian(amplitude=0.5, duration=40, sigma=8))
+    p.call(frag, Gaussian(amplitude=0.5, duration=40, num_sigmas=5))
     play = next(n for n in p.expand().body.walk() if isinstance(n, Play))
-    assert play.waveform == Gaussian(amplitude=0.5, duration=40, sigma=8)
+    assert play.waveform == Gaussian(amplitude=0.5, duration=40, num_sigmas=5)
 
 
 def test_expand_bus_binding_in_sync_targets():
@@ -466,7 +466,7 @@ def test_expand_kind_mismatch_waveform_in_expression():
     x = frag.parameter("x")
     frag.set_frequency("bus", x * 2)
     p = QProgram()
-    p.call(frag, Gaussian(amplitude=0.5, duration=40, sigma=8))
+    p.call(frag, Gaussian(amplitude=0.5, duration=40, num_sigmas=5))
     with pytest.raises(ValidationError, match="used in an expression"):
         p.expand()
 
@@ -476,7 +476,7 @@ def test_expand_kind_mismatch_waveform_in_bus_position():
     bus = frag.parameter("bus")
     frag.wait(bus, 4)
     p = QProgram()
-    p.call(frag, Gaussian(amplitude=0.5, duration=40, sigma=8))
+    p.call(frag, Gaussian(amplitude=0.5, duration=40, num_sigmas=5))
     with pytest.raises(ValidationError, match="must be a bus"):
         p.expand()
 

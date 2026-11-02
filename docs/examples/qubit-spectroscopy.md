@@ -42,7 +42,7 @@ The `average` block sits outside the sweep, so the whole window is scanned 1000 
 ## What it produces
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "qubit_spectroscopy"

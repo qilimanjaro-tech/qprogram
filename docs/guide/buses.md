@@ -156,10 +156,10 @@ ftt = qp.BusSchema.flux_tunable_transmon()
 q = ftt.q
 prog = qp.QProgram(label="checks", schema=ftt)
 
-prog.play(q[0].drive, qp.waveforms.IQDrag(0.5, 40, 8, 0.1))  # OK
+prog.play(q[0].drive, qp.waveforms.IQDrag(0.5, 40, 5, 0.1))  # OK
 prog.play(q[0].drive, qp.waveforms.Square(0.5, 100))  # ValidationError
 prog.play(q[0].flux, qp.waveforms.FlatTop(0.5, 200, 20))  # OK
-prog.play(q[0].flux, qp.waveforms.IQDrag(0.5, 40, 8, 0.1))  # ValidationError
+prog.play(q[0].flux, qp.waveforms.IQDrag(0.5, 40, 5, 0.1))  # ValidationError
 prog.measure(q[0].drive, "readout", "weights")  # ValidationError, no ADC
 prog.measure(q[0].readout, "readout", "weights")  # OK
 q[0].flux_x  # AttributeError, a flux-tunable transmon has one flux bus

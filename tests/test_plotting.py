@@ -1066,7 +1066,7 @@ def test_a_figure_can_mix_marks():
 
 _READOUT = qp.waveforms.IQPair(qp.waveforms.Square(1.0, 200), qp.waveforms.Square(0.0, 200))
 _WEIGHTS = qp.waveforms.IQPair(qp.waveforms.Square(1.0, 200), qp.waveforms.Square(1.0, 200))
-_LIBRARY = {"pi": qp.waveforms.IQDrag(0.5, 40, 8, 0.1), "readout": _READOUT, "weights": _WEIGHTS}
+_LIBRARY = {"pi": qp.waveforms.IQDrag(0.5, 40, 5, 0.1), "readout": _READOUT, "weights": _WEIGHTS}
 
 
 def _rabi_response(bus: str, env: dict) -> complex:  # ruff: ignore[unused-function-argument]

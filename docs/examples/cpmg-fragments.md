@@ -53,7 +53,7 @@ The three bindings are of three different kinds. `drive` and `readout` are bound
 ## What it produces
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "cpmg"
@@ -127,8 +127,8 @@ A handle from `flat.measurement_handles()` and the string `"m0"` select the same
 
 ```python
 library = {
-    "pi_half": qp.waveforms.IQDrag(amplitude=0.25, duration=40, sigma=8, beta=0.1),
-    "pi": qp.waveforms.IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1),
+    "pi_half": qp.waveforms.IQDrag(amplitude=0.25, duration=40, num_sigmas=5, drag_coefficient=0.1),
+    "pi": qp.waveforms.IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1),
     "readout": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)),
     "weights": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
 }

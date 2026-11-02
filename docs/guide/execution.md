@@ -30,7 +30,7 @@ model = qp.MockMeasurementModel(
 p = qp.QProgram(label="rabi")
 g = p.variable("g")
 with p.average(1000), p.sweep(g, qp.Range(0.0, 1.0, 0.01)):
-    p.play("drive_q0", qp.waveforms.Gaussian(amplitude=g, duration=40, sigma=8))
+    p.play("drive_q0", qp.waveforms.Gaussian(amplitude=g, duration=40, num_sigmas=5))
     p.sync()
     p.measure(
         "readout_q0",

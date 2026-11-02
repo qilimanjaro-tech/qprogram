@@ -477,9 +477,9 @@ class Predicate(Protocol):
 
     - Flagging a [`Wait`][qprogram.operations.Wait] whose ``duration`` is bound by an arbitrary-valued sweep —
       qblox can't run it at all, so the predicate emits a [`Diagnostic`][qprogram.Diagnostic].
-    - Flagging an [`IQDrag`][qprogram.waveforms.IQDrag] whose ``sigma`` is loop-bound — qblox can't realtime-update
-      ``sigma``, but the platform can still dispatch one shot per iteration host-side, so the
-      predicate emits a [`DomainConstraint`][qprogram.DomainConstraint] excluding ``"rt"``.
+    - Flagging an [`IQDrag`][qprogram.waveforms.IQDrag] whose ``num_sigmas`` is loop-bound — qblox can't
+      realtime-update ``num_sigmas``, but the platform can still dispatch one shot per iteration host-side, so
+      the predicate emits a [`DomainConstraint`][qprogram.DomainConstraint] excluding ``"rt"``.
     """
 
     def __call__(

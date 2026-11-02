@@ -35,7 +35,7 @@ print(qp.dumps(program))
 
 The averaging block is outside the sweep, so the whole amplitude ramp runs 1000 times over rather than 1000 shots being taken at one amplitude before the next. Swapping the two `with` statements gives the other order and the same result shape, because an `average` block never contributes a result dimension; it decides only the order shots are taken in, which is what averages out drift between the first and the last point of the ramp.
 
-`set_gain` scales the output of the drive bus, which is how the one `"pi_pulse"` envelope gets reused at all 101 amplitudes. Putting the variable inside the pulse instead is the other option, and the [CZ chevron](cz-chevron.md) does that with its flux pulse: `qp.waveforms.IQDrag(amplitude=gain, duration=40, sigma=8, beta=0.1)` sweeps the envelope rather than the output stage. Which one a platform can compile is a capability question, not a language one.
+`set_gain` scales the output of the drive bus, which is how the one `"pi_pulse"` envelope gets reused at all 101 amplitudes. Putting the variable inside the pulse instead is the other option, and the [CZ chevron](cz-chevron.md) does that with its flux pulse: `qp.waveforms.IQDrag(amplitude=gain, duration=40, num_sigmas=5, drag_coefficient=0.1)` sweeps the envelope rather than the output stage. Which one a platform can compile is a capability question, not a language one.
 
 `program.sync()` with no arguments aligns every bus the program has touched, so readout does not start before the drive pulse has finished. Pass a list to narrow it to those buses. Passing an empty list raises `ValidationError`, since `sync([])` reads as either "sync nothing" or "sync everything".
 
@@ -46,7 +46,7 @@ The averaging block is outside the sweep, so the whole amplitude ramp runs 1000 
 `qp.dumps(program)` returns this, and it is the whole file:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "rabi"
@@ -77,7 +77,7 @@ The `schema:` block records the element and its bus kinds, not the qubits the pr
 ```python
 resolved = program.with_waveforms(
     {
-        "pi_pulse": qp.waveforms.IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1),
+        "pi_pulse": qp.waveforms.IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1),
         "readout": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(0.0, 2000)),
         "weights": qp.waveforms.IQPair(qp.waveforms.Square(1.0, 2000), qp.waveforms.Square(1.0, 2000)),
     }

@@ -225,7 +225,7 @@ Every `Operation` and `Block` declares the tokens *it* needs through `required_c
 qp.operations.Play("drive_q0", qp.waveforms.Square(0.5, 100)).required_capabilities()
 # {'op.play', 'waveform.single', 'waveform.square'}
 
-qp.operations.Play("drive_q0", qp.waveforms.IQDrag(0.5, 40, 8, 0.1)).required_capabilities()
+qp.operations.Play("drive_q0", qp.waveforms.IQDrag(0.5, 40, 5, 0.1)).required_capabilities()
 # {'op.play', 'waveform.iq', 'waveform.iq_drag'}
 
 qp.operations.Play("drive_q0", "pi_pulse").required_capabilities()
@@ -246,22 +246,22 @@ The DSL makes no syntactic distinction between real-time and host-side (software
 
 ### `DomainConstraint`: predicates that narrow the domain instead of erroring
 
-The canonical example: a sequencer can hold a real-time loop sweeping `IQDrag.amplitude` (a register write per iteration) but cannot recompute `IQDrag.sigma` between iterations, because the Gaussian envelope is precomputed at upload. Sweeping `sigma` in a real-time loop has to fall back to per-iteration host-side dispatch, and per-iteration dispatch *does* work.
+The canonical example: a sequencer can hold a real-time loop sweeping `IQDrag.amplitude` (a register write per iteration) but cannot recompute `IQDrag.num_sigmas` between iterations, because the Gaussian envelope is precomputed at upload. Sweeping `num_sigmas` in a real-time loop has to fall back to per-iteration host-side dispatch, and per-iteration dispatch *does* work.
 
 Profiles express that with a `qp.DomainConstraint`, which carries three fields: the `node` it applies to, the `exclude` frozenset of domains that node cannot run in, and a `reason` string that surfaces in the eventual `forced-host` message.
 
 ```python
-def drag_sigma_is_host_only(node, ctx):
+def drag_num_sigmas_is_host_only(node, ctx):
     if not isinstance(node, qp.operations.Play):
         return
     if not isinstance(node.waveform, qp.waveforms.IQDrag):
         return
-    sigma = node.waveform.sigma
-    if isinstance(sigma, qp.Variable) and ctx.sweep_kind_of(sigma) is not None:
+    num_sigmas = node.waveform.num_sigmas
+    if isinstance(num_sigmas, qp.Variable) and ctx.sweep_kind_of(num_sigmas) is not None:
         yield qp.DomainConstraint(
-            node=ctx.binding_loop_of(sigma),
+            node=ctx.binding_loop_of(num_sigmas),
             exclude=frozenset({"rt"}),
-            reason="IQDrag.sigma sweep is not real-time",
+            reason="IQDrag.num_sigmas sweep is not real-time",
         )
 ```
 
@@ -521,7 +521,7 @@ bus_slot = qp.CompilerCapabilities(
     version=(0, 1, 0),
     capabilities=frozenset({"op.play", "op.wait", "waveform.iq", "waveform.iq_drag"}),
     limits={"min_wait_duration_ns": 4},
-    predicates=(reject_arbitrary_wait, drag_sigma_is_host_only),
+    predicates=(reject_arbitrary_wait, drag_num_sigmas_is_host_only),
     vendor_versions={},
 )
 platform_slot = qp.CompilerCapabilities.from_profile("qprogram-base-v1")
@@ -533,11 +533,11 @@ caps = qp.PlatformCapabilities(
 
 program = qp.QProgram(label="two_sweeps")
 d = program.variable("d")
-sigma = program.variable("sigma")
+num_sigmas = program.variable("num_sigmas")
 with program.sweep(d, qp.Values([100, 200, 400])):  # arbitrary sweep
     program.wait("drive_q0", d)  # the hard predicate rejects this
-with program.sweep(sigma, qp.Range(1.0, 10.0, 1.0)):  # linear sweep
-    program.play("drive_q0", qp.waveforms.IQDrag(0.5, 40, sigma, 0.1))
+with program.sweep(num_sigmas, qp.Range(1.0, 10.0, 1.0)):  # linear sweep
+    program.play("drive_q0", qp.waveforms.IQDrag(0.5, 40, num_sigmas, 0.1))
 
 print(qp.explain(program, caps))
 ```
@@ -545,10 +545,10 @@ print(qp.explain(program, caps))
 ```
 plan for 'two_sweeps' — errors: 1 · warnings: 1 · info: 0
 body
-├─ for d in [100.0, 200.0, 400.0]:                                               [--]
-│  └─ wait "drive_q0" d                                                          [--]       !! myplat.arbitrary-wait-sweep: Wait.duration cannot be swept with arbitrary values
-└─ for sigma in Range(start=1.0, stop=10.0, step=1.0):                           [host]     ~ forced-host: IQDrag.sigma sweep is not real-time
-   └─ play "drive_q0" IQDrag(amplitude=0.5, duration=40, sigma=sigma, beta=0.1)  [rt|host]
+├─ for d in [100.0, 200.0, 400.0]:                                                                     [--]
+│  └─ wait "drive_q0" d                                                                                [--]       !! myplat.arbitrary-wait-sweep: Wait.duration cannot be swept with arbitrary values
+└─ for num_sigmas in Range(start=1.0, stop=10.0, step=1.0):                                            [host]     ~ forced-host: IQDrag.num_sigmas sweep is not real-time
+   └─ play "drive_q0" IQDrag(amplitude=0.5, duration=40, num_sigmas=num_sigmas, drag_coefficient=0.1)  [rt|host]
 ```
 
 The first sweep is unrunnable: the predicate's `Diagnostic` empties the wait's domain set, and an op-child that can run nowhere empties its parent's too, silently, because the child's own diagnostic already explains it. The second sweep runs, host-side, and the `play` inside it stays real-time-capable. Only the loop's iteration mechanism moved.

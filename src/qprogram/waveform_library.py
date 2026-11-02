@@ -195,7 +195,7 @@ class WaveformLibrary:
         Each entry is one line — ``"<name>" [<coord>] = <waveform>`` — where ``<coord>`` is
         ``element[idx].kind`` (exact tier), ``element[*].kind`` (family tier), or absent (global tier),
         and ``<waveform>`` reuses the same constructor syntax as ``.qp`` (e.g.
-        ``IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)``). Entries are emitted in insertion
+        ``IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1)``). Entries are emitted in insertion
         order, so ``loads(dumps(lib))`` reproduces the library exactly.
 
         Returns:

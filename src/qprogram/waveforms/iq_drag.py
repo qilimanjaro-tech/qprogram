@@ -25,55 +25,57 @@ class IQDrag(IQWaveform):
     """DRAG (Derivative Removal by Adiabatic Gate) pulse.
 
     The I channel carries a [`Gaussian`][qprogram.waveforms.Gaussian]; the Q channel carries the derivative correction
-    ([`GaussianDragCorrection`][qprogram.waveforms.GaussianDragCorrection]) scaled by ``beta``. Suppresses leakage to
-    the |2⟩ state during single-qubit rotations on weakly-anharmonic transmons.
+    ([`GaussianDragCorrection`][qprogram.waveforms.GaussianDragCorrection]) scaled by ``drag_coefficient``. Suppresses
+    leakage to the |2⟩ state during single-qubit rotations on weakly-anharmonic transmons.
 
     The two channels are built on demand from the four stored parameters, so they cannot drift out of step
     with each other or with `get_duration`.
 
     Args:
-        amplitude (float | Expression): Peak amplitude of the I-channel Gaussian. Accepts an
+        amplitude (float | Expression): Peak amplitude of the I-channel Gaussian, which a negative value
+            does not reach (see [`Gaussian`][qprogram.waveforms.Gaussian]). Accepts an
             [`Expression`][qprogram.Expression].
         duration (int | Expression): Pulse duration in nanoseconds. Accepts an
             [`Expression`][qprogram.Expression].
-        sigma (float | Expression): Standard deviation of the I-channel Gaussian in nanoseconds.
-        beta (float | Expression): DRAG scaling (``β`` in the Motzoi et al. parameterization). Typically a
-            small (< 0.5) value tuned per qubit.
+        num_sigmas (float | Expression): Number of standard deviations the I-channel Gaussian spans.
+            Accepts an [`Expression`][qprogram.Expression].
+        drag_coefficient (float | Expression): Weight on the Q-channel derivative correction, tuned per
+            qubit. Accepts an [`Expression`][qprogram.Expression].
     """
 
     def __init__(
         self,
         amplitude: float | Expression,
         duration: int | Expression,
-        sigma: float | Expression,
-        beta: float | Expression,
+        num_sigmas: float | Expression,
+        drag_coefficient: float | Expression,
     ) -> None:
         self.amplitude = amplitude
         self.duration = duration
-        self.sigma = sigma
-        self.beta = beta
+        self.num_sigmas = num_sigmas
+        self.drag_coefficient = drag_coefficient
 
     def get_I(self) -> Waveform:
         """Return the in-phase component as a single-channel [`Waveform`][qprogram.waveforms.Waveform].
 
         Returns:
             A fresh [`Gaussian`][qprogram.waveforms.Gaussian] carrying this pulse's amplitude, duration, and
-            sigma.
+            num_sigmas.
         """
-        return Gaussian(amplitude=self.amplitude, duration=self.duration, sigma=self.sigma)
+        return Gaussian(amplitude=self.amplitude, duration=self.duration, num_sigmas=self.num_sigmas)
 
     def get_Q(self) -> Waveform:
         """Return the quadrature component as a single-channel [`Waveform`][qprogram.waveforms.Waveform].
 
         Returns:
             A fresh [`GaussianDragCorrection`][qprogram.waveforms.GaussianDragCorrection] carrying this pulse's parameters
-            together with ``beta``.
+            together with ``drag_coefficient``.
         """
         return GaussianDragCorrection(
             amplitude=self.amplitude,
             duration=self.duration,
-            sigma=self.sigma,
-            beta=self.beta,
+            num_sigmas=self.num_sigmas,
+            drag_coefficient=self.drag_coefficient,
         )
 
     def get_duration(self) -> int:

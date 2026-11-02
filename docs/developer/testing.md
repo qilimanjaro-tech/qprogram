@@ -1,6 +1,6 @@
 # Testing
 
-`tests/` holds 1582 tests in 34 files. They cover 95.5% of the 5214 statements and 1584 branches under `src/qprogram`, run in about four seconds without coverage and six with it, and need no hardware, no network, and no files on disk beyond what they write to `tmp_path`. The suite is also the specification for the parts of the library that have no other one: the serialization round-trip, the capability protocol, and the reference executor.
+`tests/` holds 1582 tests in 34 files. They cover 95.5% of the 5214 statements and 1584 branches under `src/qprogram`, run in about four seconds without coverage and six with it, and need no hardware, no network, and no files on disk beyond what they write to `tmp_path` and the reference waveform samples committed under `tests/data/`. The suite is also the specification for the parts of the library that have no other one: the serialization round-trip, the capability protocol, and the reference executor.
 
 ## Running tests
 
@@ -58,7 +58,7 @@ Shared fixtures live in `tests/conftest.py`.
 | `empty_program` | `QProgram(label="empty")`, no schema and an empty body. |
 | `schema_program` | `QProgram(label="schema_program", schema=transmon_schema)`. |
 | `freq_var`, `gain_var` | `Variable("freq")` and `Variable("gain")`, attached to no program. |
-| `square_pulse`, `gaussian_pulse`, `iq_pulse`, `iq_pair_pulse` | `Square(0.5, 100)`, `Gaussian(0.5, 40, 8)`, `IQDrag(0.5, 40, 8, 0.1)`, and an `IQPair` of two squares. |
+| `square_pulse`, `gaussian_pulse`, `iq_pulse`, `iq_pair_pulse` | `Square(0.5, 100)`, `Gaussian(0.5, 40, 5)`, `IQDrag(0.5, 40, 5, 0.1)`, and an `IQPair` of two squares. |
 | `rabi_program` | A Rabi-shaped program: `average(1000)` around `sweep(gain, Range(0.0, 1.0, 0.01))`, with `set_gain`, `play`, `sync`, and `measure` inside. |
 | `array_values` | `np.array([0.0, 0.1, 0.3, 0.5, 0.7, 1.0])`, for a `Values` sweep. |
 | `dummy_vendor` | Activates the in-tree vendor extension for one test, then tears it down. |

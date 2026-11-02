@@ -41,18 +41,18 @@ A migration registered under a version that has not shipped yet is skipped, sinc
 
 ### Adding a migration
 
-Say 0.3 renames the `Rectangular` waveform to `Square`. Waveform constructors are keyed by class name in the registry, so one rename changes how a pulse is spelled in a program body and in a library entry at once, and both of these are files somebody already has on disk:
+Say 0.4 renames the `Rectangular` waveform to `Square`. Waveform constructors are keyed by class name in the registry, so one rename changes how a pulse is spelled in a program body and in a library entry at once, and both of these are files somebody already has on disk:
 
 <!-- check: skip -->
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 body:
   play "drive_q0" Rectangular(amplitude=0.5, duration=200)
 ```
 
 ```
-#!WaveformLibrary 0.2
+#!WaveformLibrary 0.3
 "pi_pulse" q[0].drive = Rectangular(amplitude=0.5, duration=200)
 ```
 
@@ -63,10 +63,10 @@ The rewrite goes at the bottom of `src/qprogram/serialization/migrations.py`, be
 _RECTANGULAR = re.compile(r"\bRectangular\(")
 
 
-@register_migration("0.3")
-@register_migration("0.3", file_format="wfl")
+@register_migration("0.4")
+@register_migration("0.4", file_format="wfl")
 def _rectangular_became_square(lines: list[str]) -> list[str]:
-    """Rewrite the constructor 0.3 renamed, in a program body and in a library entry alike."""
+    """Rewrite the constructor 0.4 renamed, in a program body and in a library entry alike."""
     return [_RECTANGULAR.sub("Square(", line) for line in lines]
 ```
 
@@ -86,11 +86,11 @@ Whether it runs on the file that needs it is the other half, and belongs whereve
 ```python
 # tests/test_serialization.py
 def test_a_file_written_before_the_waveform_rename_still_loads():
-    text = '#!QProgram 0.2\n\nbody:\n  play "drive_q0" Rectangular(amplitude=0.5, duration=200)\n'
+    text = '#!QProgram 0.3\n\nbody:\n  play "drive_q0" Rectangular(amplitude=0.5, duration=200)\n'
     assert isinstance(qp.loads(text).body.elements[0].waveform, qp.waveforms.Square)
 ```
 
-The version there is written out rather than taken from `tests/_header.py`, since the point of the test is that one particular older version still loads. It starts passing when 0.3 is cut: until then the file it writes carries the running version rather than an earlier one, so nothing runs and the assertion fails. That is the one claim about a migration its own release has to make true, which is why the unit test above it is what guards the rewrite in review.
+The version there is written out rather than taken from `tests/_header.py`, since the point of the test is that one particular older version still loads. It starts passing when 0.4 is cut: until then the file it writes carries the running version rather than an earlier one, so nothing runs and the assertion fails. That is the one claim about a migration its own release has to make true, which is why the unit test above it is what guards the rewrite in review.
 
 ### Vendor migrations
 
@@ -194,7 +194,7 @@ Indentation is a function of depth alone. `_write_body` starts the block walk at
 Put together, a program with metadata, a schema, a fragment, an `average`, and a sweep writes as:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 metadata:
   label: "ordering demo"
@@ -205,7 +205,7 @@ schema:
     readout info=IQ+acquires
 
 fragment pi_pulse(bus):
-  play bus Gaussian(amplitude=0.5, duration=40, sigma=8)
+  play bus Gaussian(amplitude=0.5, duration=40, num_sigmas=5)
 
 body:
   var gain units="V"
@@ -280,7 +280,7 @@ Array-valued arguments are emitted as bracket literals, in full, never truncated
 For a sweep whose values are large or live outside the program, use the file source instead. The path, not the data, is what the `.qp` file carries:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 body:
   var amp

@@ -202,7 +202,7 @@ def reject_arbitrary_wait(node, ctx):
         )
 
 
-def drag_sigma_is_host_only(node, ctx):
+def drag_num_sigmas_is_host_only(node, ctx):
     """Soft restriction: real-time cannot, host-side dispatch still can.
 
     The constraint targets the binding loop, which is a Block, not the Play: the loop
@@ -211,14 +211,14 @@ def drag_sigma_is_host_only(node, ctx):
     bad-domain-constraint.
     """
     if isinstance(node, qp.operations.Play) and isinstance(node.waveform, qp.waveforms.IQDrag):
-        sigma = node.waveform.sigma
-        if isinstance(sigma, qp.Variable):
-            binding_loop = ctx.binding_loop_of(sigma)
+        num_sigmas = node.waveform.num_sigmas
+        if isinstance(num_sigmas, qp.Variable):
+            binding_loop = ctx.binding_loop_of(num_sigmas)
             if binding_loop is not None:
                 yield qp.DomainConstraint(
                     node=binding_loop,
                     exclude=frozenset({"rt"}),
-                    reason="IQDrag.sigma sweep is not real-time",
+                    reason="IQDrag.num_sigmas sweep is not real-time",
                 )
 ```
 

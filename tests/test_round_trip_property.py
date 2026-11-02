@@ -80,7 +80,7 @@ def single_waveforms(draw: st.DrawFn) -> object:
         return Gaussian(
             amplitude=draw(finite_floats),
             duration=draw(st.integers(min_value=1, max_value=4000)),
-            sigma=draw(st.floats(min_value=0.1, max_value=100, allow_nan=False)),
+            num_sigmas=draw(st.floats(min_value=0.1, max_value=100, allow_nan=False)),
         )
     n = draw(st.integers(min_value=1, max_value=120))  # Deliberately beyond any truncation cutoff.
     return Arbitrary(np.asarray(draw(st.lists(finite_floats, min_size=n, max_size=n))))
@@ -94,8 +94,8 @@ def iq_waveforms(draw: st.DrawFn) -> object:
     return IQDrag(
         amplitude=draw(finite_floats),
         duration=draw(st.integers(min_value=1, max_value=2000)),
-        sigma=draw(st.floats(min_value=0.1, max_value=100, allow_nan=False)),
-        beta=draw(finite_floats),
+        num_sigmas=draw(st.floats(min_value=0.1, max_value=100, allow_nan=False)),
+        drag_coefficient=draw(finite_floats),
     )
 
 
@@ -258,7 +258,7 @@ def fragment_programs(draw: st.DrawFn) -> QProgram:
     if draw(st.booleans()):
         frag.set_gain(bus_p, val_p + draw(numbers))  # Expression position.
     if draw(st.booleans()):
-        frag.play(bus_p, Gaussian(amplitude=val_p, duration=40, sigma=8))  # Waveform attribute.
+        frag.play(bus_p, Gaussian(amplitude=val_p, duration=40, num_sigmas=5))  # Waveform attribute.
     if draw(st.booleans()):
         n = frag.variable("n")
         k = draw(st.integers(min_value=1, max_value=30))

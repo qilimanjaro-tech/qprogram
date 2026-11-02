@@ -22,17 +22,29 @@ from qprogram.waveforms.waveform import Waveform
 
 
 class Gaussian(Waveform):
-    """Gaussian-shaped pulse, peaked at the midpoint of the duration window.
+    """Gaussian pulse spanning ``num_sigmas`` standard deviations, shifted to start at zero.
 
-    The envelope is not truncation-corrected: the tails are clipped wherever the window ends, so the
-    first and last samples sit at whatever amplitude the Gaussian reaches there rather than at zero.
+    The curve is centred on ``duration / 2`` with standard deviation ``duration / num_sigmas``, so
+    ``num_sigmas`` sets the width relative to the pulse rather than in nanoseconds. It is then shifted
+    down by its first sample, so the pulse starts at exactly 0, and rescaled so its largest sample
+    returns to what it was before the shift: ``amplitude`` when a sample falls on the centre, which at
+    resolution 1 means an even duration, and a little under it when the centre falls between two samples.
+
+    Two consequences of that shape are kept on purpose. The centre is ``duration / 2`` rather than the
+    middle sample, so the pulse is not symmetric: the first sample is 0 and the last is not. And for an
+    ``amplitude`` of 0 or below, the shifted curve's largest sample is its first, which is 0, so the
+    rescale is skipped: a negative pulse peaks at ``amplitude * (1 - exp(-num_sigmas**2 / 8))`` rather
+    than at ``amplitude``, about 0.86 of it for ``num_sigmas=4``.
 
     Args:
-        amplitude (float | Expression): Peak amplitude. Accepts an [`Expression`][qprogram.Expression].
+        amplitude (float | Expression): Height of the peak, reached exactly only for a positive value with
+            a sample on the centre (see above). Accepts an [`Expression`][qprogram.Expression].
         duration (int | Expression): Pulse duration in nanoseconds. Accepts an
             [`Expression`][qprogram.Expression].
-        sigma (float | Expression): Standard deviation in nanoseconds. The truncation ratio
-            ``duration / sigma`` controls how steeply the tails are clipped at the window edges. Accepts an
+        num_sigmas (float | Expression): Number of standard deviations the pulse spans, so the
+            standard deviation is ``duration / num_sigmas``. Larger values give a narrower pulse. Has to
+            be non-zero: ``0`` raises `ZeroDivisionError`, and a numpy zero, which is what a sweep binds,
+            gives a divide-by-zero `RuntimeWarning` and an all-zero pulse. Accepts an
             [`Expression`][qprogram.Expression].
     """
 
@@ -40,37 +52,41 @@ class Gaussian(Waveform):
         self,
         amplitude: float | Expression,
         duration: int | Expression,
-        sigma: float | Expression,
+        num_sigmas: float | Expression,
     ) -> None:
         self.amplitude = amplitude
         self.duration = duration
-        self.sigma = sigma
+        self.num_sigmas = num_sigmas
 
     def envelope(self, resolution: int = 1) -> np.ndarray:
         """Return the Gaussian envelope sampled at ``resolution``-ns steps.
 
-        The peak sits at the center of the sample window, so an even sample count straddles it between
-        the two middle samples and the largest sample falls a little below ``amplitude``. ``sigma`` is
-        converted to samples, which keeps the shape the same at any resolution.
+        Sample ``k`` is taken at ``k * resolution`` ns, and the centre and width are in nanoseconds, so
+        the shape is the same at any resolution.
 
         Args:
             resolution (int, optional): Sample period in nanoseconds. ``1`` returns one sample per nanosecond.
 
         Returns:
-            A 1-D float array of ``duration / resolution`` samples.
+            A 1-D float array of ``duration / resolution`` samples, rounded up.
 
         Raises:
-            UnassignedVariableError: If ``amplitude``, ``duration``, or ``sigma`` is a symbolic expression
-                whose variables are unassigned.
+            UnassignedVariableError: If ``amplitude``, ``duration``, or ``num_sigmas`` is a symbolic
+                expression whose variables are unassigned.
+            ZeroDivisionError: If ``num_sigmas`` is a Python ``0`` or ``0.0``.
         """
         amplitude = self.amplitude.evaluate_or_raise() if isinstance(self.amplitude, Expression) else self.amplitude
         duration = self.duration.evaluate_or_raise() if isinstance(self.duration, Expression) else self.duration
-        sigma = self.sigma.evaluate_or_raise() if isinstance(self.sigma, Expression) else self.sigma
-        n_samples = int(duration / resolution)
-        sigma_samples = sigma / resolution
-        center = (n_samples - 1) / 2
-        t = np.arange(n_samples)
-        return amplitude * np.exp(-0.5 * ((t - center) / sigma_samples) ** 2)
+        num_sigmas = self.num_sigmas.evaluate_or_raise() if isinstance(self.num_sigmas, Expression) else self.num_sigmas
+        sigma = duration / num_sigmas
+        mu = duration / 2
+        x = np.arange(duration / resolution) * resolution
+        gaussian = amplitude * np.exp(-0.5 * (x - mu) ** 2 / sigma**2)
+        norm = np.amax(gaussian)
+        # Shifted to start at 0, so the pulse does not open on a step.
+        gaussian -= gaussian[0]
+        corr_norm = np.amax(gaussian)
+        return gaussian * norm / corr_norm if corr_norm != 0 else gaussian
 
     def get_duration(self) -> int:
         """Return the pulse duration in nanoseconds.

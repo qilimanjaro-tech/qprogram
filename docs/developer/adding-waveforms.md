@@ -51,7 +51,7 @@ class HalfSine(Waveform):
         return self.duration
 ```
 
-`envelope(resolution)` returns `duration / resolution` samples, with `resolution` in nanoseconds and `1` meaning one sample per nanosecond. Shape parameters that carry a time (a `sigma`, a rise time) are converted to samples inside `envelope`, so the shape stays the same at every resolution; `Gaussian` divides `sigma` by `resolution` for exactly that reason. The array dtype follows the parameters, so an integer amplitude produces an integer array, which `Square` documents on `envelope`. `Arbitrary` is the one built-in that ignores `resolution`: its samples are the envelope already, one per nanosecond.
+`envelope(resolution)` returns `duration / resolution` samples, with `resolution` in nanoseconds and `1` meaning one sample per nanosecond. Shape parameters that carry a time (a width, a rise time) stay in nanoseconds while the samples are spaced `resolution` apart, so the shape stays the same at every resolution; `Gaussian` samples at `t = k * resolution` ns for exactly that reason. `SuddenNetZero` is the built-in exception: its `t_phi` and its two `b` samples are counted in samples, so its shape changes with `resolution`. The array dtype follows the parameters, so an integer amplitude produces an integer array, which `Square` documents on `envelope`. `Arbitrary` is the one built-in that ignores `resolution`: its samples are the envelope already, one per nanosecond.
 
 `Waveform` implements the rest of its surface in terms of those two, so a subclass inherits all of it and writes none of it. `peak_amplitude()` is `max(|envelope|)`, `rms_amplitude()` the root mean square of the samples, `area()` the trapezoidal integral in nanosecond-amplitude units (`np.trapezoid(env, dx=resolution)`), and `spectrum()` a one-sided `np.fft.rfft` paired with frequencies in Hz. `plot()` describes the envelope as a `qp.plotting.Figure` and hands it to a renderer, and the Jupyter `_repr_html_` draws it once per surface; both reach matplotlib by default, which ships in the `viz` extra and is imported the first time something draws with it, so the package stays importable without it.
 
@@ -224,7 +224,7 @@ A vendor extension puts both calls in the module its entry point loads, so insta
 ## How the writer emits a waveform
 
 ```
-Gaussian(amplitude=0.5, duration=40, sigma=8)
+Gaussian(amplitude=0.5, duration=40, num_sigmas=5)
 ```
 
 `_Writer.serialize_waveform` takes the class name verbatim, since it is the registry key, then walks `vars(wf)` in assignment order, skips any name starting with `_`, and emits every remaining attribute as `key=value`, recursing through `serialize_value` for expression nodes and nested waveforms. Sample arrays are written in full: truncating an `Arbitrary` would leave the parser with no way to recover the dropped samples.
@@ -241,7 +241,7 @@ Prefix computed attributes with `_` to keep them out of the file. Operations beh
 ## How the parser reads a waveform
 
 ```
-play "drive_q0" Gaussian(amplitude=0.5, duration=40, sigma=8)
+play "drive_q0" Gaussian(amplitude=0.5, duration=40, num_sigmas=5)
 ```
 
 Reading that line, the parser hands the constructor call to `_parse_waveform_expr`. The class name is split off and looked up in the waveform registry, falling back to the sweep-source registry, which shares the `Name(args)` shape and the same key-by-class-name design. The argument list is then split on top-level commas, respecting quotes and every bracket kind, and each argument is decoded to a number, a quoted string, a `Variable` reference (when the identifier is declared), an `Expression` subtree, or a nested waveform. Finally the class is called: `cls(**kwargs)` when any argument was named, `cls(*args)` otherwise.
@@ -258,7 +258,9 @@ raises `TypeError: Gaussian.__init__() got an unexpected keyword argument 'bogus
 
 ## Testing a new waveform
 
-`tests/test_waveforms.py` is organized by shape, with a comment banner per class. The shapes that are worth pinning are the ones the existing tests pin: the sample count and the values at the interesting points (`test_square_envelope`, `test_gaussian_peak_at_center`), the duration (`test_square_get_duration`), the behavior at a resolution other than 1 (`test_square_resolution_changes_envelope_length`), a symbolic parameter with a value bound (`test_square_with_expression_amplitude`), and the same parameter left unbound (`test_square_with_unassigned_expression_raises`).
+`tests/test_waveforms.py` is organized by shape, with a comment banner per class. The shapes that are worth pinning are the ones the existing tests pin: the sample count and the values at the interesting points (`test_square_envelope`, `test_gaussian_starts_at_zero_and_peaks_at_amplitude_on_duration_over_two`), the duration (`test_square_get_duration`), the behavior at a resolution other than 1 (`test_square_resolution_changes_envelope_length`), a symbolic parameter with a value bound (`test_square_with_expression_amplitude`), and the same parameter left unbound (`test_square_with_unassigned_expression_raises`).
+
+Five shapes are pinned harder than that. `Gaussian`, `GaussianDragCorrection`, `IQDrag`, `FlatTop` and `SuddenNetZero` are the shapes existing calibrations were tuned on, so the "Reference samples" section at the end of the file checks every sample of each against `tests/data/waveform_samples.json`, through `test_envelope_matches_reference_samples`. A change to any of their formulas fails there on purpose. The comparison allows `1e-12` rather than demanding the same bits: the reference samples were computed on one platform, numpy's `exp` can differ in the last place on another, and the FlatTop references used scipy's `erf` where the class uses Python's.
 
 ```python
 def test_half_sine_envelope():

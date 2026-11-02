@@ -12,7 +12,7 @@ import qprogram as qp
 
 @qp.fragment
 def x_pulse(f, drive, amp):
-    f.play(drive, qp.waveforms.Gaussian(amplitude=amp, duration=40, sigma=8))
+    f.play(drive, qp.waveforms.Gaussian(amplitude=amp, duration=40, num_sigmas=5))
 ```
 
 The decorated name *is* the fragment: after decoration `x_pulse` is a `Fragment` instance, not a function. The body runs once, at decoration time, to record the AST, so a Python `if` or `for` inside it is evaluated at definition and its outcome is baked into the recorded tree. Varying the body per call site takes a parameter, not Python control flow.
@@ -33,7 +33,7 @@ The explicit API records the same fragment and suits construction from data, a f
 xp = qp.Fragment("x_pulse")
 drive = xp.parameter("drive")
 amp = xp.parameter("amp")
-xp.play(drive, qp.waveforms.Gaussian(amplitude=amp, duration=40, sigma=8))
+xp.play(drive, qp.waveforms.Gaussian(amplitude=amp, duration=40, num_sigmas=5))
 ```
 
 The two fragments above compare equal, because `Fragment.__eq__` compares name, parameter ids, local variables, and body, and nothing else. The name is used verbatim as the `.qp` definition and call name, so it has to match `[A-Za-z_][A-Za-z0-9_]*` and must not be in `qp.RESERVED_KEYWORDS`:
@@ -147,10 +147,10 @@ Registration walks the callee's body each time, because a fragment can gain nest
 Fragment definitions are top-level sections before `body:`, and a call site is a bare `name(args)` statement. `qp.dumps(p)` on the program above gives:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 fragment x_pulse(drive, amp):
-  play drive Gaussian(amplitude=amp, duration=40, sigma=8)
+  play drive Gaussian(amplitude=amp, duration=40, num_sigmas=5)
 
 fragment echo(drive, t):
   wait drive t
@@ -209,7 +209,7 @@ The grammar for both forms, with the argument token shapes a call statement acce
 `expand()` returns a new program with every call inlined; the original is untouched. On the program above:
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 body:
   var g
@@ -219,7 +219,7 @@ body:
   average 1000:
     for g in Range(start=0.0, stop=1.0, step=0.5):
       block:
-        play "drive_q0" Gaussian(amplitude=g, duration=40, sigma=8)
+        play "drive_q0" Gaussian(amplitude=g, duration=40, num_sigmas=5)
       block:
         wait "drive_q0" 40
         play "drive_q0" "pi"

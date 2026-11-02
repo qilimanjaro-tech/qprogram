@@ -35,7 +35,7 @@ from qprogram.waveforms import FlatTop, Gaussian, IQPair, Square
 def _build_composed_program() -> QProgram:
     @fragment
     def x_pulse(f, drive, amp):
-        f.play(drive, Gaussian(amplitude=amp, duration=40, sigma=8))
+        f.play(drive, Gaussian(amplitude=amp, duration=40, num_sigmas=5))
 
     @fragment
     def echo(f, drive, t):
@@ -198,11 +198,11 @@ def test_expression_and_waveform_arguments_parse():
         "body:\n"
         "  var g\n"
         "  for g in Range(start=0, stop=1, step=0.1):\n"
-        "    f1(Gaussian(amplitude=0.5, duration=40, sigma=8), (g + 1))\n"
+        "    f1(Gaussian(amplitude=0.5, duration=40, num_sigmas=5), (g + 1))\n"
     )
     p = qp.loads(text)
     call = next(n for n in p.body.walk() if isinstance(n, Call))
-    assert call.arguments["wf"] == Gaussian(amplitude=0.5, duration=40, sigma=8)
+    assert call.arguments["wf"] == Gaussian(amplitude=0.5, duration=40, num_sigmas=5)
     expanded = p.expand()
     assert qp.dumps(expanded)  # expansion of parsed program serializes cleanly
 
@@ -248,7 +248,7 @@ def test_unknown_fragment_call_raises():
 
 
 def test_waveform_constructor_as_statement_raises():
-    text = HEADER + "\n\nbody:\n  Gaussian(amplitude=0.5, duration=40, sigma=8)\n"
+    text = HEADER + "\n\nbody:\n  Gaussian(amplitude=0.5, duration=40, num_sigmas=5)\n"
     with pytest.raises(ParseError, match="cannot stand alone as a statement"):
         qp.loads(text)
 
@@ -339,7 +339,7 @@ def test_hand_written_file_matches_python_built_program():
         HEADER + "\n"
         "\n"
         "fragment x_pulse(drive, amp):\n"
-        "  play drive Gaussian(amplitude=amp, duration=40, sigma=8)\n"
+        "  play drive Gaussian(amplitude=amp, duration=40, num_sigmas=5)\n"
         "\n"
         "body:\n"
         "  var g\n"
@@ -350,7 +350,7 @@ def test_hand_written_file_matches_python_built_program():
 
     @fragment
     def x_pulse(f, drive, amp):
-        f.play(drive, Gaussian(amplitude=amp, duration=40, sigma=8))
+        f.play(drive, Gaussian(amplitude=amp, duration=40, num_sigmas=5))
 
     p = QProgram()
     g = p.variable("g")

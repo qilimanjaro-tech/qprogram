@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from test_validation import _drag_sigma_excludes_rt, _empty_caps, _full_caps
+from test_validation import _drag_num_sigmas_excludes_rt, _empty_caps, _full_caps
 
 import qprogram as qp
 from qprogram import Fragment, QProgram, explain
@@ -42,11 +42,11 @@ def test_domain_column_per_node():
 
 
 def test_forced_host_reason_inline():
-    caps = _full_caps(bus_predicates=(_drag_sigma_excludes_rt,))
+    caps = _full_caps(bus_predicates=(_drag_num_sigmas_excludes_rt,))
     p = QProgram()
-    sigma = p.variable("sigma")
-    with p.average(100), p.sweep(sigma, Range(1, 10, 1)):
-        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, sigma=sigma, beta=0.1))
+    num_sigmas = p.variable("num_sigmas")
+    with p.average(100), p.sweep(num_sigmas, Range(1, 10, 1)):
+        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, num_sigmas=num_sigmas, drag_coefficient=0.1))
     out = explain(p, caps)
     # The warning lands on the highest forced block (Average). It is forced by *containing* the
     # host-side-only Sweep, so its reason is structural — naming the sub-block — and carries the
@@ -54,7 +54,7 @@ def test_forced_host_reason_inline():
     average_line = next(line for line in out.splitlines() if line.lstrip("└─├│ ").startswith("average 100:"))
     assert "[host]" in average_line
     assert "~ forced-host: contains host-side-only sub-block 'Sweep'" in average_line
-    assert "IQDrag.sigma sweep is not real-time" in average_line
+    assert "IQDrag.num_sigmas sweep is not real-time" in average_line
     assert "warnings: 1" in out.splitlines()[0]
 
 
@@ -175,11 +175,11 @@ def test_platform_explain_default_delegates():
 
 
 def test_validate_stamps_resolvable_paths():
-    caps = _full_caps(bus_predicates=(_drag_sigma_excludes_rt,))
+    caps = _full_caps(bus_predicates=(_drag_num_sigmas_excludes_rt,))
     p = QProgram()
-    sigma = p.variable("sigma")
-    with p.average(100), p.sweep(sigma, Range(1, 10, 1)):
-        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, sigma=sigma, beta=0.1))
+    num_sigmas = p.variable("num_sigmas")
+    with p.average(100), p.sweep(num_sigmas, Range(1, 10, 1)):
+        p.play("drive_q0", IQDrag(amplitude=0.5, duration=40, num_sigmas=num_sigmas, drag_coefficient=0.1))
     diagnostics, _ = qp.validate(p, caps)
     for diag in diagnostics:
         if diag.node is not None:

@@ -167,11 +167,11 @@ import qprogram as qp
 
 program = qp.QProgram()
 phi = program.variable("phi")
-pulse = qp.waveforms.Gaussian(amplitude=qp.sin(phi), duration=40, sigma=8)
+pulse = qp.waveforms.Gaussian(amplitude=qp.sin(phi), duration=40, num_sigmas=5)
 program.play("drive_q0", pulse)
 
 text = qp.dumps(program)
-# play "drive_q0" Gaussian(amplitude=sin(phi), duration=40, sigma=8)
+# play "drive_q0" Gaussian(amplitude=sin(phi), duration=40, num_sigmas=5)
 
 qp.loads(text)
 # ParseError: Unknown waveform or sweep source type: sin
@@ -203,11 +203,11 @@ An id declared in a `.qp` file is checked twice, and the two failures come back 
 ```python
 import qprogram as qp
 
-qp.loads("#!QProgram 0.2\n\nbody:\n  var 1x\n")
+qp.loads("#!QProgram 0.3\n\nbody:\n  var 1x\n")
 # ParseError: Line 4: variable id '1x' is invalid: must match
 # [A-Za-z_][A-Za-z0-9_]* (no spaces or special characters)
 
-qp.loads("#!QProgram 0.2\n\nbody:\n  var if\n")
+qp.loads("#!QProgram 0.3\n\nbody:\n  var if\n")
 # InvalidVariableIdError: Variable id 'if' is reserved for future QProgram
 # syntax ...
 ```
@@ -217,9 +217,9 @@ Inline constructors are where an argument-list mistake leaves the hierarchy enti
 ```python
 import qprogram as qp
 
-qp.loads('#!QProgram 0.2\n\nbody:\n  play "b" Gaussian(amplitude=0.5)\n')
+qp.loads('#!QProgram 0.3\n\nbody:\n  play "b" Gaussian(amplitude=0.5)\n')
 # TypeError: Gaussian.__init__() missing 2 required positional arguments:
-# 'duration' and 'sigma'
+# 'duration' and 'num_sigmas'
 ```
 
 A sweep source nested inside a combinator's argument list escapes the same way, because it reaches the class through the same argument parser. Only the outermost sweep-source constructor has its `TypeError` wrapped, so `for x in Range(start=0):` is a `ParseError` carrying the line number while `for x in Concat(sources=[Range(start=0)]):` is a bare `TypeError` naming the missing `stop` argument.
@@ -231,17 +231,17 @@ Most messages name the 1-based line number and carry it separately as `ParseErro
 ```python
 import qprogram as qp
 
-qp.loads('#!QProgram 0.2\n\nbody:\n  play "b" Bogus(amplitude=0.5)\n')
+qp.loads('#!QProgram 0.3\n\nbody:\n  play "b" Bogus(amplitude=0.5)\n')
 # ParseError: Unknown waveform or sweep source type: Bogus
 # ... with line_num == 0, even though the offending line is line 4
 
-qp.loads("#!QProgram 0.2\n\nbody:\n  var x\n  for x in Bogus(start=1):\n    sync\n")
+qp.loads("#!QProgram 0.3\n\nbody:\n  var x\n  for x in Bogus(start=1):\n    sync\n")
 # ParseError: Line 5: unknown sweep source 'Bogus'; registered sources are
 # ['Concat', 'File', 'Linspace', 'Logspace', 'Range', 'Repeat', 'Rotate',
 # 'Values']
 # ... with line_num == 5
 
-qp.loads('#!QProgram 0.2\n\nbody:\n  var x\n  set_phase "b" ("a" + x)\n')
+qp.loads('#!QProgram 0.3\n\nbody:\n  var x\n  set_phase "b" ("a" + x)\n')
 # ParseError: cannot use 'a' (_QuotedStr) as an expression operand
 # ... with line_num == 0
 ```

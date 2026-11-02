@@ -1,13 +1,13 @@
 # Waveforms
 
-A waveform describes a pulse envelope. It is pure data; nothing about it involves hardware. The same `Gaussian(0.5, 40, 8)` shape can be a flux pulse on one platform and a charge-line pulse on another, depending on the bus it ends up on.
+A waveform describes a pulse envelope. It is pure data; nothing about it involves hardware. The same `Gaussian(0.5, 40, 5)` shape can be a flux pulse on one platform and a charge-line pulse on another, depending on the bus it ends up on.
 
 Waveforms are the one vocabulary in the package with no top-level re-export, so they are always reached through the submodule:
 
 ```python
 import qprogram as qp
 
-pulse = qp.waveforms.Gaussian(amplitude=0.5, duration=40, sigma=8)
+pulse = qp.waveforms.Gaussian(amplitude=0.5, duration=40, num_sigmas=5)
 ```
 
 The one thing a bus cares about is the channel count: a single-channel bus takes a `Waveform`, an IQ bus takes an `IQWaveform`. `play()` and `measure()` check this, but only when the bus is a schema-bound `BusRef`, since a raw string bus carries no channel metadata to check against. Playing a `Gaussian` on the IQ `drive` bus of a transmon schema raises:
@@ -69,7 +69,7 @@ The style defaults to a plain `Style()`, the same as a result's, so a pulse and 
 ```python
 import qprogram as qp
 
-pi_pulse = qp.waveforms.Gaussian(amplitude=0.5, duration=40, sigma=8)
+pi_pulse = qp.waveforms.Gaussian(amplitude=0.5, duration=40, num_sigmas=5)
 pi_pulse.plot(style=qp.plotting.Style(theme=qp.plotting.DARK))
 ```
 
@@ -80,7 +80,7 @@ The one thing a `Style` does not carry by default is a figure size, which is wha
 ```python
 import matplotlib.pyplot as plt
 
-drag = qp.waveforms.IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
+drag = qp.waveforms.IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1)
 
 fig, (top, bottom) = plt.subplots(2, 1, sharex=True)
 drag.plot(target=(top, bottom))
@@ -99,13 +99,13 @@ Every duration and width below is in nanoseconds, every frequency is in hertz, a
 | Constructor                                                       | Samples it renders                                                        |
 |-------------------------------------------------------------------|---------------------------------------------------------------------------|
 | `Square(amplitude, duration)`                                     | every sample at `amplitude`                                               |
-| `Gaussian(amplitude, duration, sigma)`                            | a Gaussian peaked at the center of the window                             |
-| `GaussianDragCorrection(amplitude, duration, sigma, beta)`        | the Gaussian's derivative, scaled by `beta`                               |
+| `Gaussian(amplitude, duration, num_sigmas)`                       | a Gaussian centred at `duration / 2`, shifted to start at zero            |
+| `GaussianDragCorrection(amplitude, duration, num_sigmas, drag_coefficient)` | the Gaussian's DRAG correction, scaled by `drag_coefficient`    |
 | `Sech(amplitude, duration, tau)`                                  | `amplitude / cosh((t - center) / tau)`                                    |
 | `Tukey(amplitude, duration, alpha=0.5)`                           | a rectangle with cosine-tapered edges                                     |
-| `FlatTop(amplitude, duration, smooth_duration, buffer=0)`         | a rectangle with erf-shaped edges, optionally zero-padded                 |
+| `FlatTop(amplitude, duration, smooth_duration, buffer=0)`         | a rectangle with erf-shaped edges, optionally held in from the ends       |
 | `Ramp(from_amplitude, to_amplitude, duration)`                    | a linear interpolation between the two amplitudes                         |
-| `SuddenNetZero(amplitude, duration, b, t_phi)`                    | a positive segment, a zero hold, then a negative segment                  |
+| `SuddenNetZero(amplitude, duration, b, t_phi)`                    | a positive half, a `±b` sample either side of a zero hold, a negative half |
 | `Sine(amplitude, duration, frequency, phase=0.0)`                 | `amplitude * sin(2π * frequency * t + phase)`                             |
 | `Cosine(amplitude, duration, frequency, phase=0.0)`               | `amplitude * cos(2π * frequency * t + phase)`                             |
 | `Arbitrary(samples)`                                              | the samples you gave it                                                   |
@@ -116,7 +116,7 @@ import numpy as np
 import qprogram as qp
 
 readout = qp.waveforms.Square(amplitude=0.5, duration=2000)
-pi_pulse = qp.waveforms.Gaussian(amplitude=0.5, duration=40, sigma=8)
+pi_pulse = qp.waveforms.Gaussian(amplitude=0.5, duration=40, num_sigmas=5)
 flux_step = qp.waveforms.FlatTop(amplitude=0.5, duration=200, smooth_duration=20)
 cz_pulse = qp.waveforms.SuddenNetZero(amplitude=0.5, duration=100, b=0.4, t_phi=20)
 measured = qp.waveforms.Arbitrary(samples=np.linspace(0.0, 1.0, 64))
@@ -124,42 +124,45 @@ measured = qp.waveforms.Arbitrary(samples=np.linspace(0.0, 1.0, 64))
 
 `Square` renders with `numpy.full`, so its dtype follows its amplitude and an integer amplitude yields an integer array. `Tukey` does the same in its two untapered cases, and `Arbitrary` keeps whatever dtype its input had. Every other shape computes in floating point.
 
-`Gaussian` is not truncation-corrected. The peak sits at the center of the sample window, so an even sample count straddles it and the largest sample falls slightly below `amplitude`: `Gaussian(0.5, 40, 8).envelope().max()` is `0.4990`, not `0.5`. The tails are clipped wherever the window ends rather than forced to zero, so the same shape starts and ends at `0.0513 * amplitude`. Widening the window to `duration=60` at the same `sigma` adds tail without changing the pulse. `GaussianDragCorrection` inherits all three parameters and differs only in the envelope: it is antisymmetric about the center, where it crosses zero. Its derivative is taken with respect to sample index rather than time, so its amplitude scales with `resolution` while the Gaussian's does not.
+`Gaussian` is centred on `duration / 2` with standard deviation `duration / num_sigmas`, so `num_sigmas` sets the width relative to the pulse. The curve is then shifted down by its first sample, so the pulse starts at exactly 0, and rescaled so its largest sample returns to what it was before the shift: `Gaussian(0.5, 40, 5).envelope().max()` is exactly `0.5`, because a sample falls on the centre. With an odd duration at resolution 1 the centre falls between two samples and the peak is a little under `amplitude`. Two consequences of the shape are kept on purpose. The centre is `duration / 2` rather than the middle sample, so the pulse is not symmetric: it starts at 0 but ends at `0.0164 * amplitude` for `duration=40, num_sigmas=5`. And a negative `amplitude` skips the rescale, so it peaks at `amplitude * (1 - exp(-num_sigmas**2 / 8))`, about `0.96 * amplitude` for `num_sigmas=5`.
+
+`GaussianDragCorrection` takes the Gaussian's three parameters plus `drag_coefficient`, and multiplies the Gaussian by `-drag_coefficient * (t - duration / 2) / sigma**2`, with `t` and `sigma` in nanoseconds. It crosses zero at `duration / 2`, and since it is computed in nanoseconds rather than samples it is the same at any `resolution`. Because the Gaussian it multiplies is the shifted one, it is not exactly the derivative of the I channel: it starts at 0 where the derivative does not, and its peak is about a fifth lower at `num_sigmas=4` (7% at 5).
 
 `Tukey` splits `alpha` between the two edges: the flat top is `(1 - alpha) * duration` wide and each cosine ramp is `(alpha / 2) * duration`. `alpha=0` is a rectangle and `alpha=1` is a Hann window that reaches zero at both endpoints; the default is `0.5`. It matches the `alpha` of `scipy.signal.windows.tukey`, and needs no `erf` evaluation, which is the reason to prefer it to `FlatTop` when either edge shape will do.
 
-`FlatTop` builds each edge from an error function of width `smooth_duration / 3`, and multiplies the rising and falling edges together rather than splicing them, which keeps the envelope smooth when the two overlap. The rise crosses half amplitude `smooth_duration` ns into the pulse and is flat to within a part in 10⁵ by twice that, so a `duration` that is not comfortably longer than `2 * smooth_duration` never reaches full amplitude. `buffer` adds zero padding on each side, on top of `duration` rather than inside it: `FlatTop(0.5, 200, 20, buffer=10).get_duration()` is `220`.
+`FlatTop` is the sum of a rising and a falling error function, each of width `smooth_duration / 4`. The rise is at 0.2% of `amplitude` at `buffer`, crosses half amplitude at `buffer + smooth_duration / 2`, and reaches 99.8% at `buffer + smooth_duration`, and the fall mirrors it at the other end, so a `duration` shorter than `2 * (buffer + smooth_duration)` never reaches full amplitude. `buffer` sits inside `duration` and moves both edges inwards: `FlatTop(0.5, 200, 20, buffer=10).get_duration()` is `200`. Two consequences of the formula are kept on purpose. Nothing checks that the edges fit: once `duration - 2 * buffer` is shorter than `smooth_duration`, the whole pulse has the opposite sign to `amplitude`, and when the two are equal it is zero. And with `buffer=0` the pulse does not quite start and end at 0: `FlatTop(0.5, 200, 20)` opens and closes at `0.0036 * amplitude`, and a shorter edge leaves a bigger step.
 
 `Ramp` samples with `numpy.linspace`, so both endpoints are hit exactly once the window holds at least two samples, and the step between samples is `(to_amplitude - from_amplitude) / (n - 1)` rather than anything derived from `resolution` alone. A one-sample window yields `from_amplitude` alone, a window holding less than one sample yields an empty array, and a negative duration raises `ValueError: Number of samples, -5, must be non-negative.` from `linspace`.
 
-`SuddenNetZero` plays a positive square segment, a zero hold of width `t_phi`, then a negative segment scaled by `b`. The two segments are meant to cancel the net integrated flux, and the cancellation is exact only when `b` is 1 and the samples left over after the hold divide evenly between the segments. The positive segment takes `(duration - t_phi) // 2` samples and the negative one takes the rest, so an odd remainder gives the negative segment the extra sample: at `duration=101, t_phi=20, b=1` the envelope sums to `-amplitude` instead of zero. In practice `b` is detuned from 1 to null whatever residual the flux line adds, so the `b=0.4` above integrates to a non-zero area.
+`SuddenNetZero` follows Negîrneac et al. ([arXiv:2008.07411](https://arxiv.org/abs/2008.07411)): `+amplitude` for the first half, one sample at `b * amplitude`, `t_phi` samples at zero, one sample at `-b * amplitude`, then `-amplitude` for the second half. Each half takes `(duration - t_phi - 2) / 2` samples, 39 for the `cz_pulse` above, and the halves mirror each other, so the integrated flux is zero for any `b`. Two conventions differ from the paper's: `t_phi` counts only the zeros between the two `b` samples, so the paper's `t_φ` is `t_phi + 2`, and `b` is a fraction of `amplitude` rather than an amplitude of its own. `duration - t_phi` has to be even for the halves to come out equal. An odd one raises `ValueError`, as `duration=101, t_phi=20` does, except at 5, where numpy broadcasting gives the negative half two samples to the positive half's one and the pulse sums to `-amplitude` without an error. `t_phi` has to be an `int`: a float raises, `20.0` included, and since every sweep source binds floats, `t_phi` cannot be swept. Nothing range-checks it either: a negative `t_phi` makes the halves overlap the `b` samples, and the pulse is no longer net zero.
 
-`Sine` and `Cosine` express their sample times in seconds, which is what pairs with a `frequency` in Hz: 200 ns at 50 MHz is ten cycles. Neither tapers to zero at the endpoints, so pair one with a window shape when the discontinuity matters. `Sech` is the analogue of `Gaussian` for adiabatic passage: paired with a quadratic phase ramp it gives analytically solvable population transfer. Its `tau` plays the role `sigma` plays for a Gaussian.
+`Sine` and `Cosine` express their sample times in seconds, which is what pairs with a `frequency` in Hz: 200 ns at 50 MHz is ten cycles. Neither tapers to zero at the endpoints, so pair one with a window shape when the discontinuity matters. `Sech` is the analogue of `Gaussian` for adiabatic passage: paired with a quadratic phase ramp it gives analytically solvable population transfer. Its `tau` is a width in nanoseconds, where a Gaussian's `num_sigmas` is relative to its duration.
 
 `Arbitrary` and `Chained` are the escape hatches. `Arbitrary` takes a sequence or an ndarray through `numpy.asarray`, so the stored dtype follows the input, and an ndarray is adopted rather than copied: do not mutate an array you have handed to it, because waveforms are compared and hashed by value. `envelope()` returns a copy for the same reason, and ignores `resolution` entirely, since the samples are already the envelope at one per nanosecond. `Chained` passes whatever resolution it is asked for down to each child and sums their durations. `a + b` builds a `Chained` too, flattening as it goes, so `a + b + c` is one three-element chain rather than nested pairs; a non-waveform operand yields `NotImplemented`, which surfaces as `TypeError`. An empty chain reports `get_duration() == 0` but its `envelope()` raises `ValueError: need at least one array to concatenate`.
 
 ### What the shape parameters mean
 
-Every width is the real width of the shape, not a ratio against `duration`.
+Every width is in nanoseconds except `num_sigmas` and `Tukey.alpha`, which are relative to `duration`, and `SuddenNetZero.t_phi`, which counts samples.
 
 | Parameter                                                        | Meaning                                                                                                                                |
 |------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
-| `Gaussian.sigma`, `GaussianDragCorrection.sigma`, `IQDrag.sigma` | The Gaussian standard deviation σ, in nanoseconds.                                                                                     |
-| `Sech.tau`                                                       | The sech width τ, in nanoseconds: the `sigma` analogue for `amplitude / cosh((t - center) / tau)`.                                      |
-| `IQDrag.beta`, `GaussianDragCorrection.beta`                     | The DRAG coefficient β from the Motzoi parameterization: the weight on the derivative term. Typically below 0.5 and tuned per qubit.    |
+| `Gaussian.num_sigmas`, `GaussianDragCorrection.num_sigmas`, `IQDrag.num_sigmas` | How many standard deviations the pulse spans: σ is `duration / num_sigmas`, so a larger value gives a narrower pulse. Usually 4 to 5. Has to be non-zero. |
+| `Sech.tau`                                                       | The sech width τ, in nanoseconds, in `amplitude / cosh((t - center) / tau)`.                                                            |
+| `IQDrag.drag_coefficient`, `GaussianDragCorrection.drag_coefficient` | The DRAG weight on the correction term, in nanoseconds (Motzoi et al., [arXiv:0901.0534](https://arxiv.org/abs/0901.0534)). Tuned per qubit. |
 | `Tukey.alpha`                                                    | The taper fraction, in `[0, 1]`: the share of `duration` taken by the rise and fall combined.                                           |
-| `FlatTop.smooth_duration`                                        | The length of each erf-shaped edge, in nanoseconds. The erf width itself is a third of it.                                              |
-| `SuddenNetZero.b`                                                | The ratio of the negative segment's amplitude to the positive one's, normally near 1.                                                   |
-| `SuddenNetZero.t_phi`                                            | The width of the zero hold between the two segments, in nanoseconds.                                                                    |
+| `FlatTop.smooth_duration`                                        | The time each erf-shaped edge takes to go from 0.2% to 99.8% of `amplitude`, in nanoseconds. The erf width itself is a quarter of it.   |
+| `FlatTop.buffer`                                                 | The time before the rise and after the fall, in nanoseconds, inside `duration`.                                                         |
+| `SuddenNetZero.b`                                                | The height of the two single samples either side of the zero hold, as a fraction of `amplitude`.                                        |
+| `SuddenNetZero.t_phi`                                            | The number of zero samples between the two `b` samples, as an `int`.                                                                    |
 
-`duration` is independent of the width: it is the window the shape is rendered into, so it controls truncation and nothing else. That is what makes `sigma` the knob a calibration sweep reaches for, since a Gaussian's rotation angle goes with its area, roughly `amplitude * sigma * sqrt(2π)`.
+For the other shapes `duration` is only the window the shape is rendered into. For the Gaussian shapes it also sets the width, since σ is `duration / num_sigmas`: stretching a pulse at a fixed `num_sigmas` widens it in proportion, and its area, which a rotation angle goes with, grows with `amplitude * duration`. `Gaussian(0.5, 40, 5).area()` is `9.43`.
 
 ## IQ built-ins
 
 | Constructor                                        | What it produces                                                             |
 |----------------------------------------------------|------------------------------------------------------------------------------|
 | `IQPair(I, Q)`                                     | the two waveforms you gave it, unchanged                                     |
-| `IQDrag(amplitude, duration, sigma, beta)`         | a `Gaussian` on I and a `GaussianDragCorrection` on Q                        |
+| `IQDrag(amplitude, duration, num_sigmas, drag_coefficient)` | a `Gaussian` on I and a `GaussianDragCorrection` on Q               |
 | `IQZero(envelope)`                                 | the envelope on I and zeros on Q                                             |
 | `Modulated(envelope, frequency, phase=0.0)`        | the envelope multiplied by a cosine on I and a sine on Q                      |
 | `IQRotation(base, phase)`                          | another IQ shape's channels mixed by a 2x2 rotation                          |
@@ -167,13 +170,13 @@ Every width is the real width of the shape, not a ratio against `duration`.
 ```python
 import qprogram as qp
 
-drive = qp.waveforms.IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
+drive = qp.waveforms.IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1)
 readout = qp.waveforms.IQPair(
     I=qp.waveforms.Square(1.0, 2000),
     Q=qp.waveforms.Square(0.0, 2000),
 )
 weights = qp.waveforms.IQZero(envelope=qp.waveforms.Square(1.0, 2000))
-sideband = qp.waveforms.Modulated(envelope=qp.waveforms.Gaussian(0.5, 40, 8), frequency=50e6)
+sideband = qp.waveforms.Modulated(envelope=qp.waveforms.Gaussian(0.5, 40, 5), frequency=50e6)
 virtual_z = qp.waveforms.IQRotation(base=drive, phase=1.5708)
 ```
 
@@ -193,7 +196,7 @@ The remaining three adapt an existing shape and validate its type in `__init__`,
 
 ## Variables and expressions in parameters
 
-A parameter annotated `float | Expression` or `int | Expression` accepts a `Variable` or an `Expression` in place of a number, and that covers every numeric parameter of every built-in with one exception: `FlatTop.buffer` is annotated plain `int` and takes a number only. This is how a pulse parameter gets swept inside a loop:
+A parameter annotated `float | Expression` or `int | Expression` accepts a `Variable` or an `Expression` in place of a number, and that covers every numeric parameter of every built-in with one exception: `FlatTop.buffer` is annotated plain `int` and takes a number only. `SuddenNetZero.t_phi` accepts an expression but has to evaluate to an `int`, which no sweep source binds, so it cannot be swept either. This is how a pulse parameter gets swept inside a loop:
 
 ```python
 import qprogram as qp
@@ -202,7 +205,7 @@ program = qp.QProgram()
 amp = program.variable("amp")
 
 with program.sweep(amp, qp.Range(0.0, 1.0, 0.01)):
-    program.play("drive_q0", qp.waveforms.Gaussian(amplitude=amp, duration=40, sigma=8))
+    program.play("drive_q0", qp.waveforms.Gaussian(amplitude=amp, duration=40, num_sigmas=5))
 ```
 
 The waveform stores the symbolic parameter and nothing else happens at construction. The platform's compiler then decides whether to update an amplitude register on the fly or re-upload the waveform on each iteration; you write the same thing either way.
@@ -216,7 +219,7 @@ import qprogram as qp
 
 amp = qp.Variable("amp")
 amp.set_value(0.7)
-samples = qp.waveforms.Gaussian(amp, 40, 8).envelope()
+samples = qp.waveforms.Gaussian(amp, 40, 5).envelope()
 amp.reset()
 ```
 
@@ -228,8 +231,8 @@ Waveforms compare the way every other AST node does, through the shared rule [Co
 import numpy as np
 import qprogram as qp
 
-qp.waveforms.Gaussian(0.5, 40, 8) == qp.waveforms.Gaussian(0.5, 40, 8)
-qp.waveforms.Gaussian(qp.Variable("amp"), 40, 8) == qp.waveforms.Gaussian(qp.Variable("amp"), 40, 8)
+qp.waveforms.Gaussian(0.5, 40, 5) == qp.waveforms.Gaussian(0.5, 40, 5)
+qp.waveforms.Gaussian(qp.Variable("amp"), 40, 5) == qp.waveforms.Gaussian(qp.Variable("amp"), 40, 5)
 qp.waveforms.Arbitrary(np.array([1.0, 2.0])) == qp.waveforms.Arbitrary([1.0, 2.0])
 ```
 
@@ -243,7 +246,7 @@ Structural equality is what survives a `.qp` round trip. `QProgram` itself does 
 import qprogram as qp
 
 program = qp.QProgram()
-program.play("drive_q0", qp.waveforms.IQDrag(0.5, 40, 8, 0.1))
+program.play("drive_q0", qp.waveforms.IQDrag(0.5, 40, 5, 0.1))
 
 reloaded = qp.loads(qp.dumps(program))
 assert reloaded.body == program.body
@@ -254,13 +257,13 @@ assert reloaded.body == program.body
 The writer emits a waveform as a constructor call: the class name verbatim, then every attribute in `vars(wf)` that does not start with an underscore, as a keyword argument. Defaults are written out rather than omitted, and sample arrays are written in full, because the parser has no way to recover dropped samples.
 
 ```
-#!QProgram 0.2
+#!QProgram 0.3
 
 body:
-  play "drive_q0" IQDrag(amplitude=0.5, duration=40, sigma=8, beta=0.1)
+  play "drive_q0" IQDrag(amplitude=0.5, duration=40, num_sigmas=5, drag_coefficient=0.1)
   play "flux_q0" Arbitrary(samples=[0.0, 0.5, 1.0])
   play "flux_q1" FlatTop(amplitude=0.5, duration=200, smooth_duration=20, buffer=10)
-  play "flux_q2" Chained(waveforms=[Square(amplitude=1.0, duration=50), Gaussian(amplitude=0.5, duration=40, sigma=8)])
+  play "flux_q2" Chained(waveforms=[Square(amplitude=1.0, duration=50), Gaussian(amplitude=0.5, duration=40, num_sigmas=5)])
 ```
 
 Each shape also carries a capability token, which is what lets a `Profile` advertise the subset of shapes its compiler can lower. The token is `waveform.` followed by the snake_case class name, with `SuddenNetZero` the one abbreviation: it is `waveform.snz`, not `waveform.sudden_net_zero`. On top of the per-class token, a `play` contributes the channel kind (`waveform.single` or `waveform.iq`), and a string alias contributes `waveform.alias` and no per-class token at all.
@@ -298,15 +301,15 @@ Two shapes often both fit a job. The third column is the property that decides b
 | When you need                                       | Reach for                          | Because                                                                                    |
 |-----------------------------------------------------|------------------------------------|--------------------------------------------------------------------------------------------|
 | A flat pulse with hard edges                        | `Square`                           | every sample sits at `amplitude`, and nothing is tapered                                    |
-| A gate whose area you calibrate                     | `Gaussian`                         | area is close to `amplitude * sigma * sqrt(2π)`, so `sigma` and `amplitude` trade off       |
-| Leakage suppression on a weakly anharmonic transmon | `IQDrag`                           | Q carries the Gaussian's derivative, weighted by `beta`                                     |
+| A gate whose area you calibrate                     | `Gaussian`                         | at a fixed `num_sigmas` the area grows with `amplitude * duration`, so the two trade off     |
+| Leakage suppression on a weakly anharmonic transmon | `IQDrag`                           | Q carries the DRAG correction, weighted by `drag_coefficient`                               |
 | A specific I and Q pairing                          | `IQPair(I=..., Q=...)`             | the two channels stay exactly what you passed                                               |
 | A single-channel envelope on an IQ bus              | `IQZero`                           | I is the envelope untouched, Q is silence                                                   |
 | The same, at an intermediate frequency              | `Modulated`                        | one envelope becomes a cos/sin pair at `frequency`                                          |
 | A phase offset on an already calibrated pulse       | `IQRotation`                       | it mixes the existing channels instead of resampling the shape                               |
-| A flat pulse whose edges are set in nanoseconds     | `FlatTop`                          | `smooth_duration` is an absolute edge length, and `buffer` adds dead time around it          |
+| A flat pulse whose edges are set in nanoseconds     | `FlatTop`                          | `smooth_duration` is an absolute edge length, and `buffer` holds the edges in from the ends  |
 | A flat pulse whose edges scale with its length      | `Tukey`                            | `alpha` is a fraction of `duration`, so the taper tracks it as the pulse is swept            |
-| Zero net integrated flux for a two-qubit gate       | `SuddenNetZero`                    | the negative segment cancels the positive one, and `b` absorbs the residual                  |
+| Zero net integrated flux for a two-qubit gate       | `SuddenNetZero`                    | the two halves mirror each other, so the net flux is zero for any `b`                        |
 | An adiabatic-passage envelope                       | `Sech`                             | sech plus a quadratic phase ramp has a closed-form transfer solution                        |
 | A continuous drive tone                             | `Sine` / `Cosine`                  | the oscillation is the envelope, and neither shape tapers at the endpoints                   |
 | A monotonic sweep of a bias point                   | `Ramp`                             | both endpoints are hit exactly                                                              |

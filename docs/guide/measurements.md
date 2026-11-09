@@ -193,7 +193,7 @@ On the wire the reference is the unquoted token `q0/readout/m0.state`, which con
 
 `platform.execute(program)` and `qp.simulate(program)` return a `QProgramResult`: a list of `MeasurementResult` records in construction order, one per measurement operation in the AST. `len(result)` counts them, `result.measurements` is the list itself, and `repr(result)` prints the count and the names, which is usually enough to see why a lookup missed.
 
-A `MeasurementResult` is a dataclass of four fields. `bus` is the bus the measurement ran on, as a plain string. `name` is the handle's name. `fields` is the mapping from field name to `xarray.DataArray`, one entry per requested field. `data` is the primary array: the `iq` field when the measurement requested it, otherwise the first requested field in canonical order.
+A `MeasurementResult` is a dataclass of five fields. `bus` is the bus the measurement ran on, as a plain string. `name` is the handle's name. `fields` is the mapping from field name to `xarray.DataArray`, one entry per requested field. `data` is the primary array: the `iq` field when the measurement requested it, otherwise the first requested field in canonical order. `debug` is an `xarray.Dataset` of whatever the platform measured, when the program ran with `debug=True`, and `None` otherwise; [Debug output](#debug-output) covers it.
 
 `result.get` reads out of `fields`. Its full signature is
 
@@ -225,7 +225,7 @@ result.get(5, bus="q0/readout")
 # IndexError: Measurement index 5 out of range for bus 'q0/readout' (1 measurements)
 ```
 
-A record is only ever added by the platform, through `result.append_measurement(bus, name, data, fields=None)`. Omitting `fields` records `data` as the `iq` field, so a platform that produces one array per measurement gets the common case right by default; a platform whose primary array is something else has to pass the mapping, which keeps `get` from handing back an array under the wrong field name.
+A record is only ever added by the platform, through `result.append_measurement(bus, name, data, fields=None, debug=None)`. Omitting `fields` records `data` as the `iq` field, so a platform that produces one array per measurement gets the common case right by default; a platform whose primary array is something else has to pass the mapping, which keeps `get` from handing back an array under the wrong field name.
 
 ### Picking a field
 
@@ -264,6 +264,26 @@ result.measurements[0].data  # the "iq" field if requested, else the first in ca
 ```
 
 `result.plot` takes the same measurement, `bus`, and `field` arguments and draws the array rather than returning it, working the figure out from the dimensions below. [Plotting results](plotting.md) covers what it makes of each shape.
+
+### Debug output
+
+`platform.execute(program, debug=True)` asks the platform to also keep, for each measurement, whatever it measured before turning it into fields, such as an instrument's acquisition record. The platform passes it to `append_measurement(..., debug=...)` as an `xarray.Dataset`, the record holds it in `debug` exactly as passed, and `result.get_debug` reads it with the same measurement and `bus` arguments as `get`:
+
+```python
+result = platform.execute(program, debug=True)
+result.get_debug(m)  # an xarray.Dataset of whatever the platform measured for m
+result.measurements[0].debug  # the same, read off the record
+```
+
+Which variables the dataset holds depends on the platform, and qprogram never looks inside it. It is there for tracing a result that looks wrong back to what produced it; analysis reads `get`. Without `debug=True` every `debug` is `None`, and `get_debug` raises rather than return it, since a `None` would only fail later on its first subscript:
+
+```python
+result = platform.execute(program)
+result.get_debug(m)
+# KeyError: "Measurement 'q0/readout/m0' has no debug output; execute the program with debug=True, on a platform that keeps it"
+```
+
+The reference platform simulates, so it has nothing to keep: `qp.ReferencePlatform().execute(program, debug=True)` raises a `qp.ExecutionWarning` and leaves every `debug` at `None`. `qp.simulate` does not take `debug` at all.
 
 ## Result dimensions
 

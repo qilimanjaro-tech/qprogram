@@ -227,7 +227,7 @@ Reading a key the store does not hold yields `0.0` rather than raising, and `get
 
 The descriptor also carries one predicate. A `set_parameter` whose value is a bound variable emits a `DomainConstraint` excluding `rt` from the loop that binds the variable, with the reason `parameter '<name>' is swept via set_parameter (host-side dispatch per iteration)`. The constraint targets the loop, not the operation, so the operation stays real-time capable while the loop around it drops to host-side.
 
-`execute` follows the convention the protocol documents. It expands fragment calls, validates, raises `UnsupportedOperationError` listing every `severity="error"` diagnostic, re-emits every `severity="warning"` diagnostic through `warnings.warn` under the `qp.ExecutionWarning` category, drops `severity="info"` diagnostics, and only then interprets. It accepts and ignores any `**kwargs`, so a call written for a real back-end still runs here. `ExecutionWarning` subclasses `UserWarning`, so `warnings.simplefilter("error", qp.ExecutionWarning)` turns a forced-host fallback into a failure in a test suite.
+`execute` follows the convention the protocol documents. It expands fragment calls, validates, raises `UnsupportedOperationError` listing every `severity="error"` diagnostic, re-emits every `severity="warning"` diagnostic through `warnings.warn` under the `qp.ExecutionWarning` category, drops `severity="info"` diagnostics, and only then interprets. It accepts and ignores any `**kwargs`, so a call written for a real back-end still runs here. `debug=True` is accepted but not ignored in silence: a simulation measures nothing to keep, so it raises a `qp.ExecutionWarning` and every `MeasurementResult.debug` stays `None` (see [Debug output](measurements.md#debug-output)). `ExecutionWarning` subclasses `UserWarning`, so `warnings.simplefilter("error", qp.ExecutionWarning)` turns a forced-host fallback into a failure in a test suite.
 
 A swept `set_parameter` is the common way to see the warning path:
 
@@ -297,11 +297,13 @@ The measurement model is consulted per shot and knows nothing about the state th
 | `get_parameters(bus)` | The parameter names `set_parameter` and `get_parameter` accept on that bus. |
 | `get_global_parameters()` | The parameter names not bound to any bus. |
 | `capabilities` | A `PlatformCapabilities` property: per-`(element, bus_kind)` bus profiles, a platform-level profile for blocks, expressions, and bus-less operations, and a default bus profile that raw-string buses fall back to. |
-| `execute(qprogram)` | Run the program and return one record per measurement. |
+| `execute(qprogram, *, debug=False)` | Run the program and return one record per measurement. With `debug=True`, each record also keeps whatever the platform measured for it. |
 
 `validate`, `plan`, and `explain` come with working defaults that delegate to `qp.validate` and `qp.explain` against `self.capabilities`, so a subclass gets them for free and overrides only to prepend device-specific predicates or to short-circuit on the first error. `validate` and `plan` each discard half of what `qp.validate` returns; an `execute` that gates on diagnostics and then compiles against the plan should call `qp.validate` directly rather than paying for two walks. `stream` is optional and raises `NotImplementedError` by default.
 
 The convention `execute` is expected to follow is the one `ReferencePlatform` implements: validate first, raise `UnsupportedOperationError` on any `severity="error"` diagnostic, and surface warnings and info without raising. Nothing enforces it, but a platform that skips the check hands its users a vendor compiler's error text in place of a structured diagnostic that names the offending node.
+
+With `debug=True`, the platform passes whatever it measured for each measurement, such as the instrument's acquisition record, to `append_measurement(..., debug=...)` as an `xarray.Dataset`. A dataset holds several named arrays of different shapes, scope traces next to integration bins for instance, so a record converts into one variable per array. It is stored as passed, not copied.
 
 ```python
 import qprogram as qp
@@ -328,12 +330,13 @@ class MyPlatform(qp.PlatformProtocol):
     def capabilities(self) -> qp.PlatformCapabilities:
         return self._capabilities
 
-    def execute(self, qprogram: qp.QProgram) -> qp.QProgramResult:
+    def execute(self, qprogram: qp.QProgram, *, debug: bool = False) -> qp.QProgramResult:
         diagnostics, plan = qp.validate(qprogram, self.capabilities)
         errors = [d for d in diagnostics if d.severity == "error"]
         if errors:
             raise qp.UnsupportedOperationError("\n".join(str(d) for d in errors))
-        # compile against `plan`, run, and fill a QProgramResult
+        # compile against `plan`, run, and fill a QProgramResult; with `debug`, pass each
+        # measurement's acquisition record as append_measurement(..., debug=record)
         return qp.QProgramResult()
 ```
 

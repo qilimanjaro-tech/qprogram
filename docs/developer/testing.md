@@ -32,8 +32,8 @@ The suite is function-style, with no test classes anywhere, and its file layout 
 | `test_protocol.py`, `test_required_capabilities.py`, `test_validation.py`, `test_paths.py`, `test_explain.py` | 141 | Capability tokens and profiles, the per-node token declarations, the validator and domain classifier, diagnostic paths, and the plan renderer. |
 | `test_reserved.py`, `test_errors.py`, `test_structural.py`, `test_coverage_gaps.py` | 179 | Reserved keywords, the error hierarchy, the `ast_eq` / `ast_hash` helpers, and narrow paths with no other home. |
 | `test_fragments.py`, `test_fragments_serialization.py` | 72 | Fragment definition, argument binding, expansion, and the `.qp` form. |
-| `test_executor.py` | 32 | The reference executor's semantics and result shapes. |
-| `test_result.py` | 32 | `MeasurementHandle`, `MeasurementResult`, and `QProgramResult`. |
+| `test_executor.py` | 46 | The reference executor's semantics and result shapes. |
+| `test_result.py` | 37 | `MeasurementHandle`, `MeasurementResult`, and `QProgramResult`. |
 | `test_vendor.py`, `test_vendor_discovery.py` | 24 | The vendor namespace and entry-point activation, driven by `tests/_dummy_vendor.py`. |
 | `test_waveform_library.py` | 17 | Per-bus waveform resolution and the `.wfl` text format. |
 | `test_lsp.py` | 14 | `check_text()`, the `check` and `explain` CLI modes, and `create_server()`, which builds the server the `serve` mode starts; the stdio loop itself is marked `pragma: no cover`. |

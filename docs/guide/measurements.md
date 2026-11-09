@@ -283,7 +283,7 @@ result.get_debug(m)
 # KeyError: "Measurement 'q0/readout/m0' has no debug output; execute the program with debug=True, on a platform that keeps it"
 ```
 
-The reference platform simulates, so it has nothing to keep: `qp.ReferencePlatform().execute(program, debug=True)` raises a `qp.ExecutionWarning` and leaves every `debug` at `None`. `qp.simulate` does not take `debug` at all.
+The reference platform simulates, so it has nothing to keep: `qp.ReferencePlatform().execute(program, debug=True)` issues a `qp.ExecutionWarning` and leaves every `debug` at `None`. `qp.simulate` does not take `debug` at all.
 
 ## Result dimensions
 

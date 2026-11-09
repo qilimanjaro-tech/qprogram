@@ -89,7 +89,7 @@ if TYPE_CHECKING:
 
 
 class ExecutionWarning(UserWarning):
-    """Category for the warnings [`ReferencePlatform.execute`][qprogram.ReferencePlatform.execute] raises.
+    """Category for the warnings [`ReferencePlatform.execute`][qprogram.ReferencePlatform.execute] issues.
 
     Those are the warning-severity diagnostics, and a ``debug=True`` the simulation has nothing to
     keep for.
@@ -915,7 +915,7 @@ class ReferencePlatform(PlatformProtocol):
         Args:
             qprogram (QProgram): Program to run. Fragment calls are expanded first, on a copy.
             debug (bool): Accepted because the protocol defines it, but a simulation measures
-                nothing to keep, so ``True`` raises an [`ExecutionWarning`][qprogram.ExecutionWarning]
+                nothing to keep, so ``True`` issues an [`ExecutionWarning`][qprogram.ExecutionWarning]
                 and every [`MeasurementResult.debug`][qprogram.MeasurementResult] stays ``None``.
             **kwargs (object): Accepted and ignored, so callers can pass the platform-specific
                 options a real back-end would take.

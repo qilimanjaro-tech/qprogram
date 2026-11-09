@@ -179,17 +179,17 @@ class MeasurementResult:
             field name. Shapes per spec §8: ``iq`` → ``(*sweeps, "IQ")``; ``state`` → ``(*sweeps)``
             (excited-state population under averaging); ``raw`` → ``(*sweeps, "time", "IQ")``.
             This is what [`QProgramResult.get`][qprogram.QProgramResult.get] reads.
-        debug (Any): Whatever the platform measured before turning it into ``fields``, such as an
-            instrument's acquisition record, when the program ran with ``debug=True``; ``None``
-            otherwise. What it holds depends on the platform.
-            [`QProgramResult.get_debug`][qprogram.QProgramResult.get_debug] reads it.
+        debug (xarray.Dataset | None): Whatever the platform measured before turning it into
+            ``fields``, such as an instrument's acquisition record, when the program ran with
+            ``debug=True``; ``None`` otherwise. Which variables the dataset holds depends on the
+            platform. [`QProgramResult.get_debug`][qprogram.QProgramResult.get_debug] reads it.
     """
 
     bus: str
     name: str
     data: xr.DataArray
     fields: dict[str, xr.DataArray] = field(default_factory=dict)
-    debug: Any = None
+    debug: xr.Dataset | None = None
 
 
 class QProgramResult:
@@ -214,7 +214,7 @@ class QProgramResult:
         name: str,
         data: xr.DataArray,
         fields: dict[str, xr.DataArray] | None = None,
-        debug: object = None,
+        debug: xr.Dataset | None = None,
     ) -> None:
         """Append a measurement record.
 
@@ -228,9 +228,9 @@ class QProgramResult:
                 `get` returns by default. A record whose primary array is *not* ``iq`` must
                 pass the mapping explicitly, so that `get` never hands back an array under the
                 wrong field name.
-            debug (object): Whatever the platform measured for this measurement, when the program
-                ran with ``debug=True``. Stored as it is, not copied, and read back by `get_debug`;
-                ``None`` records that there is none.
+            debug (xarray.Dataset | None): Whatever the platform measured for this measurement,
+                when the program ran with ``debug=True``. Stored as it is, not copied, and read
+                back by `get_debug`; ``None`` records that there is none.
         """
         if not fields:
             fields = {MeasurementField.IQ.value: data}
@@ -304,12 +304,12 @@ class QProgramResult:
         self,
         measurement: MeasurementHandle | str | int = 0,
         bus: str | None = None,
-    ) -> Any:  # ruff: ignore[any-type]  # the platform's own type, which core cannot name
+    ) -> xr.Dataset:
         """Retrieve whatever the platform measured for one measurement, when run with ``debug=True``.
 
-        What it holds depends on the platform, an instrument's acquisition record for instance. It
-        is there for tracing a result that looks wrong back to what produced it; analysis reads
-        `get`.
+        Which variables the dataset holds depends on the platform: an instrument's acquisition
+        record, for instance. It is there for tracing a result that looks wrong back to what
+        produced it; analysis reads `get`.
 
         Args:
             measurement (MeasurementHandle | str | int): Which measurement, by handle, by name, or
@@ -317,8 +317,8 @@ class QProgramResult:
             bus (str | None): Bus name filter, applied before that lookup.
 
         Returns:
-            The [`MeasurementResult.debug`][qprogram.MeasurementResult] of that measurement, as
-            the platform stored it.
+            The [`MeasurementResult.debug`][qprogram.MeasurementResult] dataset of that
+            measurement, as the platform stored it.
 
         Raises:
             KeyError: When ``measurement`` is a handle or name with no match in scope, or the

@@ -436,8 +436,9 @@ def test_debug_warns_that_the_simulation_keeps_nothing():
     # The reference platform measures nothing, so a debug=True must not be dropped in silence.
     p = QProgram()
     p.measure("readout_q0", _ro(), "w")
+    platform = ReferencePlatform()
     with pytest.warns(ExecutionWarning, match=r"debug=True has no effect"):
-        result = ReferencePlatform().execute(p, debug=True)
+        result = platform.execute(p, debug=True)
     assert result.measurements[0].debug is None
 
 

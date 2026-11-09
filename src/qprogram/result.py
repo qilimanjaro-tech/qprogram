@@ -180,7 +180,7 @@ class MeasurementResult:
             (excited-state population under averaging); ``raw`` → ``(*sweeps, "time", "IQ")``.
             This is what [`QProgramResult.get`][qprogram.QProgramResult.get] reads.
         debug (xarray.Dataset | None): Whatever the platform measured before turning it into
-            ``fields``, such as an instrument's acquisition record, when the program ran with
+            ``fields``, such as an instrument's acquisition output, when the program ran with
             ``debug=True``; ``None`` otherwise. Which variables the dataset holds depends on the
             platform. [`QProgramResult.get_debug`][qprogram.QProgramResult.get_debug] reads it.
     """
@@ -308,7 +308,7 @@ class QProgramResult:
         """Retrieve whatever the platform measured for one measurement, when run with ``debug=True``.
 
         Which variables the dataset holds depends on the platform: an instrument's acquisition
-        record, for instance. It is there for tracing a result that looks wrong back to what
+        output, for instance. It is there for tracing a result that looks wrong back to what
         produced it; analysis reads `get`.
 
         Args:

@@ -179,12 +179,17 @@ class MeasurementResult:
             field name. Shapes per spec §8: ``iq`` → ``(*sweeps, "IQ")``; ``state`` → ``(*sweeps)``
             (excited-state population under averaging); ``raw`` → ``(*sweeps, "time", "IQ")``.
             This is what [`QProgramResult.get`][qprogram.QProgramResult.get] reads.
+        debug (xarray.Dataset | None): Whatever the platform measured before turning it into
+            ``fields``, such as an instrument's acquisition output, when the program ran with
+            ``debug=True``; ``None`` otherwise. Which variables the dataset holds depends on the
+            platform. [`QProgramResult.get_debug`][qprogram.QProgramResult.get_debug] reads it.
     """
 
     bus: str
     name: str
     data: xr.DataArray
     fields: dict[str, xr.DataArray] = field(default_factory=dict)
+    debug: xr.Dataset | None = None
 
 
 class QProgramResult:
@@ -196,7 +201,8 @@ class QProgramResult:
 
     Results are stored in construction order and addressable by handle, by name string, or by integer
     position via `get`, which returns the `IQ` field unless a
-    different one is named. `plot` takes the same arguments and draws what it finds.
+    different one is named. `plot` takes the same arguments and draws what it finds, and
+    `get_debug` returns whatever the platform measured when the program ran with ``debug=True``.
     """
 
     def __init__(self) -> None:
@@ -208,6 +214,7 @@ class QProgramResult:
         name: str,
         data: xr.DataArray,
         fields: dict[str, xr.DataArray] | None = None,
+        debug: xr.Dataset | None = None,
     ) -> None:
         """Append a measurement record.
 
@@ -221,10 +228,13 @@ class QProgramResult:
                 `get` returns by default. A record whose primary array is *not* ``iq`` must
                 pass the mapping explicitly, so that `get` never hands back an array under the
                 wrong field name.
+            debug (xarray.Dataset | None): Whatever the platform measured for this measurement,
+                when the program ran with ``debug=True``. Stored as it is, not copied, and read
+                back by `get_debug`; ``None`` records that there is none.
         """
         if not fields:
             fields = {MeasurementField.IQ.value: data}
-        self._measurements.append(MeasurementResult(bus=bus, name=name, data=data, fields=dict(fields)))
+        self._measurements.append(MeasurementResult(bus=bus, name=name, data=data, fields=dict(fields), debug=debug))
 
     @property
     def measurements(self) -> list[MeasurementResult]:
@@ -280,19 +290,7 @@ class QProgramResult:
             )
             raise ValidationError(msg)
 
-        candidates = self._measurements if bus is None else [m for m in self._measurements if m.bus == bus]
-
-        if isinstance(measurement, MeasurementHandle):
-            record = self._lookup_by_name(candidates, measurement.name, bus)
-        elif isinstance(measurement, str):
-            record = self._lookup_by_name(candidates, measurement, bus)
-        else:
-            # int — positional sugar.
-            if measurement >= len(candidates):
-                scope = f" for bus '{bus}'" if bus is not None else ""
-                msg = f"Measurement index {measurement} out of range{scope} ({len(candidates)} measurements)"
-                raise IndexError(msg)
-            record = candidates[measurement]
+        record = self._record(measurement, bus)
         # ``str(...)`` normalizes a MeasurementField member to its wire name, so the lookup and the
         # error message read the same whichever spelling the caller used.
         name = str(field)
@@ -301,6 +299,41 @@ class QProgramResult:
             msg = f"Measurement {record.name!r} has no field {name!r}; available: {available}"
             raise KeyError(msg)
         return record.fields[name]
+
+    def get_debug(
+        self,
+        measurement: MeasurementHandle | str | int = 0,
+        bus: str | None = None,
+    ) -> xr.Dataset:
+        """Retrieve whatever the platform measured for one measurement, when run with ``debug=True``.
+
+        Which variables the dataset holds depends on the platform: an instrument's acquisition
+        output, for instance. It is there for tracing a result that looks wrong back to what
+        produced it; analysis reads `get`.
+
+        Args:
+            measurement (MeasurementHandle | str | int): Which measurement, by handle, by name, or
+                by position, exactly as in `get`.
+            bus (str | None): Bus name filter, applied before that lookup.
+
+        Returns:
+            The [`MeasurementResult.debug`][qprogram.MeasurementResult] dataset of that
+            measurement, as the platform stored it.
+
+        Raises:
+            KeyError: When ``measurement`` is a handle or name with no match in scope, or the
+                measurement holds no debug output, because the program ran without
+                ``debug=True`` or on a platform that keeps none.
+            IndexError: When ``measurement`` is an integer position outside the range in scope.
+        """
+        record = self._record(measurement, bus)
+        if record.debug is None:
+            msg = (
+                f"Measurement {record.name!r} has no debug output; execute the program with "
+                "debug=True, on a platform that keeps it"
+            )
+            raise KeyError(msg)
+        return record.debug
 
     def plot(  # ruff: ignore[too-many-arguments]  # every argument is one decision about the figure
         self,
@@ -392,6 +425,32 @@ class QProgramResult:
             title=title,
         )
         return resolve_renderer(renderer)(figure, style or Style(), target)
+
+    def _record(self, measurement: MeasurementHandle | str | int, bus: str | None) -> MeasurementResult:
+        """Return the record `get` and `get_debug` read, found by handle, name, or position.
+
+        Args:
+            measurement (MeasurementHandle | str | int): The handle, name, or position to look up.
+            bus (str | None): Bus name filter, applied before the lookup.
+
+        Returns:
+            The matching record.
+
+        Raises:
+            KeyError: When ``measurement`` is a handle or name with no match in scope.
+            IndexError: When ``measurement`` is an integer position outside the range in scope.
+        """
+        candidates = self._measurements if bus is None else [m for m in self._measurements if m.bus == bus]
+        if isinstance(measurement, MeasurementHandle):
+            return self._lookup_by_name(candidates, measurement.name, bus)
+        if isinstance(measurement, str):
+            return self._lookup_by_name(candidates, measurement, bus)
+        # int — positional sugar.
+        if measurement >= len(candidates):
+            scope = f" for bus '{bus}'" if bus is not None else ""
+            msg = f"Measurement index {measurement} out of range{scope} ({len(candidates)} measurements)"
+            raise IndexError(msg)
+        return candidates[measurement]
 
     @staticmethod
     def _lookup_by_name(

@@ -290,3 +290,64 @@ def test_result_get_field_none_is_rejected():
     field = cast("str", None)
     with pytest.raises(ValidationError, match=r"field=None is not a valid field"):
         r.get("m0", field=field)
+
+
+# ---------------------------------------------------------------------------
+# Debug output — what a platform keeps when asked for ``debug=True``
+# ---------------------------------------------------------------------------
+
+
+def _debug_dataset() -> xr.Dataset:
+    """Several arrays of different shapes side by side, as a platform's debug output may hold."""
+    return xr.Dataset(
+        {
+            "trace": (("time", "IQ"), np.zeros((4, 2))),
+            "points": (("point", "IQ"), [[1.0, 2.0]]),
+            "shots": ("point", [1000]),
+        }
+    )
+
+
+def test_measurement_result_debug_defaults_to_none():
+    mr = MeasurementResult(bus="q0/readout", name="m0", data=_fake_data())
+    assert mr.debug is None
+
+
+def test_append_measurement_keeps_the_debug_output_untouched():
+    # The dataset is the platform's own: the result stores the object it was handed, not a copy.
+    r = QProgramResult()
+    dataset = _debug_dataset()
+    r.append_measurement(bus="q0/readout", name="m0", data=_fake_data(), debug=dataset)
+    assert r.measurements[0].debug is dataset
+    assert r.get_debug("m0") is dataset
+
+
+def test_append_measurement_without_debug_records_none():
+    r = QProgramResult()
+    r.append_measurement(bus="q0/readout", name="m0", data=_fake_data())
+    assert r.measurements[0].debug is None
+
+
+def test_get_debug_looks_measurements_up_like_get():
+    r = QProgramResult()
+    a, b, c = _debug_dataset(), _debug_dataset(), _debug_dataset()
+    r.append_measurement(bus="q0/readout", name="a", data=_fake_data(), debug=a)
+    r.append_measurement(bus="q1/readout", name="b", data=_fake_data(), debug=b)
+    r.append_measurement(bus="q0/readout", name="c", data=_fake_data(), debug=c)
+    assert r.get_debug() is a
+    assert r.get_debug(2) is c
+    assert r.get_debug("b") is b
+    assert r.get_debug(MeasurementHandle("c")) is c
+    assert r.get_debug(1, bus="q0/readout") is c
+    with pytest.raises(KeyError, match="No measurement named 'b' on bus 'q0/readout'"):
+        r.get_debug("b", bus="q0/readout")
+    with pytest.raises(IndexError, match="out of range"):
+        r.get_debug(3)
+
+
+def test_get_debug_without_debug_output_says_how_to_get_it():
+    # Handing back None would surface later as an unrelated TypeError on the first subscript.
+    r = QProgramResult()
+    r.append_measurement(bus="q0/readout", name="m0", data=_fake_data())
+    with pytest.raises(KeyError, match=r"'m0' has no debug output.*debug=True"):
+        r.get_debug("m0")

@@ -158,7 +158,7 @@ class PlatformProtocol(ABC):
         return _explain(qprogram, self.capabilities)
 
     @abstractmethod
-    def execute(self, qprogram: QProgram) -> QProgramResult:
+    def execute(self, qprogram: QProgram, *, debug: bool = False) -> QProgramResult:
         """Execute a program and return its results.
 
         By convention the implementation calls [`validate`][qprogram.validate] first and raises
@@ -166,6 +166,10 @@ class PlatformProtocol(ABC):
 
         Args:
             qprogram (QProgram): Program to run.
+            debug (bool): Whether each measurement also keeps whatever the platform measured
+                before turning it into fields, such as an instrument's acquisition record, in
+                [`MeasurementResult.debug`][qprogram.MeasurementResult]. What that holds depends
+                on the platform; one that keeps nothing leaves it at ``None``.
 
         Returns:
             One record per measurement in the program.

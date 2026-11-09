@@ -290,3 +290,52 @@ def test_result_get_field_none_is_rejected():
     field = cast("str", None)
     with pytest.raises(ValidationError, match=r"field=None is not a valid field"):
         r.get("m0", field=field)
+
+
+# ---------------------------------------------------------------------------
+# Debug output — what a platform keeps when asked for ``debug=True``
+# ---------------------------------------------------------------------------
+
+
+def test_measurement_result_debug_defaults_to_none():
+    mr = MeasurementResult(bus="q0/readout", name="m0", data=_fake_data())
+    assert mr.debug is None
+
+
+def test_append_measurement_keeps_the_debug_output_untouched():
+    # The payload is the platform's own: the result stores the object it was handed, not a copy.
+    r = QProgramResult()
+    payload = {"bins": {"integration": {"path0": [1.0], "path1": [2.0]}, "avg_cnt": [1000]}}
+    r.append_measurement(bus="q0/readout", name="m0", data=_fake_data(), debug=payload)
+    assert r.measurements[0].debug is payload
+    assert r.get_debug("m0") is payload
+
+
+def test_append_measurement_without_debug_records_none():
+    r = QProgramResult()
+    r.append_measurement(bus="q0/readout", name="m0", data=_fake_data())
+    assert r.measurements[0].debug is None
+
+
+def test_get_debug_looks_measurements_up_like_get():
+    r = QProgramResult()
+    r.append_measurement(bus="q0/readout", name="a", data=_fake_data(), debug="a")
+    r.append_measurement(bus="q1/readout", name="b", data=_fake_data(), debug="b")
+    r.append_measurement(bus="q0/readout", name="c", data=_fake_data(), debug="c")
+    assert r.get_debug() == "a"
+    assert r.get_debug(2) == "c"
+    assert r.get_debug("b") == "b"
+    assert r.get_debug(MeasurementHandle("c")) == "c"
+    assert r.get_debug(1, bus="q0/readout") == "c"
+    with pytest.raises(KeyError, match="No measurement named 'b' on bus 'q0/readout'"):
+        r.get_debug("b", bus="q0/readout")
+    with pytest.raises(IndexError, match="out of range"):
+        r.get_debug(3)
+
+
+def test_get_debug_without_debug_output_says_how_to_get_it():
+    # Handing back None would surface later as an unrelated TypeError on the first subscript.
+    r = QProgramResult()
+    r.append_measurement(bus="q0/readout", name="m0", data=_fake_data())
+    with pytest.raises(KeyError, match=r"'m0' has no debug output.*debug=True"):
+        r.get_debug("m0")

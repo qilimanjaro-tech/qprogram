@@ -432,6 +432,15 @@ def test_forced_host_surfaces_as_execution_warning():
     assert result.get("m0").dims == ("v", "IQ")
 
 
+def test_debug_warns_that_the_simulation_keeps_nothing():
+    # The reference platform measures nothing, so a debug=True must not be dropped in silence.
+    p = QProgram()
+    p.measure("readout_q0", _ro(), "w")
+    with pytest.warns(ExecutionWarning, match=r"debug=True has no effect"):
+        result = ReferencePlatform().execute(p, debug=True)
+    assert result.measurements[0].debug is None
+
+
 def test_explain_against_reference_platform():
     p = QProgram(label="ref")
     p.play("drive_q0", "pi")

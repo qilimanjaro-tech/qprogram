@@ -89,7 +89,11 @@ if TYPE_CHECKING:
 
 
 class ExecutionWarning(UserWarning):
-    """Category for warning-severity diagnostics surfaced during [`ReferencePlatform.execute`][qprogram.ReferencePlatform.execute]."""
+    """Category for the warnings [`ReferencePlatform.execute`][qprogram.ReferencePlatform.execute] raises.
+
+    Those are the warning-severity diagnostics, and a ``debug=True`` the simulation has nothing to
+    keep for.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -902,7 +906,7 @@ class ReferencePlatform(PlatformProtocol):
         """
         return reference_capabilities()
 
-    def execute(self, qprogram: QProgram, **kwargs: object) -> QProgramResult:  # ruff: ignore[unused-method-argument]
+    def execute(self, qprogram: QProgram, *, debug: bool = False, **kwargs: object) -> QProgramResult:  # ruff: ignore[unused-method-argument]
         """Validate and run ``qprogram``, returning its [`QProgramResult`][qprogram.QProgramResult].
 
         Warning-severity diagnostics are re-emitted through `warnings` as
@@ -910,6 +914,9 @@ class ReferencePlatform(PlatformProtocol):
 
         Args:
             qprogram (QProgram): Program to run. Fragment calls are expanded first, on a copy.
+            debug (bool): Accepted because the protocol defines it, but a simulation measures
+                nothing to keep, so ``True`` raises an [`ExecutionWarning`][qprogram.ExecutionWarning]
+                and every [`MeasurementResult.debug`][qprogram.MeasurementResult] stays ``None``.
             **kwargs (object): Accepted and ignored, so callers can pass the platform-specific
                 options a real back-end would take.
 
@@ -934,6 +941,13 @@ class ReferencePlatform(PlatformProtocol):
         for diag in diagnostics:
             if diag.severity == "warning":
                 warnings.warn(str(diag), ExecutionWarning, stacklevel=2)
+        if debug:
+            warnings.warn(
+                "debug=True has no effect on the reference platform: it simulates, so there is no "
+                "measured output to keep, and every MeasurementResult.debug stays None",
+                ExecutionWarning,
+                stacklevel=2,
+            )
         return _Interpreter(qprogram, self._model, self.parameters, self._vendor_op_handlers).run()
 
 

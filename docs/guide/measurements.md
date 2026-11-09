@@ -267,7 +267,7 @@ result.measurements[0].data  # the "iq" field if requested, else the first in ca
 
 ### Debug output
 
-`platform.execute(program, debug=True)` asks the platform to also keep, for each measurement, whatever it measured before turning it into fields, such as an instrument's acquisition record. The platform passes it to `append_measurement(..., debug=...)` as an `xarray.Dataset`, the record holds it in `debug` exactly as passed, and `result.get_debug` reads it with the same measurement and `bus` arguments as `get`:
+`platform.execute(program, debug=True)` asks the platform to also keep, for each measurement, whatever it measured before turning it into fields, such as an instrument's acquisition output. The platform passes it to `append_measurement(..., debug=...)` as an `xarray.Dataset`, the `MeasurementResult` holds it in `debug` exactly as passed, and `result.get_debug` reads it with the same measurement and `bus` arguments as `get`:
 
 ```python
 result = platform.execute(program, debug=True)

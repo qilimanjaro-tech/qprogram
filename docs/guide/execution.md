@@ -303,7 +303,7 @@ The measurement model is consulted per shot and knows nothing about the state th
 
 The convention `execute` is expected to follow is the one `ReferencePlatform` implements: validate first, raise `UnsupportedOperationError` on any `severity="error"` diagnostic, and surface warnings and info without raising. Nothing enforces it, but a platform that skips the check hands its users a vendor compiler's error text in place of a structured diagnostic that names the offending node.
 
-With `debug=True`, the platform passes whatever it measured for each measurement, such as the instrument's acquisition record, to `append_measurement(..., debug=...)` as an `xarray.Dataset`. A dataset holds several named arrays of different shapes side by side, so whatever the instrument returned becomes one variable per array, with each dimension named after what it indexes. It is stored as passed, not copied.
+With `debug=True`, the platform passes whatever it measured for each measurement, such as the instrument's acquisition output, to `append_measurement(..., debug=...)` as an `xarray.Dataset`. A dataset holds several named arrays of different shapes side by side, so whatever the instrument returned becomes one variable per array, with each dimension named after what it indexes. It is stored as passed, not copied.
 
 ```python
 import qprogram as qp
@@ -335,8 +335,8 @@ class MyPlatform(qp.PlatformProtocol):
         errors = [d for d in diagnostics if d.severity == "error"]
         if errors:
             raise qp.UnsupportedOperationError("\n".join(str(d) for d in errors))
-        # compile against `plan`, run, and fill a QProgramResult; with `debug`, pass each
-        # measurement's acquisition record as append_measurement(..., debug=record)
+        # compile against `plan`, run, and fill a QProgramResult; with `debug`, convert each
+        # measurement's acquisition output to an xr.Dataset and pass append_measurement(..., debug=dataset)
         return qp.QProgramResult()
 ```
 

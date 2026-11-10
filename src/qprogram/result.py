@@ -204,7 +204,7 @@ class QProgramResult:
     Results are stored in construction order and addressable by handle, by name string, or by integer
     position via `get`, which returns the `IQ` field unless a
     different one is named. `plot` takes the same arguments and draws what it finds, and
-    `get_debug` returns whatever the platform measured when the program ran with ``debug=True``.
+    `get_debug` returns what the platform measured when the program ran with ``debug=True``.
     """
 
     def __init__(self) -> None:
@@ -232,8 +232,10 @@ class QProgramResult:
                 wrong field name.
             debug (dict[str, Any] | xarray.Dataset | None): What the platform measured for this
                 measurement, when the program ran with ``debug=True``, as a dict or an
-                `xarray.Dataset`. Stored as it is, not copied, and read back by `get_debug`;
-                ``None`` records that there is none.
+                `xarray.Dataset`. When the platform packs several measurements into one
+                acquisition, this is the measurement's share, split out and otherwise unchanged.
+                Stored as it is, not copied, and read back by `get_debug`; ``None`` records that
+                there is none.
         """
         if not fields:
             fields = {MeasurementField.IQ.value: data}
@@ -311,8 +313,9 @@ class QProgramResult:
         """Retrieve what the platform measured for one measurement, when run with ``debug=True``.
 
         It comes in the platform's own layout, a dict or an `xarray.Dataset`, and what it holds
-        depends on the platform. It is there for tracing a result that looks wrong back to what
-        produced it; analysis reads `get`.
+        depends on the platform. When the platform packs several measurements into one
+        acquisition, it is this measurement's share, split out and otherwise unchanged. It is
+        there for tracing a result that looks wrong back to what produced it; analysis reads `get`.
 
         Args:
             measurement (MeasurementHandle | str | int): Which measurement, by handle, by name, or

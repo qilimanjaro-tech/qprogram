@@ -309,7 +309,7 @@ def _debug_dataset() -> xr.Dataset:
 
 
 def _debug_dict() -> dict[str, Any]:
-    """Nested named values, as an instrument's own output may come."""
+    """Nested named values, as a platform's debug output may hold."""
     return {"bins": {"integration": {"I": [1.0, 2.0], "Q": [0.5, 0.25]}, "threshold": [0, 1]}, "shots": 1000}
 
 

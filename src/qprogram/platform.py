@@ -166,11 +166,10 @@ class PlatformProtocol(ABC):
 
         Args:
             qprogram (QProgram): Program to run.
-            debug (bool): Whether each measurement also keeps whatever the platform measured
-                before turning it into fields, such as an instrument's acquisition output, as an
-                `xarray.Dataset` in [`MeasurementResult.debug`][qprogram.MeasurementResult]. Which
-                variables it holds depends on the platform; one that keeps nothing leaves it at
-                ``None``.
+            debug (bool): Whether each measurement also keeps what the platform measured for it
+                before turning it into fields, as a dict or an `xarray.Dataset` in
+                [`MeasurementResult.debug`][qprogram.MeasurementResult]. What it holds depends on
+                the platform; one that keeps nothing leaves it at ``None``.
 
         Returns:
             One record per measurement in the program.

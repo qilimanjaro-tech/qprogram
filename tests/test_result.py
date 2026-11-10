@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -308,18 +308,25 @@ def _debug_dataset() -> xr.Dataset:
     )
 
 
+def _debug_dict() -> dict[str, Any]:
+    """Nested named values, as an instrument's own output may come."""
+    return {"bins": {"integration": {"I": [1.0, 2.0], "Q": [0.5, 0.25]}, "threshold": [0, 1]}, "shots": 1000}
+
+
 def test_measurement_result_debug_defaults_to_none():
     mr = MeasurementResult(bus="q0/readout", name="m0", data=_fake_data())
     assert mr.debug is None
 
 
-def test_append_measurement_keeps_the_debug_output_untouched():
-    # The dataset is the platform's own: the result stores the object it was handed, not a copy.
+@pytest.mark.parametrize("make_debug", [_debug_dataset, _debug_dict], ids=["dataset", "dict"])
+def test_append_measurement_keeps_the_debug_output_untouched(make_debug):
+    # The output is the platform's own, in its own layout: the result stores the object it was
+    # handed, not a copy.
     r = QProgramResult()
-    dataset = _debug_dataset()
-    r.append_measurement(bus="q0/readout", name="m0", data=_fake_data(), debug=dataset)
-    assert r.measurements[0].debug is dataset
-    assert r.get_debug("m0") is dataset
+    debug = make_debug()
+    r.append_measurement(bus="q0/readout", name="m0", data=_fake_data(), debug=debug)
+    assert r.measurements[0].debug is debug
+    assert r.get_debug("m0") is debug
 
 
 def test_append_measurement_without_debug_records_none():

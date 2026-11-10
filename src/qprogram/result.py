@@ -179,17 +179,19 @@ class MeasurementResult:
             field name. Shapes per spec §8: ``iq`` → ``(*sweeps, "IQ")``; ``state`` → ``(*sweeps)``
             (excited-state population under averaging); ``raw`` → ``(*sweeps, "time", "IQ")``.
             This is what [`QProgramResult.get`][qprogram.QProgramResult.get] reads.
-        debug (xarray.Dataset | None): Whatever the platform measured before turning it into
-            ``fields``, such as an instrument's acquisition output, when the program ran with
-            ``debug=True``; ``None`` otherwise. Which variables the dataset holds depends on the
-            platform. [`QProgramResult.get_debug`][qprogram.QProgramResult.get_debug] reads it.
+        debug (dict[str, Any] | xarray.Dataset | None): What the platform measured for this
+            measurement before turning it into ``fields``, when the program ran with
+            ``debug=True``; ``None`` otherwise. It keeps the platform's own layout, a dict or an
+            `xarray.Dataset`, and what it holds depends on the platform. When the platform packs
+            several measurements into one acquisition, it holds this measurement's share.
+            [`QProgramResult.get_debug`][qprogram.QProgramResult.get_debug] reads it.
     """
 
     bus: str
     name: str
     data: xr.DataArray
     fields: dict[str, xr.DataArray] = field(default_factory=dict)
-    debug: xr.Dataset | None = None
+    debug: dict[str, Any] | xr.Dataset | None = None
 
 
 class QProgramResult:
@@ -214,7 +216,7 @@ class QProgramResult:
         name: str,
         data: xr.DataArray,
         fields: dict[str, xr.DataArray] | None = None,
-        debug: xr.Dataset | None = None,
+        debug: dict[str, Any] | xr.Dataset | None = None,
     ) -> None:
         """Append a measurement record.
 
@@ -228,9 +230,10 @@ class QProgramResult:
                 `get` returns by default. A record whose primary array is *not* ``iq`` must
                 pass the mapping explicitly, so that `get` never hands back an array under the
                 wrong field name.
-            debug (xarray.Dataset | None): Whatever the platform measured for this measurement,
-                when the program ran with ``debug=True``. Stored as it is, not copied, and read
-                back by `get_debug`; ``None`` records that there is none.
+            debug (dict[str, Any] | xarray.Dataset | None): What the platform measured for this
+                measurement, when the program ran with ``debug=True``, as a dict or an
+                `xarray.Dataset`. Stored as it is, not copied, and read back by `get_debug`;
+                ``None`` records that there is none.
         """
         if not fields:
             fields = {MeasurementField.IQ.value: data}
@@ -304,11 +307,11 @@ class QProgramResult:
         self,
         measurement: MeasurementHandle | str | int = 0,
         bus: str | None = None,
-    ) -> xr.Dataset:
-        """Retrieve whatever the platform measured for one measurement, when run with ``debug=True``.
+    ) -> dict[str, Any] | xr.Dataset:
+        """Retrieve what the platform measured for one measurement, when run with ``debug=True``.
 
-        Which variables the dataset holds depends on the platform: an instrument's acquisition
-        output, for instance. It is there for tracing a result that looks wrong back to what
+        It comes in the platform's own layout, a dict or an `xarray.Dataset`, and what it holds
+        depends on the platform. It is there for tracing a result that looks wrong back to what
         produced it; analysis reads `get`.
 
         Args:
@@ -317,8 +320,8 @@ class QProgramResult:
             bus (str | None): Bus name filter, applied before that lookup.
 
         Returns:
-            The [`MeasurementResult.debug`][qprogram.MeasurementResult] dataset of that
-            measurement, as the platform stored it.
+            The [`MeasurementResult.debug`][qprogram.MeasurementResult] of that measurement, as
+            the platform stored it.
 
         Raises:
             KeyError: When ``measurement`` is a handle or name with no match in scope, or the

@@ -179,11 +179,11 @@ class MeasurementResult:
             field name. Shapes per spec §8: ``iq`` → ``(*sweeps, "IQ")``; ``state`` → ``(*sweeps)``
             (excited-state population under averaging); ``raw`` → ``(*sweeps, "time", "IQ")``.
             This is what [`QProgramResult.get`][qprogram.QProgramResult.get] reads.
-        debug (dict[str, Any] | xarray.Dataset | None): What the platform measured for this
-            measurement before turning it into ``fields``, when the program ran with
-            ``debug=True``; ``None`` otherwise. It keeps the platform's own layout, a dict or an
-            `xarray.Dataset`, and what it holds depends on the platform. When the platform packs
-            several measurements into one acquisition, it holds this measurement's share.
+        debug (dict[str, Any] | None): What the platform measured for this measurement before
+            turning it into ``fields``, when the program ran with ``debug=True``; ``None``
+            otherwise. It is a dict in the platform's own layout, and what it holds depends on the
+            platform. When the platform packs several measurements into one acquisition, it holds
+            this measurement's share.
             [`QProgramResult.get_debug`][qprogram.QProgramResult.get_debug] reads it.
     """
 
@@ -191,7 +191,7 @@ class MeasurementResult:
     name: str
     data: xr.DataArray
     fields: dict[str, xr.DataArray] = field(default_factory=dict)
-    debug: dict[str, Any] | xr.Dataset | None = None
+    debug: dict[str, Any] | None = None
 
 
 class QProgramResult:
@@ -216,7 +216,7 @@ class QProgramResult:
         name: str,
         data: xr.DataArray,
         fields: dict[str, xr.DataArray] | None = None,
-        debug: dict[str, Any] | xr.Dataset | None = None,
+        debug: dict[str, Any] | None = None,
     ) -> None:
         """Append a measurement record.
 
@@ -230,12 +230,11 @@ class QProgramResult:
                 `get` returns by default. A record whose primary array is *not* ``iq`` must
                 pass the mapping explicitly, so that `get` never hands back an array under the
                 wrong field name.
-            debug (dict[str, Any] | xarray.Dataset | None): What the platform measured for this
-                measurement, when the program ran with ``debug=True``, as a dict or an
-                `xarray.Dataset`. When the platform packs several measurements into one
-                acquisition, this is the measurement's share, split out and otherwise unchanged.
-                Stored as it is, not copied, and read back by `get_debug`; ``None`` records that
-                there is none.
+            debug (dict[str, Any] | None): What the platform measured for this measurement, when
+                the program ran with ``debug=True``, as a dict in the platform's own layout. When
+                the platform packs several measurements into one acquisition, this is the
+                measurement's share, split out and otherwise unchanged. Stored as it is, not
+                copied, and read back by `get_debug`; ``None`` records that there is none.
         """
         if not fields:
             fields = {MeasurementField.IQ.value: data}
@@ -309,13 +308,13 @@ class QProgramResult:
         self,
         measurement: MeasurementHandle | str | int = 0,
         bus: str | None = None,
-    ) -> dict[str, Any] | xr.Dataset:
+    ) -> dict[str, Any]:
         """Retrieve what the platform measured for one measurement, when run with ``debug=True``.
 
-        It comes in the platform's own layout, a dict or an `xarray.Dataset`, and what it holds
-        depends on the platform. When the platform packs several measurements into one
-        acquisition, it is this measurement's share, split out and otherwise unchanged. It is
-        there for tracing a result that looks wrong back to what produced it; analysis reads `get`.
+        It is a dict in the platform's own layout, and what it holds depends on the platform.
+        When the platform packs several measurements into one acquisition, it is this
+        measurement's share, split out and otherwise unchanged. It is there for tracing a result
+        that looks wrong back to what produced it; analysis reads `get`.
 
         Args:
             measurement (MeasurementHandle | str | int): Which measurement, by handle, by name, or

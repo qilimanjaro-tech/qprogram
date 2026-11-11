@@ -303,7 +303,7 @@ The measurement model is consulted per shot and knows nothing about the state th
 
 The convention `execute` is expected to follow is the one `ReferencePlatform` implements: validate first, raise `UnsupportedOperationError` on any `severity="error"` diagnostic, and surface warnings and info without raising. Nothing enforces it, but a platform that skips the check hands its users a vendor compiler's error text in place of a structured diagnostic that names the offending node.
 
-With `debug=True`, the platform passes what it measured for each measurement to `append_measurement(..., debug=...)`, in the layout that suits it: either a dict or an `xarray.Dataset`, whose named variables hold arrays of different shapes side by side. When the platform packs several measurements into one acquisition, each measurement gets its own share, split out and otherwise unchanged. It is stored as passed, not copied.
+With `debug=True`, the platform passes what it measured for each measurement to `append_measurement(..., debug=...)`, as a dict in the layout that suits it. When the platform packs several measurements into one acquisition, each measurement gets its own share, split out and otherwise unchanged. It is stored as passed, not copied.
 
 ```python
 import qprogram as qp

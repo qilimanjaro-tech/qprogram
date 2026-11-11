@@ -167,7 +167,7 @@ class PlatformProtocol(ABC):
         Args:
             qprogram (QProgram): Program to run.
             debug (bool): Whether each measurement also keeps what the platform measured for it
-                before turning it into fields, as a dict or an `xarray.Dataset` in
+                before turning it into fields, as a dict in
                 [`MeasurementResult.debug`][qprogram.MeasurementResult]. When the platform packs
                 several measurements into one acquisition, it splits that acquisition and passes
                 each measurement its own share, changing nothing else. What it holds depends on

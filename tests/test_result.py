@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -297,15 +297,9 @@ def test_result_get_field_none_is_rejected():
 # ---------------------------------------------------------------------------
 
 
-def _debug_dataset() -> xr.Dataset:
-    """Several arrays of different shapes side by side, as a platform's debug output may hold."""
-    return xr.Dataset(
-        {
-            "trace": (("time", "IQ"), np.zeros((4, 2))),
-            "points": (("point", "IQ"), [[1.0, 2.0]]),
-            "shots": ("point", [1000]),
-        }
-    )
+def _debug_dict() -> dict[str, Any]:
+    """Nested named values, as a platform's debug output may hold."""
+    return {"bins": {"integration": {"I": [1.0, 2.0], "Q": [0.5, 0.25]}, "threshold": [0, 1]}, "shots": 1000}
 
 
 def test_measurement_result_debug_defaults_to_none():
@@ -314,12 +308,13 @@ def test_measurement_result_debug_defaults_to_none():
 
 
 def test_append_measurement_keeps_the_debug_output_untouched():
-    # The dataset is the platform's own: the result stores the object it was handed, not a copy.
+    # The output is the platform's own, in its own layout: the result stores the object it was
+    # handed, not a copy.
     r = QProgramResult()
-    dataset = _debug_dataset()
-    r.append_measurement(bus="q0/readout", name="m0", data=_fake_data(), debug=dataset)
-    assert r.measurements[0].debug is dataset
-    assert r.get_debug("m0") is dataset
+    debug = _debug_dict()
+    r.append_measurement(bus="q0/readout", name="m0", data=_fake_data(), debug=debug)
+    assert r.measurements[0].debug is debug
+    assert r.get_debug("m0") is debug
 
 
 def test_append_measurement_without_debug_records_none():
@@ -330,7 +325,7 @@ def test_append_measurement_without_debug_records_none():
 
 def test_get_debug_looks_measurements_up_like_get():
     r = QProgramResult()
-    a, b, c = _debug_dataset(), _debug_dataset(), _debug_dataset()
+    a, b, c = _debug_dict(), _debug_dict(), _debug_dict()
     r.append_measurement(bus="q0/readout", name="a", data=_fake_data(), debug=a)
     r.append_measurement(bus="q1/readout", name="b", data=_fake_data(), debug=b)
     r.append_measurement(bus="q0/readout", name="c", data=_fake_data(), debug=c)

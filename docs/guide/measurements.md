@@ -193,7 +193,7 @@ On the wire the reference is the unquoted token `q0/readout/m0.state`, which con
 
 `platform.execute(program)` and `qp.simulate(program)` return a `QProgramResult`: a list of `MeasurementResult` records in construction order, one per measurement operation in the AST. `len(result)` counts them, `result.measurements` is the list itself, and `repr(result)` prints the count and the names, which is usually enough to see why a lookup missed.
 
-A `MeasurementResult` is a dataclass of five fields. `bus` is the bus the measurement ran on, as a plain string. `name` is the handle's name. `fields` is the mapping from field name to `xarray.DataArray`, one entry per requested field. `data` is the primary array: the `iq` field when the measurement requested it, otherwise the first requested field in canonical order. `debug` is an `xarray.Dataset` of whatever the platform measured, when the program ran with `debug=True`, and `None` otherwise; [Debug output](#debug-output) covers it.
+A `MeasurementResult` is a dataclass of five fields. `bus` is the bus the measurement ran on, as a plain string. `name` is the handle's name. `fields` is the mapping from field name to `xarray.DataArray`, one entry per requested field. `data` is the primary array: the `iq` field when the measurement requested it, otherwise the first requested field in canonical order. `debug` is what the platform measured, as a dict, when the program ran with `debug=True`, and `None` otherwise; [Debug output](#debug-output) covers it.
 
 `result.get` reads out of `fields`. Its full signature is
 
@@ -267,15 +267,15 @@ result.measurements[0].data  # the "iq" field if requested, else the first in ca
 
 ### Debug output
 
-`platform.execute(program, debug=True)` asks the platform to also keep, for each measurement, whatever it measured before turning it into fields, such as an instrument's acquisition output. The platform passes it to `append_measurement(..., debug=...)` as an `xarray.Dataset`, the `MeasurementResult` holds it in `debug` exactly as passed, and `result.get_debug` reads it with the same measurement and `bus` arguments as `get`:
+`platform.execute(program, debug=True)` asks the platform to also keep, for each measurement, what it measured before turning it into fields. The platform passes it to `append_measurement(..., debug=...)` as a dict in its own layout. The `MeasurementResult` holds it in `debug` exactly as passed, and `result.get_debug` reads it with the same measurement and `bus` arguments as `get`:
 
 ```python
 result = platform.execute(program, debug=True)
-result.get_debug(m)  # an xarray.Dataset of whatever the platform measured for m
+result.get_debug(m)  # what the platform measured for m, as a dict
 result.measurements[0].debug  # the same, read off the record
 ```
 
-Which variables the dataset holds depends on the platform, and qprogram never looks inside it. It is there for tracing a result that looks wrong back to what produced it; analysis reads `get`. Without `debug=True` every `debug` is `None`, and `get_debug` raises rather than return it, since a `None` would only fail later on its first subscript:
+What it holds depends on the platform, and qprogram never looks inside it. It is the measurement's own share: a platform that packs several measurements into one acquisition splits that acquisition first, and changes nothing else. It is there for tracing a result that looks wrong back to what produced it; analysis reads `get`. Without `debug=True` every `debug` is `None`, and `get_debug` raises rather than return it, since a `None` would only fail later on its first subscript:
 
 ```python
 result = platform.execute(program)

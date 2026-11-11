@@ -297,13 +297,13 @@ The measurement model is consulted per shot and knows nothing about the state th
 | `get_parameters(bus)` | The parameter names `set_parameter` and `get_parameter` accept on that bus. |
 | `get_global_parameters()` | The parameter names not bound to any bus. |
 | `capabilities` | A `PlatformCapabilities` property: per-`(element, bus_kind)` bus profiles, a platform-level profile for blocks, expressions, and bus-less operations, and a default bus profile that raw-string buses fall back to. |
-| `execute(qprogram, *, debug=False)` | Run the program and return one record per measurement. With `debug=True`, each record also keeps whatever the platform measured for it. |
+| `execute(qprogram, *, debug=False)` | Run the program and return one record per measurement. With `debug=True`, each record also keeps what the platform measured for it. |
 
 `validate`, `plan`, and `explain` come with working defaults that delegate to `qp.validate` and `qp.explain` against `self.capabilities`, so a subclass gets them for free and overrides only to prepend device-specific predicates or to short-circuit on the first error. `validate` and `plan` each discard half of what `qp.validate` returns; an `execute` that gates on diagnostics and then compiles against the plan should call `qp.validate` directly rather than paying for two walks. `stream` is optional and raises `NotImplementedError` by default.
 
 The convention `execute` is expected to follow is the one `ReferencePlatform` implements: validate first, raise `UnsupportedOperationError` on any `severity="error"` diagnostic, and surface warnings and info without raising. Nothing enforces it, but a platform that skips the check hands its users a vendor compiler's error text in place of a structured diagnostic that names the offending node.
 
-With `debug=True`, the platform passes whatever it measured for each measurement, such as the instrument's acquisition output, to `append_measurement(..., debug=...)` as an `xarray.Dataset`. A dataset holds several named arrays of different shapes side by side, so whatever the instrument returned becomes one variable per array, with each dimension named after what it indexes. It is stored as passed, not copied.
+With `debug=True`, the platform passes what it measured for each measurement to `append_measurement(..., debug=...)`, as a dict in the layout that suits it. When the platform packs several measurements into one acquisition, each measurement gets its own share, split out and otherwise unchanged. It is stored as passed, not copied.
 
 ```python
 import qprogram as qp
@@ -335,8 +335,8 @@ class MyPlatform(qp.PlatformProtocol):
         errors = [d for d in diagnostics if d.severity == "error"]
         if errors:
             raise qp.UnsupportedOperationError("\n".join(str(d) for d in errors))
-        # compile against `plan`, run, and fill a QProgramResult; with `debug`, convert each
-        # measurement's acquisition output to an xr.Dataset and pass append_measurement(..., debug=dataset)
+        # compile against `plan`, run, and fill a QProgramResult; with `debug`, pass each
+        # measurement's share of what the instrument returned: append_measurement(..., debug=share)
         return qp.QProgramResult()
 ```
 

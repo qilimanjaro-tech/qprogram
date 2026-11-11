@@ -4,6 +4,22 @@ Notable changes to QProgram, newest first. Each entry starts life as a news frag
 
 <!-- towncrier release notes start -->
 
+## 0.3.0 (2026-11-11)
+
+This release reshapes five pulses and moves the `.qp` and `.wfl` format version to 0.3, with no migration from 0.2, since no rewrite of the old parameters gives back the old pulses. A 0.2 file holding a `Gaussian`, `GaussianDragCorrection` or `IQDrag` fails to load on its `sigma`, and its `FlatTop` and `SuddenNetZero` entries load with the new shapes, so pulses written by 0.2 have to be re-created. It also adds `debug=True` to `execute`, which keeps each measurement's platform output; a platform implementing `PlatformProtocol` should add the argument to its own `execute`.
+
+### Added
+
+- `platform.execute(program, debug=True)` keeps, for each measurement, what the platform measured before turning it into fields, as a dict that `QProgramResult.get_debug` returns. The reference platform has nothing to keep, so it issues an `ExecutionWarning` instead. ([PR #48](https://github.com/qilimanjaro-tech/qprogram/pull/48))
+
+### Changed
+
+- `Gaussian`, `GaussianDragCorrection` and `IQDrag` take `num_sigmas` and `drag_coefficient` instead of `sigma` and `beta`, and their Gaussian changes shape: it is centred on `duration / 2` with standard deviation `duration / num_sigmas`, shifted down so the pulse starts at exactly 0, and rescaled back to its original peak, and the DRAG correction multiplies that same shifted curve and no longer scales with `resolution`. `FlatTop` becomes the sum of two error functions, each edge going from 0.2% to 99.8% of `amplitude` over `smooth_duration`, with `buffer` inside `duration` rather than padding around it, so `get_duration()` no longer adds `2 * buffer`. `SuddenNetZero` becomes `+amplitude` for half the pulse, one sample at `b * amplitude`, `t_phi` zeros, one sample at `-b * amplitude`, then `-amplitude`, which is net zero for any `b` when `duration - t_phi` is even; `t_phi` has to be an `int`, so it can no longer be swept. Each class documents the quirks its shape keeps, such as a negative `Gaussian` peaking below `amplitude` and a `FlatTop` whose edges do not fit coming out inverted.
+
+  The format version moves to 0.3, and no migration is registered, because no rewrite of the old parameters gives back the old pulses. Code or a 0.2 file that passes `sigma` or `beta` by name now fails with `TypeError: Gaussian.__init__() got an unexpected keyword argument 'sigma'`, which is how every file the writer produced spells them. A positional call raises nothing and reads its old `sigma` as `num_sigmas`, so `IQDrag(0.5, 40, 8, 0.1)` now has σ = 5 ns instead of 8. `FlatTop` and `SuddenNetZero` entries load with the new shapes either way, so pulses from 0.2 have to be re-created rather than reloaded. ([PR #47](https://github.com/qilimanjaro-tech/qprogram/pull/47))
+- `PlatformProtocol.execute` takes a keyword-only `debug: bool = False`, so a platform implementing the protocol should add it to its own `execute`. Until it does, it runs as before, but calling it with `debug=True` raises `TypeError`, and type checkers report its `execute` as an incompatible override. ([PR #48](https://github.com/qilimanjaro-tech/qprogram/pull/48))
+
+
 ## 0.2.0 (2026-09-08)
 
 This release moves the `.qp` and `.wfl` format version onto the library version, so a file written by 0.1.0 no longer loads: its `#!QProgram 1.0` header reads as a later version than the `0.2` this release writes, and nothing runs backwards. Files written from here on are covered, since a release that changes a syntax now registers a migration that carries an older file up to the running version on load.

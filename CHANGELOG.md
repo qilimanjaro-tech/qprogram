@@ -4,13 +4,13 @@ Notable changes to QProgram, newest first. Each entry starts life as a news frag
 
 <!-- towncrier release notes start -->
 
-## 0.3.0 (2026-11-11)
+## 0.3.0 (2026-11-12)
 
 This release reshapes five pulses and moves the `.qp` and `.wfl` format version to 0.3, with no migration from 0.2, since no rewrite of the old parameters gives back the old pulses. A 0.2 file holding a `Gaussian`, `GaussianDragCorrection` or `IQDrag` fails to load on its `sigma`, and its `FlatTop` and `SuddenNetZero` entries load with the new shapes, so pulses written by 0.2 have to be re-created. It also adds `debug=True` to `execute`, which keeps each measurement's platform output; a platform implementing `PlatformProtocol` should add the argument to its own `execute`.
 
 ### Added
 
-- `platform.execute(program, debug=True)` keeps, for each measurement, what the platform measured before turning it into fields, as a dict that `QProgramResult.get_debug` returns. The reference platform has nothing to keep, so it issues an `ExecutionWarning` instead. ([PR #48](https://github.com/qilimanjaro-tech/qprogram/pull/48))
+- `platform.execute(program, debug=True)` keeps, for each measurement, what the platform measured before turning it into fields, as a dict that `QProgramResult.get_debug` returns. The reference platform has nothing to keep, so it issues an `ExecutionWarning` instead. ([PR #48](https://github.com/qilimanjaro-tech/qprogram/pull/48), [PR #49](https://github.com/qilimanjaro-tech/qprogram/pull/49))
 
 ### Changed
 

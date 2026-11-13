@@ -32,8 +32,11 @@ junit.xml
 # Documentation build output
 site/
 
-# Agent tooling
-.claude/
+# Agent tooling: the shared settings and hooks are committed, personal ones are not
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+.agents/artifacts/
 
 # Editors
 .idea/
